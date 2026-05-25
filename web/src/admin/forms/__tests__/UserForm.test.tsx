@@ -1,9 +1,9 @@
 /**
- * UserForm tests — verifies the adult-content toggle is wired into create and edit payloads.
- * UserForm 测试 — 验证成人内容开关已接入新建与编辑请求体.
+ * UserForm tests — verifies the adult-content toggle and the create-mode password confirmation.
+ * UserForm 测试 — 验证成人内容开关与新建模式下的二次确认密码.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -43,6 +43,7 @@ describe("UserForm adult-content toggle", () => {
 
     await user.type(screen.getByLabelText("用户名"), "alice");
     await user.type(screen.getByLabelText("密码"), "secret");
+    await user.type(screen.getByLabelText("确认密码"), "secret");
     await user.click(screen.getByLabelText("允许访问 NSFW 内容"));
     await user.click(screen.getByRole("button", { name: "保存" }));
 
@@ -70,5 +71,31 @@ describe("UserForm adult-content toggle", () => {
       7,
       expect.objectContaining({ username: "bob", role: "user", allow_adult_content: false }),
     );
+  });
+});
+
+describe("UserForm password confirmation (create mode)", () => {
+  it("blocks submit and shows a live mismatch error when confirmation differs", async () => {
+    const user = userEvent.setup();
+    const createUser = vi.fn(async () => ({ id: 1, username: "alice", role: "user" as const, allow_adult_content: false }));
+    renderForm({ createUser });
+
+    await user.type(screen.getByLabelText("用户名"), "alice");
+    await user.type(screen.getByLabelText("密码"), "secret");
+    await user.type(screen.getByLabelText("确认密码"), "sec");
+
+    // Live feedback: the mismatch error surfaces before submit.
+    // 实时反馈: 提交前即显示不一致错误.
+    expect(await screen.findByText("两次密码不一致.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(createUser).not.toHaveBeenCalled();
+
+    // Correcting the confirmation clears the error and allows submit.
+    // 修正确认密码后错误清除, 可以提交.
+    await user.type(screen.getByLabelText("确认密码"), "ret");
+    await waitFor(() => expect(screen.queryByText("两次密码不一致.")).toBeNull());
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(createUser).toHaveBeenCalledTimes(1));
   });
 });

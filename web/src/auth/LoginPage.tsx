@@ -82,7 +82,9 @@ export function LoginPage() {
         <h1>KMTV</h1>
         <label>
           {t("username")}
-          <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
+          {/* autoFocus so visitors can type immediately without clicking the field first. */}
+          {/* autoFocus 让访客进入页面即可直接输入, 无需先点击输入框. */}
+          <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" autoFocus />
         </label>
         <label>
           {t("password")}

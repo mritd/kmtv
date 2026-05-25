@@ -4,7 +4,8 @@
  *
  * Responsibilities / 职责:
  *   - Validate username as required; password as required only when creating — 校验用户名必填; 仅新建时校验密码必填
- *   - Hide password field in edit mode (password changes go through ChangePasswordForm) — 编辑模式下隐藏密码字段
+ *   - Require a matching password confirmation when creating, with live mismatch feedback — 新建时要求二次确认密码并实时提示不一致
+ *   - Hide password fields in edit mode (password changes go through ChangePasswordForm) — 编辑模式下隐藏密码字段
  *   - Dispatch create or update mutation based on whether a user is provided — 根据是否传入 user 分发 mutation
  *   - Show toast on mutation error — mutation 错误时显示 toast
  *
@@ -14,7 +15,7 @@
  * Callers / 调用方:
  *   admin/AdminModal.tsx (kind: "user.edit" | "user.new")
  */
-import type { FormEvent } from "react";
+import { type FormEvent, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { AdminUser, CreateUserPayload, UpdateUserPayload } from "@/api/types";
@@ -30,6 +31,7 @@ import { useForm } from "./useForm";
 type UserFormValues = {
   username: string;
   password: string;
+  confirmPassword: string;
   role: "admin" | "user";
   allowAdultContent: boolean;
 };
@@ -48,10 +50,11 @@ export function UserForm({ user, onDone }: { user?: AdminUser; onDone: () => voi
   const { t } = useTranslation("admin");
   const mutations = useUsersMutations();
   const isEdit = !!user;
-  const { values, setField, errors, validate } = useForm<UserFormValues>(
+  const { values, setField, errors, validate, setErrors } = useForm<UserFormValues>(
     {
       username: user?.username ?? "",
       password: "",
+      confirmPassword: "",
       role: user?.role ?? "user",
       allowAdultContent: user?.allow_adult_content ?? false,
     },
@@ -60,8 +63,31 @@ export function UserForm({ user, onDone }: { user?: AdminUser; onDone: () => voi
       // Password is only required when creating; in edit mode it is hidden and not sent.
       // 密码仅新建时必填; 编辑模式下隐藏且不发送.
       password: (value) => (isEdit ? undefined : value ? undefined : t("user.form.errors.passwordRequired")),
+      // confirmPassword must equal password (create mode only); cross-field via the full form.
+      // confirmPassword 必须与 password 相等 (仅新建模式); 通过完整表单值跨字段校验.
+      confirmPassword: (value, form) =>
+        isEdit || value === form.password ? undefined : t("user.password.errors.mismatch"),
     },
   );
+
+  // Real-time mismatch feedback (create mode): sync confirmPassword error as either field changes,
+  // mirroring ChangePasswordForm so users don't wait for submit to see "passwords don't match".
+  // 实时不匹配反馈 (新建模式): 任一字段变更时同步 confirmPassword 错误, 与 ChangePasswordForm 一致,
+  // 避免用户等到提交才看到"两次密码不一致".
+  useEffect(() => {
+    if (isEdit) return;
+    if (!values.confirmPassword) return;
+    const mismatch = values.confirmPassword !== values.password;
+    setErrors((prev) => {
+      if (mismatch) {
+        if (prev.confirmPassword) return prev;
+        return { ...prev, confirmPassword: t("user.password.errors.mismatch") };
+      }
+      if (!prev.confirmPassword) return prev;
+      const { confirmPassword: _omit, ...rest } = prev;
+      return rest;
+    });
+  }, [values.confirmPassword, values.password, isEdit, setErrors, t]);
 
   const pending = mutations.create.isPending || mutations.update.isPending;
 
@@ -107,16 +133,28 @@ export function UserForm({ user, onDone }: { user?: AdminUser; onDone: () => voi
         {errors.username ? <small className="form-error">{errors.username}</small> : null}
       </label>
       {!isEdit ? (
-        <label>
-          <span>{t("user.form.passwordLabel")}</span>
-          <input
-            type="password"
-            value={values.password}
-            onChange={(e) => setField("password", e.target.value)}
-            aria-label={t("user.form.passwordLabel")}
-          />
-          {errors.password ? <small className="form-error">{errors.password}</small> : null}
-        </label>
+        <>
+          <label>
+            <span>{t("user.form.passwordLabel")}</span>
+            <input
+              type="password"
+              value={values.password}
+              onChange={(e) => setField("password", e.target.value)}
+              aria-label={t("user.form.passwordLabel")}
+            />
+            {errors.password ? <small className="form-error">{errors.password}</small> : null}
+          </label>
+          <label>
+            <span>{t("user.password.confirmPasswordLabel")}</span>
+            <input
+              type="password"
+              value={values.confirmPassword}
+              onChange={(e) => setField("confirmPassword", e.target.value)}
+              aria-label={t("user.password.confirmPasswordLabel")}
+            />
+            {errors.confirmPassword ? <small className="form-error">{errors.confirmPassword}</small> : null}
+          </label>
+        </>
       ) : null}
       <label>
         <span>{t("user.form.roleLabel")}</span>

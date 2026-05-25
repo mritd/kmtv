@@ -17,6 +17,9 @@ describe("AppShell", () => {
     // 登录表单已做 i18n (auth 命名空间, 测试语言为 zh), 且不得预填凭据.
     expect(screen.getByLabelText("用户名")).toHaveValue("");
     expect(screen.getByLabelText("密码")).toHaveValue("");
+    // Username field is autofocused so visitors can type immediately.
+    // 用户名输入框自动聚焦, 访客可直接输入.
+    expect(screen.getByLabelText("用户名")).toHaveFocus();
   });
 
   it("shows lightweight app navigation when a token snapshot exists", () => {
