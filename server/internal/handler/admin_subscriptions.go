@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 
 	"github.com/mritd/kmtv/internal/errs"
 	"github.com/mritd/kmtv/internal/model"
@@ -50,6 +51,16 @@ func (h *Handler) CreateSubscription(c *gin.Context) {
 
 	sub.ID = id
 	h.sourceSvc.UpdateSubCron(id, sub.AutoUpdate, sub.Interval)
+
+	// Best-effort: sync sources right after import so they appear without waiting for the
+	// next cron tick or a manual sync. A failure here (slow or unreachable URL) is logged but
+	// does not fail creation — the record exists and the user can retry via the manual sync button.
+	// 尽力而为: 导入后立即同步源, 让源无需等待下次 cron 或手动同步即可出现.
+	// 此处失败 (URL 慢或不可达) 仅记录日志, 不让创建失败 — 记录已存在, 用户可点手动同步重试.
+	if err := h.sourceSvc.SyncSubscription(id); err != nil {
+		logrus.WithError(err).WithField("subscription_id", id).Warn("auto-sync after subscription create failed")
+	}
+
 	c.JSON(http.StatusCreated, sub)
 }
 

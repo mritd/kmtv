@@ -41,11 +41,20 @@ export function useSubscriptionsMutations() {
     void queryClient.invalidateQueries({ queryKey: ["admin", "subscriptions"] });
   };
 
+  // invalidateWithSources also drops the sources list, used after create/sync which import
+  // sources from the subscription URL — without this the SourcesPanel keeps showing stale data.
+  // invalidateWithSources 同时清除源列表缓存, 用于 create/sync 这类会从订阅 URL 导入源的操作 —
+  // 否则 SourcesPanel 仍展示旧数据.
+  const invalidateWithSources = () => {
+    invalidate();
+    void queryClient.invalidateQueries({ queryKey: ["admin", "sources"] });
+  };
+
   return {
-    /** create — creates a new subscription and invalidates the subscriptions list. / 新建订阅并使订阅列表缓存失效. */
+    /** create — creates a new subscription (server auto-syncs sources) and refreshes both lists. / 新建订阅 (服务端自动同步源) 并刷新订阅与源两个列表. */
     create: useMutation({
       mutationFn: (payload: SubscriptionPayload) => api.createSubscription(payload),
-      onSuccess: invalidate,
+      onSuccess: invalidateWithSources,
     }),
     /** update — updates an existing subscription by id. / 通过 id 更新已有订阅. */
     update: useMutation({
@@ -63,7 +72,7 @@ export function useSubscriptionsMutations() {
      */
     sync: useMutation({
       mutationFn: (id: number) => api.syncSubscription(id),
-      onSuccess: invalidate,
+      onSuccess: invalidateWithSources,
     }),
   };
 }

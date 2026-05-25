@@ -340,6 +340,53 @@ func TestAdminCheckSourceAndSyncSubscription(t *testing.T) {
 	}
 }
 
+// TestCreateSubscription_AutoSyncsSources guards that POST /admin/subscriptions imports sources
+// immediately (best-effort auto-sync) instead of waiting for a cron tick or a manual sync.
+// TestCreateSubscription_AutoSyncsSources 确保 POST /admin/subscriptions 会立即导入源 (尽力而为的自动同步),
+// 而非等待 cron 或手动同步.
+func TestCreateSubscription_AutoSyncsSources(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/config.json" {
+			t.Fatalf("unexpected upstream path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"cache_time": 3600,
+			"api_site": {
+				"autosync.example": {
+					"name": "Auto Sync Source",
+					"api": "https://autosync.example/api.php",
+					"detail": "https://autosync.example"
+				}
+			}
+		}`))
+	}))
+	defer upstream.Close()
+
+	h, r := setupTestHandler(t)
+	h.sourceSvc = service.NewSourceServiceWithClient(h.store, upstream.Client())
+	disableAnonymousAccess(t, h)
+	createTestUser(t, h, "admin_autosync", "pw", "admin")
+
+	body := `{"url":"` + upstream.URL + `/config.json","auto_update":false,"interval":3600}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/subscriptions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", adminBearer(t, h, "admin_autosync"))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	src, err := h.store.GetSourceByKey("autosync.example")
+	if err != nil {
+		t.Fatalf("GetSourceByKey error: %v", err)
+	}
+	if src == nil || src.Name != "Auto Sync Source" {
+		t.Fatalf("subscription create did not auto-sync source: %+v", src)
+	}
+}
+
 func TestCheckAllSources(t *testing.T) {
 	h, r := setupTestHandler(t)
 	disableAnonymousAccess(t, h)
