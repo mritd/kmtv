@@ -404,4 +404,104 @@ func TestProtectedAuthHandlersRejectMissingContextUser(t *testing.T) {
 	}
 }
 
+// uploadAvatarHTTP uploads a tiny valid PNG via the real HTTP stack and returns the response.
+// uploadAvatarHTTP 通过真实 HTTP 栈上传一张极小的合法 PNG 并返回响应.
+func uploadAvatarHTTP(t *testing.T, r *gin.Engine, bearer string) *httptest.ResponseRecorder {
+	t.Helper()
+	var upload bytes.Buffer
+	writer := multipart.NewWriter(&upload)
+	part, err := writer.CreateFormFile("avatar", "avatar.png")
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	// Minimal PNG header so http.DetectContentType returns image/png.
+	// 最小 PNG 头, 使 http.DetectContentType 返回 image/png.
+	_, _ = part.Write([]byte{
+		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+		0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+		0x00, 0x00, 0x00, 0x01,
+	})
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/auth/avatar", &upload)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", bearer)
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
+// TestUpdateProfilePreservesAvatarAfterUpload guards against the cached bearer snapshot
+// going stale after an avatar upload, which previously made the next profile save drop the
+// avatar from its response. The test must drive the real Auth middleware so the cache is exercised.
+// TestUpdateProfilePreservesAvatarAfterUpload 防止头像上传后 bearer 缓存快照变陈旧,
+// 此前会导致下一次保存 profile 时响应丢失头像. 测试必须经过真实 Auth middleware 才能命中缓存路径.
+func TestUpdateProfilePreservesAvatarAfterUpload(t *testing.T) {
+	h, r := setupTestHandler(t)
+	createTestUser(t, h, "alice", "pass123", "user")
+	disableAnonymousAccess(t, h)
+	bearer := loginAndGetBearer(t, r, "alice", "pass123")
+
+	// Upload an avatar; the response should advertise it.
+	// 上传头像; 响应应包含头像地址.
+	rec := uploadAvatarHTTP(t, r, bearer)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload avatar status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if got := decodeJSON(t, rec)["avatar"]; got != "/api/v1/avatar/alice" {
+		t.Fatalf("upload avatar response avatar = %v, want /api/v1/avatar/alice", got)
+	}
+
+	// Saving the profile must keep the avatar, tracking the (possibly renamed) username.
+	// 保存 profile 时必须保留头像, 并跟随 (可能变更的) 用户名.
+	body, _ := json.Marshal(map[string]string{"username": "alice2"})
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/auth/profile", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", bearer)
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update profile status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if got := decodeJSON(t, rec)["avatar"]; got != "/api/v1/avatar/alice2" {
+		t.Fatalf("update profile dropped avatar: got %v, want /api/v1/avatar/alice2", got)
+	}
+}
+
+// TestUpdateProfileReflectsAvatarDeletion is the symmetric guard: after deleting the avatar,
+// the cached snapshot must not resurrect it on the next profile save.
+// TestUpdateProfileReflectsAvatarDeletion 是对称防护: 删除头像后, 缓存快照不能在下一次保存 profile 时复活它.
+func TestUpdateProfileReflectsAvatarDeletion(t *testing.T) {
+	h, r := setupTestHandler(t)
+	createTestUser(t, h, "bob", "pass123", "user")
+	disableAnonymousAccess(t, h)
+	bearer := loginAndGetBearer(t, r, "bob", "pass123")
+
+	if rec := uploadAvatarHTTP(t, r, bearer); rec.Code != http.StatusOK {
+		t.Fatalf("upload avatar status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/auth/avatar", nil)
+	req.Header.Set("Authorization", bearer)
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete avatar status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	body, _ := json.Marshal(map[string]string{"username": "bob"})
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/auth/profile", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", bearer)
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update profile status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if _, ok := decodeJSON(t, rec)["avatar"]; ok {
+		t.Fatal("update profile resurrected deleted avatar")
+	}
+}
+
 // ---------- Admin handler tests ----------

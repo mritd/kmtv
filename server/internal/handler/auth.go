@@ -249,6 +249,9 @@ func (h *Handler) UploadAvatar(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, errs.ServerError.WithMsg("failed to save avatar"))
 		return
 	}
+	// Drop the cached bearer snapshot so later requests (e.g. UpdateProfile) see the new avatar.
+	// 清理 bearer 缓存快照, 使后续请求 (如 UpdateProfile) 能读到新头像.
+	h.authSvc.InvalidateUserCache(user.ID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"id":       user.ID,
@@ -271,6 +274,9 @@ func (h *Handler) DeleteAvatar(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, errs.ServerError.WithMsg("failed to delete avatar"))
 		return
 	}
+	// Drop the cached bearer snapshot so later requests no longer see the removed avatar.
+	// 清理 bearer 缓存快照, 使后续请求不再读到已删除的头像.
+	h.authSvc.InvalidateUserCache(user.ID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"id":       user.ID,
