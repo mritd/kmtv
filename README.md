@@ -7,6 +7,19 @@
 **本项目为个人使用开发, 请不要在 B站、小红书、微信公众号、抖音、等其他中国大陆社交平台发布视频或文章宣传本项目**
 **本项目不授权任何 "科技周刊/月刊" 类项目或站点收录, 不接受任何赞助以及付费二次开发等商业化行为.**
 
+<details>
+<summary>截图预览</summary>
+
+  <img width="2560" height="1321" alt="1" src="https://github.com/user-attachments/assets/e49690c0-4931-4e83-af92-1fc5fae5e4f2" />
+  <img width="2560" height="1150" alt="2" src="https://github.com/user-attachments/assets/12dc91c4-9b06-4ba5-9776-618a78d707e3" />
+  <img width="2559" height="1002" alt="3" src="https://github.com/user-attachments/assets/5bbd4188-1290-44f4-b594-d7c1694d6ff2" />
+  <img width="2560" height="1294" alt="4" src="https://github.com/user-attachments/assets/f3eaf097-7af4-497f-94f6-1ad3f2587869" />
+  <img width="568" height="1084" alt="5" src="https://github.com/user-attachments/assets/4e31c7c5-636c-42d5-9361-897bdf335318" />
+  <img width="1118" height="886" alt="6" src="https://github.com/user-attachments/assets/9c6d2e1e-682b-499c-9238-195619f20940" />
+
+  
+</details>
+
 ## 特性
 
 - 单文件部署, 高性能 Go 后端 + 内嵌 Web 资源
