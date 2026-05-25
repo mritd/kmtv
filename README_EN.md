@@ -22,10 +22,11 @@
 ## Features
 
 - Single-file deployment with a high-performance Go backend and embedded Web assets
-- Backend proxy mode and frontend direct playback mode for proxy-friendly playback
-- Parallel source probing for latency and availability to improve playback experience
+- Backend proxy mode and frontend direct playback mode for flexible traffic routing and load requirements
+- Parallel source probing for latency and availability to improve playback experience and reduce dead or unplayable sources
 - Native iOS / tvOS clients (in development, Android may be supported later)
-- Multi-user support with full permission management and anonymous access support
+- Multi-user support with full permission management, anonymous access, NSFW source filtering, and per-user NSFW access control
+- Source subscriptions with automatic updates, plus admin-panel controls for advanced server settings
 
 Architecture decisions: [`docs/ADR.md`](docs/ADR.md). API contract: [`docs/server_api.md`](docs/server_api.md).
 
