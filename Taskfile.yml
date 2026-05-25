@@ -173,7 +173,7 @@ tasks:
       BUILD_TIME:
         sh: date -u +%Y-%m-%dT%H:%M:%SZ
     cmds:
-      - docker buildx build --platform=linux/amd64,linux/arm64 --build-arg VERSION={{.VERSION}} --build-arg GIT_COMMIT={{.GIT_COMMIT}} --build-arg BUILD_TIME={{.BUILD_TIME}} -t mritd/kmtv -f server/Dockerfile . --push
+      - docker buildx build --platform=linux/amd64,linux/arm64 --build-arg VERSION={{.VERSION}} --build-arg GIT_COMMIT={{.GIT_COMMIT}} --build-arg BUILD_TIME={{.BUILD_TIME}} -t mritd/kmtv -t mritd/kmtv:{{.VERSION}} -f server/Dockerfile . --push
 
   clean:
     desc: Remove build artifacts
