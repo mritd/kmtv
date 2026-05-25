@@ -116,7 +116,9 @@
 "Add User" = "添加用户";
 "Role" = "角色";
 "Anonymous Access" = "匿名访问";
-"Adult Filter" = "成人内容过滤";
+"NSFW" = "NSFW";
+"Allow NSFW Content" = "允许访问 NSFW 内容";
+"NSFW Filter" = "NSFW 过滤";
 "Site Name" = "站点名称";
 "Access Token TTL" = "访问 token 有效期";
 "Media Token TTL" = "媒体 token 有效期";

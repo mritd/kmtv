@@ -35,7 +35,17 @@ final class AdminViewModel {
 
     func toggleSourceEnabled(_ source: Source) async {
         do {
-            try await apiClient.updateSource(id: source.id, UpdateSourceRequest(enabled: !source.enabled))
+            try await apiClient.updateSource(
+                id: source.id,
+                UpdateSourceRequest(
+                    name: source.name,
+                    api: source.api,
+                    detail: source.detail,
+                    comment: source.comment,
+                    enabled: !source.enabled,
+                    isAdult: source.isAdult
+                )
+            )
             await loadSources()
         } catch {
             self.error = error.localizedDescription
@@ -115,9 +125,14 @@ final class AdminViewModel {
         }
     }
 
-    func createUser(username: String, password: String, role: String) async {
+    func createUser(username: String, password: String, role: String, allowAdultContent: Bool) async {
         do {
-            _ = try await apiClient.createUser(CreateUserRequest(username: username, password: password, role: role))
+            _ = try await apiClient.createUser(CreateUserRequest(
+                username: username,
+                password: password,
+                role: role,
+                allowAdultContent: allowAdultContent
+            ))
             await loadUsers()
         } catch {
             self.error = error.localizedDescription

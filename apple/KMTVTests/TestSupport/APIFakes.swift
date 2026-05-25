@@ -58,9 +58,13 @@ final class AdminAPIFake: AdminAPIProtocol, @unchecked Sendable {
     var sources = SourcesResponse(sources: [])
     var subscriptions = SubscriptionsResponse(subscriptions: [])
     var users = UsersResponse(users: [])
+    var updatedSources: [(id: Int, request: UpdateSourceRequest)] = []
+    var createdUsers: [CreateUserRequest] = []
 
     func listSources() async throws -> SourcesResponse { sources }
-    func updateSource(id: Int, _ req: UpdateSourceRequest) async throws {}
+    func updateSource(id: Int, _ req: UpdateSourceRequest) async throws {
+        updatedSources.append((id: id, request: req))
+    }
     func checkAllSources() async throws {}
     func deleteSource(id: Int) async throws {}
     func listSubscriptions() async throws -> SubscriptionsResponse { subscriptions }
@@ -71,7 +75,8 @@ final class AdminAPIFake: AdminAPIProtocol, @unchecked Sendable {
     func deleteSubscription(id: Int) async throws {}
     func listUsers() async throws -> UsersResponse { users }
     func createUser(_ req: CreateUserRequest) async throws -> User {
-        User(id: 2, username: req.username, role: req.role, avatar: nil)
+        createdUsers.append(req)
+        return User(id: 2, username: req.username, role: req.role, allowAdultContent: req.allowAdultContent, avatar: nil)
     }
     func deleteUser(id: Int) async throws {}
     func getSettings() async throws -> SettingsResponse { settings }
@@ -123,7 +128,7 @@ final class AuthAPIFake: AuthAPIProtocol, @unchecked Sendable {
     func me() async throws -> User { user }
 
     func updateProfile(username: String) async throws -> User {
-        user = User(id: user.id, username: username, role: user.role, avatar: user.avatar)
+        user = User(id: user.id, username: username, role: user.role, allowAdultContent: user.allowAdultContent, avatar: user.avatar)
         return user
     }
 

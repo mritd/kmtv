@@ -83,9 +83,7 @@ struct AdminView: View {
     private var sortedSources: [Source] {
         guard let vm = viewModel else { return [] }
         return vm.sources.sorted { a, b in
-            let aAdult = a.name.contains("🔞")
-            let bAdult = b.name.contains("🔞")
-            if aAdult != bAdult { return !aAdult }
+            if a.isAdult != b.isAdult { return !a.isAdult }
             return a.id < b.id
         }
     }
@@ -126,7 +124,18 @@ struct AdminView: View {
                 .fill(healthColor(source.health))
                 .frame(width: 8, height: 8)
             VStack(alignment: .leading) {
-                Text(source.name).font(.body)
+                HStack(spacing: 6) {
+                    Text(source.name).font(.body)
+                    if source.isAdult {
+                        Text("NSFW")
+                            .font(.caption2)
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.red.opacity(0.15))
+                            .clipShape(Capsule())
+                    }
+                }
                 Text(source.key).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -258,6 +267,7 @@ struct AdminView: View {
     @State private var newUserPassword = ""
     @State private var newUserConfirmPassword = ""
     @State private var newUserRole = "user"
+    @State private var newUserAllowAdultContent = false
 
     @ViewBuilder
     private func usersTab(_ vm: AdminViewModel) -> some View {
@@ -293,6 +303,15 @@ struct AdminView: View {
         HStack {
             Text(user.username)
             Spacer()
+            if user.allowAdultContent {
+                Text("NSFW")
+                    .font(.caption)
+                    .foregroundStyle(Color.red)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(Color.red.opacity(0.2))
+                    .clipShape(Capsule())
+            }
             Text(user.role == "admin" ? String(localized: "Admin") : String(localized: "Regular User"))
                 .font(.caption)
                 .foregroundStyle(user.role == "admin" ? Color.orange : Color.green)
@@ -324,6 +343,7 @@ struct AdminView: View {
                     Text("Regular User").tag("user")
                     Text("Admin").tag("admin")
                 }
+                Toggle("Allow NSFW Content", isOn: $newUserAllowAdultContent)
             }
             .navigationTitle("Add User")
             .toolbar {
@@ -331,10 +351,16 @@ struct AdminView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
                         Task {
-                            await vm.createUser(username: newUserName, password: newUserPassword, role: newUserRole)
+                            await vm.createUser(
+                                username: newUserName,
+                                password: newUserPassword,
+                                role: newUserRole,
+                                allowAdultContent: newUserAllowAdultContent
+                            )
                             newUserName = ""
                             newUserPassword = ""
                             newUserConfirmPassword = ""
+                            newUserAllowAdultContent = false
                             showAddUser = false
                         }
                     }
@@ -351,7 +377,7 @@ struct AdminView: View {
         List {
             Section {
                 Toggle("Anonymous Access", isOn: settingBinding(vm, key: "anonymous_access"))
-                Toggle("Adult Filter", isOn: settingBinding(vm, key: "adult_filter_enabled"))
+                Toggle("NSFW Filter", isOn: settingBinding(vm, key: "nsfw_filter_enabled"))
             }
             Section {
                 Picker("Access Token TTL", selection: ttlBinding(vm, key: "access_token_ttl", defaultValue: "604800")) {

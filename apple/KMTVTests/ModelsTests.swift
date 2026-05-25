@@ -15,6 +15,7 @@ final class ModelsTests: XCTestCase {
                 "sources": [{
                     "source_key": "example.com",
                     "source_name": "Example",
+                    "is_adult": true,
                     "video_id": "123",
                     "duration_ms": 450,
                     "episodes": [{"name": "HD", "url": "https://example.com/video.m3u8"}]
@@ -27,6 +28,7 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(response.results.count, 1)
         XCTAssertEqual(response.results[0].title, "Test Movie")
         XCTAssertEqual(response.results[0].sources[0].sourceKey, "example.com")
+        XCTAssertTrue(response.results[0].sources[0].isAdult)
         XCTAssertEqual(response.results[0].sources[0].durationMs, 450)
         XCTAssertEqual(response.results[0].sources[0].episodes[0].name, "HD")
     }
@@ -77,12 +79,13 @@ final class ModelsTests: XCTestCase {
 
     func testDecodeUserWithAvatar() throws {
         let json = """
-        {"id": 1, "username": "admin", "role": "admin", "avatar": "/api/avatar/admin"}
+        {"id": 1, "username": "admin", "role": "admin", "allow_adult_content": true, "avatar": "/api/avatar/admin"}
         """.data(using: .utf8)!
 
         let user = try JSONDecoder().decode(User.self, from: json)
         XCTAssertEqual(user.id, 1)
         XCTAssertEqual(user.role, "admin")
+        XCTAssertTrue(user.allowAdultContent)
         XCTAssertEqual(user.avatar, "/api/avatar/admin")
     }
 
@@ -93,6 +96,7 @@ final class ModelsTests: XCTestCase {
 
         let user = try JSONDecoder().decode(User.self, from: json)
         XCTAssertNil(user.avatar)
+        XCTAssertFalse(user.allowAdultContent)
     }
 
     func testDecodeLoginResponseWithToken() throws {
@@ -101,6 +105,7 @@ final class ModelsTests: XCTestCase {
             "id": 1,
             "username": "admin",
             "role": "admin",
+            "allow_adult_content": true,
             "access_token": "Base58AccessToken",
             "expires_at": "2026-05-23T12:00:00Z",
             "avatar": "/api/v1/avatar/admin"
@@ -113,6 +118,7 @@ final class ModelsTests: XCTestCase {
 
         XCTAssertEqual(response.user.id, 1)
         XCTAssertEqual(response.user.username, "admin")
+        XCTAssertTrue(response.user.allowAdultContent)
         XCTAssertEqual(response.accessToken, "Base58AccessToken")
         XCTAssertEqual(response.user.avatar, "/api/v1/avatar/admin")
     }
@@ -137,7 +143,7 @@ final class ModelsTests: XCTestCase {
         {
             "sources": [{
                 "id": 1, "key": "source-a", "name": "Source A", "api": "https://source-a.example/api",
-                "detail": "", "enabled": true, "searchable": true, "comment": "",
+                "detail": "", "enabled": true, "is_adult": true, "searchable": true, "comment": "",
                 "health": "healthy", "last_check": "2026-03-28T10:00:00Z",
                 "created_at": "2026-03-28T00:00:00Z", "updated_at": "2026-03-28T10:00:00Z"
             }]
@@ -150,6 +156,7 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(response.sources[0].key, "source-a")
         XCTAssertEqual(response.sources[0].health, "healthy")
         XCTAssertTrue(response.sources[0].enabled)
+        XCTAssertTrue(response.sources[0].isAdult)
     }
 
     func testDecodeAdminSettings() throws {
@@ -158,7 +165,7 @@ final class ModelsTests: XCTestCase {
             "settings": {
                 "site_name": "KMTV",
                 "anonymous_access": "false",
-                "adult_filter_enabled": "true",
+                "nsfw_filter_enabled": "true",
                 "douban_image_proxy": "server",
                 "access_token_ttl": "604800",
                 "media_token_ttl": "1800",
@@ -169,6 +176,7 @@ final class ModelsTests: XCTestCase {
 
         let response = try JSONDecoder().decode(SettingsResponse.self, from: json)
         XCTAssertEqual(response.settings["site_name"], "KMTV")
+        XCTAssertEqual(response.settings["nsfw_filter_enabled"], "true")
         XCTAssertEqual(response.settings["douban_image_proxy"], "server")
         XCTAssertEqual(response.settings["access_token_ttl"], "604800")
         XCTAssertEqual(response.settings["media_token_ttl"], "1800")

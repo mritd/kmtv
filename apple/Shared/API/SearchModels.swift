@@ -28,6 +28,7 @@ struct SourceResult: Codable, Sendable, Identifiable, Hashable {
     var id: String { sourceKey }
     let sourceKey: String
     let sourceName: String
+    let isAdult: Bool
     let videoId: String
     let durationMs: Double
     let episodes: [Episode]
@@ -35,17 +36,29 @@ struct SourceResult: Codable, Sendable, Identifiable, Hashable {
     enum CodingKeys: String, CodingKey {
         case sourceKey = "source_key"
         case sourceName = "source_name"
+        case isAdult = "is_adult"
         case videoId = "video_id"
         case durationMs = "duration_ms"
         case episodes
     }
 
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sourceKey = try container.decode(String.self, forKey: .sourceKey)
+        sourceName = try container.decode(String.self, forKey: .sourceName)
+        isAdult = try container.decodeIfPresent(Bool.self, forKey: .isAdult) ?? false
+        videoId = try container.decode(String.self, forKey: .videoId)
+        durationMs = try container.decode(Double.self, forKey: .durationMs)
+        episodes = try container.decode([Episode].self, forKey: .episodes)
+    }
+
     /// Creates a source result, usually for tests or view-model transformations.
     /// 创建视频源结果, 通常用于测试或 view model 转换.
     init(sourceKey: String, sourceName: String, videoId: String, durationMs: Double,
-         episodes: [Episode]) {
+         episodes: [Episode], isAdult: Bool = false) {
         self.sourceKey = sourceKey
         self.sourceName = sourceName
+        self.isAdult = isAdult
         self.videoId = videoId
         self.durationMs = durationMs
         self.episodes = episodes

@@ -116,7 +116,9 @@
 "Add User" = "Add User";
 "Role" = "Role";
 "Anonymous Access" = "Anonymous Access";
-"Adult Filter" = "Adult Filter";
+"NSFW" = "NSFW";
+"Allow NSFW Content" = "Allow NSFW Content";
+"NSFW Filter" = "NSFW Filter";
 "Site Name" = "Site Name";
 "Access Token TTL" = "Access Token TTL";
 "Media Token TTL" = "Media Token TTL";

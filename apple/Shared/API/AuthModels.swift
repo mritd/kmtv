@@ -6,7 +6,33 @@ struct User: Codable, Sendable {
     let id: Int
     let username: String
     let role: String
+    let allowAdultContent: Bool
     var avatar: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case username
+        case role
+        case allowAdultContent = "allow_adult_content"
+        case avatar
+    }
+
+    init(id: Int, username: String, role: String, allowAdultContent: Bool = false, avatar: String? = nil) {
+        self.id = id
+        self.username = username
+        self.role = role
+        self.allowAdultContent = allowAdultContent
+        self.avatar = avatar
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(Int.self, forKey: .id)
+        username = try container.decode(String.self, forKey: .username)
+        role = try container.decode(String.self, forKey: .role)
+        allowAdultContent = try container.decodeIfPresent(Bool.self, forKey: .allowAdultContent) ?? false
+        avatar = try container.decodeIfPresent(String.self, forKey: .avatar)
+    }
 }
 
 /// Login response containing user fields and an opaque bearer token.
@@ -20,6 +46,7 @@ struct LoginResponse: Codable, Sendable {
         case id
         case username
         case role
+        case allowAdultContent = "allow_adult_content"
         case avatar
         case accessToken = "access_token"
         case expiresAt = "expires_at"
@@ -33,6 +60,7 @@ struct LoginResponse: Codable, Sendable {
             id: try container.decode(Int.self, forKey: .id),
             username: try container.decode(String.self, forKey: .username),
             role: try container.decode(String.self, forKey: .role),
+            allowAdultContent: try container.decodeIfPresent(Bool.self, forKey: .allowAdultContent) ?? false,
             avatar: try container.decodeIfPresent(String.self, forKey: .avatar)
         )
         accessToken = try container.decode(String.self, forKey: .accessToken)
@@ -46,6 +74,7 @@ struct LoginResponse: Codable, Sendable {
         try container.encode(user.id, forKey: .id)
         try container.encode(user.username, forKey: .username)
         try container.encode(user.role, forKey: .role)
+        try container.encode(user.allowAdultContent, forKey: .allowAdultContent)
         try container.encodeIfPresent(user.avatar, forKey: .avatar)
         try container.encode(accessToken, forKey: .accessToken)
         try container.encode(expiresAt, forKey: .expiresAt)
