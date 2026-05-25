@@ -69,6 +69,18 @@ export type { DetailEntry, DetailState } from "./detailStore";
 export { adminModalStore } from "./adminModalStore";
 
 /**
+ * categoriesStore — Zustand vanilla store holding the browse-page filter selection.
+ * categoriesStore — 持有浏览页筛选选择的 Zustand vanilla store.
+ */
+export { categoriesStore } from "./categoriesStore";
+
+/**
+ * CategoriesState — full state + action shape of categoriesStore.
+ * CategoriesState — categoriesStore 的完整状态与 action 定义.
+ */
+export type { CategoriesState } from "./categoriesStore";
+
+/**
  * AdminModalPayload — discriminated union of all modal operation contexts.
  * AdminModalState — full state + action shape of adminModalStore.
  *

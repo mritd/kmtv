@@ -53,6 +53,7 @@ import { RouteSkeleton } from "./RouteSkeleton";
 // lazyWithReload 在服务端重建后 chunk URL 失效时提供一次性刷新恢复机制.
 const HomePage = lazyWithReload(() => import("@/viewer/home/HomePage").then((m) => ({ default: m.HomePage })));
 const SearchPage = lazyWithReload(() => import("@/viewer/search/SearchPage").then((m) => ({ default: m.SearchPage })));
+const CategoriesPage = lazyWithReload(() => import("@/viewer/categories/CategoriesPage").then((m) => ({ default: m.CategoriesPage })));
 const DetailPage = lazyWithReload(() => import("@/viewer/detail/DetailPage").then((m) => ({ default: m.DetailPage })));
 const FavoritesPage = lazyWithReload(() => import("@/viewer/favorites/FavoritesPage").then((m) => ({ default: m.FavoritesPage })));
 const AccountPage = lazyWithReload(() => import("@/account/AccountPage").then((m) => ({ default: m.AccountPage })));
@@ -119,6 +120,7 @@ export function AppRoutes() {
             <Routes location={location}>
               <Route path="/" element={<HomePage />} />
               <Route path="/search" element={<SearchPage />} />
+              <Route path="/categories" element={<CategoriesPage />} />
               <Route path="/detail/:token" element={<DetailPage />} />
               <Route path="/favorites" element={<FavoritesPage />} />
               <Route path="/account" element={<AccountPage />} />

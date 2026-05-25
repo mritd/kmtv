@@ -8,6 +8,7 @@ import { afterEach, beforeEach } from "vitest";
 import "@/i18n";
 import i18n from "@/i18n";
 import { adminModalStore } from "@/store/adminModalStore";
+import { categoriesStore } from "@/store/categoriesStore";
 import { detailStore } from "@/store/detailStore";
 import { searchStore } from "@/store/searchStore";
 import { useI18nStore } from "@/store/i18nStore";
@@ -24,6 +25,7 @@ beforeEach(() => {
   searchStore.getState().resetAll();
   detailStore.getState().resetAll();
   adminModalStore.getState().close();
+  categoriesStore.getState().reset();
 });
 
 afterEach(() => {

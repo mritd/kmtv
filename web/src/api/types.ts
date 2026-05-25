@@ -403,3 +403,94 @@ export interface DoubanHomeSection {
 export interface DoubanHomeResponse {
   sections: DoubanHomeSection[];
 }
+
+/**
+ * DoubanListResponse is the paginated item payload returned by /douban/recommend/filter
+ * (and /douban/list, /douban/recommend). It is intentionally a thin wrapper around items
+ * so all Douban list endpoints share one response shape.
+ * DoubanListResponse
+ * 是 /douban/recommend/filter (以及 /douban/list、/douban/recommend) 返回的分页条目负载,
+ * 刻意只对 items 做一层薄封装, 让所有豆瓣列表端点共用同一响应结构.
+ */
+export interface DoubanListResponse {
+  items: DoubanItem[];
+}
+
+/**
+ * SubCategory is one sub-category filter option inside a CategoryGroup (e.g. a genre or ranking tag).
+ * SubCategory
+ * 是 CategoryGroup 内的一个子分类筛选项 (如题材或排行标签).
+ *
+ * `kind` and `format` are optional overrides: when `kind` is present the sub-category drives
+ * both the Douban kind and format; when absent, the parent group's douban_kind/format apply.
+ * This mirrors the iOS CategoriesViewModel filter-resolution contract — see store/categoriesStore.ts.
+ * kind 和 format 为可选覆盖项: 当 kind 存在时, 由子分类同时决定 Douban kind 与 format;
+ * 缺失时回退到父分组的 douban_kind/format. 该规则与 iOS CategoriesViewModel 的筛选解析契约一致,
+ * 详见 store/categoriesStore.ts.
+ */
+export interface SubCategory {
+  name: string;
+  tag: string;
+  kind?: string;
+  format?: string;
+}
+
+/**
+ * Region is one region filter option inside a CategoryGroup.
+ * Region
+ * 是 CategoryGroup 内的一个地区筛选项.
+ *
+ * `value` is the query value sent to the backend; `name` is the display label (may differ).
+ * value 是发送给后端的查询值; name 是展示用标签 (二者可能不同).
+ */
+export interface Region {
+  name: string;
+  value: string;
+}
+
+/**
+ * CategoryGroup is one top-level browse category (e.g. 电影 / 剧集) with its filter options.
+ * CategoryGroup
+ * 是一个顶层浏览分类 (如 电影 / 剧集) 及其筛选项.
+ *
+ * `douban_kind` and `format` are the group-level defaults applied when the selected
+ * sub-category does not override them. `regions` may be empty for groups without region filters.
+ * douban_kind 和 format 是分组级默认值, 当所选子分类未覆盖时生效.
+ * 对于没有地区筛选的分组, regions 可能为空.
+ */
+export interface CategoryGroup {
+  key: string;
+  name: string;
+  douban_kind: string;
+  format: string;
+  subcategories: SubCategory[];
+  regions: Region[];
+}
+
+/**
+ * DoubanCategoriesResponse is the top-level response from /douban/categories.
+ * DoubanCategoriesResponse
+ * 是 /douban/categories 的顶层响应.
+ */
+export interface DoubanCategoriesResponse {
+  categories: CategoryGroup[];
+}
+
+/**
+ * DoubanRecommendFilter carries the resolved query parameters for /douban/recommend/filter.
+ * DoubanRecommendFilter
+ * 承载 /douban/recommend/filter 的已解析查询参数.
+ *
+ * `kind` is required by the backend; `tag`, `format`, and `region` are optional filters.
+ * `start`/`count` drive pagination (count is capped at 50 server-side).
+ * kind 为后端必填; tag、format、region 为可选筛选项.
+ * start/count 驱动分页 (count 在服务端上限为 50).
+ */
+export interface DoubanRecommendFilter {
+  kind: string;
+  tag?: string;
+  format?: string;
+  region?: string;
+  start?: number;
+  count?: number;
+}

@@ -2,6 +2,7 @@ const nav = {
   links: {
     home: "首页",
     search: "搜索",
+    categories: "分类",
     favorites: "收藏",
   },
   account: {

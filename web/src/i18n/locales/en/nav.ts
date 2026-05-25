@@ -2,6 +2,7 @@ const nav = {
   links: {
     home: "Home",
     search: "Search",
+    categories: "Categories",
     favorites: "Favorites",
   },
   account: {

@@ -111,6 +111,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         </NavLink>
         <nav className="viewer-nav" aria-label={t("links.home")}>
           <NavLink to="/">{t("links.home")}</NavLink>
+          <NavLink to="/categories">{t("links.categories")}</NavLink>
           <NavLink to="/search">{t("links.search")}</NavLink>
           <NavLink to="/favorites">{t("links.favorites")}</NavLink>
         </nav>

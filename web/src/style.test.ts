@@ -239,6 +239,43 @@ describe("global styles", () => {
     expect(titleCss).toContain("text-wrap: balance");
   });
 
+  it("makes the poster tile fill its cell so unloaded posters do not grow from small", () => {
+    const css = readFileSync("src/style.css", "utf8");
+    // Regression guard: .poster-tile is a <button> that shrink-to-fits; without width:100% an
+    // unloaded poster collapses to a fraction of the cell and snaps to full size once the image
+    // loads. Verified via headless layout measurement (loaded vs pending tile width).
+    // 回归防护: .poster-tile 是会收缩到内容的 <button>; 缺少 width:100% 时未加载海报会塌缩到单元格的
+    // 一小部分, 待图片加载后突然撑满. 已通过无头布局测量验证 (loaded 与 pending tile 宽度).
+    const tileCss = cssBlock(css, ".poster-tile");
+
+    expect(tileCss).toContain("width: 100%");
+  });
+
+  it("gives poster images a placeholder background so loading posters are not see-through boxes", () => {
+    const css = readFileSync("src/style.css", "utf8");
+    // Regression guard: a still-loading lazy poster <img> must paint a placeholder fill behind it,
+    // otherwise the transparent <img> reveals the .poster-frame shadow as a bare dark box.
+    // 回归防护: 懒加载中的海报 <img> 背后必须有占位填充, 否则透明的 <img> 会露出 .poster-frame 阴影成为空框.
+    const posterMediaCss = cssBlock(css, ".poster-media");
+
+    expect(posterMediaCss).toContain("background:");
+    expect(posterMediaCss).toContain("var(--surface)");
+  });
+
+  it("styles region filter chips as a distinct outline variant via the row container", () => {
+    const css = readFileSync("src/style.css", "utf8");
+    // The variant must hang off the row container (.category-chip-row-region .category-chip),
+    // not a chip-level descendant selector that could never match a chip of itself.
+    // 该变体必须挂在行容器上 (.category-chip-row-region .category-chip),
+    // 而非永远无法匹配自身的 chip 级后代选择器.
+    const regionChipCss = cssBlock(css, ".category-chip-row-region .category-chip");
+    const regionChipActiveCss = cssBlock(css, ".category-chip-row-region .category-chip.is-active");
+
+    expect(regionChipCss).toContain("border-color: var(--border)");
+    expect(regionChipCss).toContain("background: transparent");
+    expect(regionChipActiveCss).toContain("var(--accent)");
+  });
+
   it("renders search progress with a dedicated thin bar plus shimmer", () => {
     const css = readFileSync("src/style.css", "utf8");
     const progressCardCss = css.match(/\.search-progress-card\s*\{[\s\S]*?\n\}/)?.[0] ?? "";

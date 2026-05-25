@@ -39,6 +39,14 @@ describe("PosterImage", () => {
       expect(container.querySelector("img")?.classList.contains("poster-sm")).toBe(true);
     });
 
+    it("always carries the poster-media class so the loading placeholder background applies", () => {
+      // Regression guard: a still-loading lazy poster must show a placeholder fill, not a
+      // see-through box. The placeholder background is bound to .poster-media in style.css.
+      // 回归防护: 懒加载中的海报必须显示占位填充而非透视空框; 占位背景绑定在 style.css 的 .poster-media.
+      const { container } = render(<PosterImage src="https://example.com/cover.jpg" title="t" />);
+      expect(container.querySelector("img")?.classList.contains("poster-media")).toBe(true);
+    });
+
     it("does not render the fallback div", () => {
       const { container } = render(<PosterImage src="https://example.com/cover.jpg" title="t" />);
       expect(container.querySelector(".poster-fallback")).toBeNull();

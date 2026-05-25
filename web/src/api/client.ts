@@ -22,7 +22,10 @@ import type {
   AdminUser,
   CreateUserPayload,
   DetailResponse,
+  DoubanCategoriesResponse,
   DoubanHomeResponse,
+  DoubanListResponse,
+  DoubanRecommendFilter,
   ImportSourcesResponse,
   LoginResponse,
   MessageResponse,
@@ -112,6 +115,14 @@ export interface APIClient {
   ): Promise<void>;
   detail(source: string, id: string): Promise<DetailResponse>;
   doubanHome(): Promise<DoubanHomeResponse>;
+  // doubanCategories fetches the browse category metadata (groups + sub-categories + regions).
+  // doubanCategories
+  // 获取浏览分类元数据 (分组 + 子分类 + 地区).
+  doubanCategories(): Promise<DoubanCategoriesResponse>;
+  // doubanRecommendFilter fetches one filtered, paginated recommendation page.
+  // doubanRecommendFilter
+  // 获取一页经筛选的分页推荐结果.
+  doubanRecommendFilter(filter: DoubanRecommendFilter): Promise<DoubanListResponse>;
   playbackURL(url: string, source: string): Promise<PlaybackURLResponse>;
   listSources(): Promise<SourcesResponse>;
   createSource(source: SourcePayload): Promise<Source>;
@@ -308,6 +319,28 @@ export function createAPIClient(options: APIClientOptions): APIClient {
       return request<DetailResponse>(`/detail?${params.toString()}`);
     },
     doubanHome: () => request<DoubanHomeResponse>("/douban/home"),
+    doubanCategories: () => request<DoubanCategoriesResponse>("/douban/categories"),
+    async doubanRecommendFilter(filter) {
+      // `kind` is the only required parameter; optional filters are appended only when
+      // non-empty so the backend reads them identically to an omitted value ("" === absent).
+      // start/count are always sent to make pagination explicit.
+      // kind 是唯一必填参数; 可选筛选项仅在非空时附加, 此时后端读取结果与缺省值一致 ("" 等同缺省);
+      // start/count 始终发送, 使分页显式化.
+      const params = new URLSearchParams({ kind: filter.kind });
+      if (filter.tag) params.set("tag", filter.tag);
+      if (filter.format) params.set("format", filter.format);
+      if (filter.region) params.set("region", filter.region);
+      params.set("start", String(filter.start ?? 0));
+      params.set("count", String(filter.count ?? 20));
+      const data = await request<DoubanListResponse>(`/douban/recommend/filter?${params.toString()}`);
+      // Normalize items to []: unlike the server-normalized list endpoints, the Douban
+      // recommend/filter handler returns a nil slice as JSON `null` for empty upstream results.
+      // Doing it once here keeps every consumer (pagination, render-time dedup) array-safe (ADR-005).
+      // 将 items 归一化为 []: 与已在服务端归一化的列表端点不同, Douban recommend/filter 处理器
+      // 在上游结果为空时会把 nil slice 序列化为 JSON `null`. 在此统一处理一次, 让所有消费者
+      // (分页、渲染期去重) 都对数组安全 (ADR-005).
+      return { items: data?.items ?? [] };
+    },
     playbackURL: (url, source) =>
       request<PlaybackURLResponse>("/playback/url", {
         method: "POST",

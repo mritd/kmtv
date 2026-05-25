@@ -112,7 +112,10 @@ export function PosterImage({ src, title, className = "", transitionName }: Post
   return (
     <img
       ref={transitionRef}
-      className={className}
+      // poster-media carries a placeholder background so a still-loading lazy poster reads as an
+      // intentional fill rather than a see-through box; the opaque image paints over it once decoded.
+      // poster-media 提供占位背景, 使懒加载中的海报呈现为有意的填充而非透视空框; 图片解码后会覆盖该背景.
+      className={["poster-media", className].filter(Boolean).join(" ")}
       src={poster}
       // Posters are decorative artwork; an empty alt string hides them from AT's reading order.
       // 海报是装饰性图片; 空 alt 使辅助技术跳过不朗读.

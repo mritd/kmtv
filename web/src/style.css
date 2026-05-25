@@ -993,6 +993,16 @@ select:focus {
 
 .poster-tile {
   display: grid;
+  /* width: 100% is required because .poster-tile is a <button>: a grid/inline button shrink-to-fits
+     to its content, so without it the width:100% poster <img> resolves circularly and a not-yet-loaded
+     poster collapses to ~1/3 cell width, then snaps to full size when the bitmap loads (the
+     "grows from small" bug). Filling the cell gives the frame+img a definite width so the
+     aspect-ratio reserves the full box regardless of image load state. */
+  /* 必须设置 width: 100%, 因为 .poster-tile 是 <button>: grid/inline 按钮会收缩到内容尺寸,
+     否则 width:100% 的海报 <img> 会循环求值, 未加载的海报会塌缩到约 1/3 单元格宽度, 待位图加载后再
+     突然撑满 (即「从小变大」的问题). 撑满单元格让 frame+img 拥有确定宽度, aspect-ratio 即可在任何
+     加载状态下预留完整的盒子. */
+  width: 100%;
   gap: 12px;
   min-height: 0;
   border: 0;
@@ -1008,6 +1018,19 @@ select:focus {
   min-width: 0;
   overflow: hidden;
   transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+}
+
+/* Placeholder fill behind every poster <img> while its lazy bitmap loads. The opaque poster paints
+   over this once decoded; a slow or pending Douban cover reads as an intentional surface tile instead
+   of a see-through dark box. Shares the .poster-fallback palette so loading and unavailable cohere.
+   The img's own border-radius (set per context) clips this background to the rounded poster shape. */
+/* 每张海报 <img> 懒加载位图期间的占位填充. 图片解码后会覆盖它; 缓慢或待加载的豆瓣封面会呈现为有意的
+   表面色块, 而非透视的深色空框. 与 .poster-fallback 调色一致, 使加载态与不可用态视觉协调.
+   img 自身的圆角 (由各上下文设置) 会将该背景裁剪为圆角海报形状. */
+.poster-media {
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--surface-strong) 90%, transparent), color-mix(in srgb, var(--accent) 12%, var(--surface))),
+    var(--surface);
 }
 
 /* Ticket-stamp rating badge selected for home and favorite posters. */
@@ -1065,6 +1088,158 @@ select:focus {
   color: var(--text-faint);
   font-size: 0.9rem;
   font-weight: 720;
+}
+
+/* Categories browse page: tabs + filter chips + a wrap poster grid. */
+/* 分类浏览页: tab + 筛选胶囊 + 换行海报网格. */
+.categories-page {
+  --categories-content-max: 1880px;
+  --categories-content-pad: clamp(18px, 4vw, 54px);
+  width: 100%;
+  padding-bottom: 90px;
+}
+
+.categories-header,
+.categories-filters,
+.categories-content {
+  width: min(100%, var(--categories-content-max));
+  margin: 0 auto;
+  padding-inline: var(--categories-content-pad);
+}
+
+.categories-header {
+  padding-top: clamp(22px, 3vw, 40px);
+}
+
+.categories-header h1 {
+  margin: 0;
+  font-size: clamp(1.5rem, 2.6vw, 2.1rem);
+}
+
+.categories-filters {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Tab row: horizontally scrollable text tabs with an accent underline on the active one. */
+/* tab 行: 可横向滚动的文字 tab, 选中项带强调色下划线. */
+.category-tabs {
+  display: flex;
+  gap: clamp(14px, 2vw, 26px);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.category-tab {
+  flex: 0 0 auto;
+  position: relative;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.02rem;
+  font-weight: 760;
+  padding: 4px 2px 8px;
+  cursor: pointer;
+  transition: color 160ms ease;
+}
+
+.category-tab::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 160ms ease;
+}
+
+.category-tab:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.category-tab.is-active {
+  color: var(--accent);
+}
+
+.category-tab.is-active::after {
+  background: var(--accent);
+}
+
+/* Chip rows: pill filters for sub-categories (and a lighter outline variant for regions). */
+/* 胶囊行: 子分类的药丸筛选项 (地区使用更轻的描边变体). */
+.category-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.category-chip {
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 720;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+
+.category-chip:hover:not(:disabled) {
+  background: var(--surface-strong);
+}
+
+.category-chip.is-active {
+  background: var(--accent);
+  color: color-mix(in srgb, var(--bg) 86%, #000);
+}
+
+.category-chip-row-region .category-chip {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  padding: 5px 12px;
+}
+
+.category-chip-row-region .category-chip.is-active {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.categories-content {
+  padding-top: 28px;
+}
+
+/* Responsive wrap grid; reuses the shared .poster-tile / .poster-frame styling. */
+/* 响应式换行网格; 复用共享的 .poster-tile / .poster-frame 样式. */
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(clamp(122px, 14vw, 168px), 1fr));
+  gap: clamp(16px, 2vw, 28px) clamp(14px, 1.8vw, 22px);
+}
+
+/* Persistent bottom loading indicator + IntersectionObserver sentinel. A shimmer pill stays visible
+   whenever more pages exist, so a partial final row never reads as "all loaded". */
+/* 底部常驻加载指示 + IntersectionObserver 哨兵. 只要还有更多页, shimmer 药丸就保持可见,
+   使残缺的最后一行不会被误读为「已全部加载」. */
+.category-grid-more {
+  display: grid;
+  place-items: center;
+  padding: 30px 0 10px;
+}
+
+.category-grid-more-bar {
+  width: min(320px, 60%);
+  height: 10px;
+  border-radius: 999px;
 }
 
 /* Search workspace balances the main flow with a compact summary rail. */

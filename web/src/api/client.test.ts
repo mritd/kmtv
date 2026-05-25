@@ -219,6 +219,53 @@ describe("APIClient", () => {
     expect(store.get()).toBeNull();
   });
 
+  it("builds douban categories and filtered recommend requests", async () => {
+    const ok = (body: unknown) =>
+      new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(
+        ok({
+          categories: [
+            { key: "movie", name: "电影", douban_kind: "movie", format: "", subcategories: [], regions: [] },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(ok({ items: [{ id: "1", title: "Movie", cover: "https://img", rate: "8.0", year: "2026" }] }))
+      .mockResolvedValueOnce(ok({ items: null }));
+
+    const client = createAPIClient({ baseURL: "/", tokenStore: createMemoryTokenStore(), fetcher });
+
+    const categories = await client.doubanCategories();
+    expect(categories.categories[0].douban_kind).toBe("movie");
+
+    // Full filter: every optional field present and pagination explicit.
+    // 完整筛选: 所有可选字段均存在且分页显式.
+    const page = await client.doubanRecommendFilter({
+      kind: "movie",
+      tag: "喜剧",
+      format: "",
+      region: "美国",
+      start: 20,
+      count: 20,
+    });
+    expect(page.items[0].title).toBe("Movie");
+
+    // Minimal filter: only kind; empty/absent optionals are omitted, start/count default.
+    // The backend returns {"items": null} for an empty upstream result; the client must
+    // normalize it to [] so downstream pagination/dedup stay array-safe.
+    // 最小筛选: 仅 kind; 空/缺省的可选项被省略, start/count 取默认值.
+    // 后端在上游结果为空时返回 {"items": null}; 客户端必须归一化为 [], 使下游分页/去重对数组安全.
+    const empty = await client.doubanRecommendFilter({ kind: "tv" });
+    expect(empty.items).toEqual([]);
+
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+      "/api/v1/douban/categories",
+      "/api/v1/douban/recommend/filter?kind=movie&tag=%E5%96%9C%E5%89%A7&region=%E7%BE%8E%E5%9B%BD&start=20&count=20",
+      "/api/v1/douban/recommend/filter?kind=tv&start=0&count=20",
+    ]);
+  });
+
   it("builds account profile, password, and avatar requests", async () => {
     const fetcher = vi
       .fn()
