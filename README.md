@@ -17,16 +17,16 @@
   <img width="568" height="1084" alt="5" src="https://github.com/user-attachments/assets/4e31c7c5-636c-42d5-9361-897bdf335318" />
   <img width="1118" height="886" alt="6" src="https://github.com/user-attachments/assets/9c6d2e1e-682b-499c-9238-195619f20940" />
 
-  
 </details>
 
 ## 特性
 
 - 单文件部署, 高性能 Go 后端 + 内嵌 Web 资源
-- 后端代理与前端直连双播放模式, 代理友好
-- 并行源探测延迟与可用性, 最大化优化播放体验
+- 后端代理与前端直连双播放模式, 更自由流量策略, 满足负载需求
+- 并行源探测延迟与可用性, 最大程度优化播放体验, 尽量避免死源 / 不可播放问题
 - 原生 iOS / tvOS 客户端(开发中, 后续可能支持 Android)
-- 多用户支持, 完善的权限管理机制, 支持匿名访问
+- 多用户支持, 完善的权限管理机制, 支持匿名访问 / NSFW 源过滤 / NSFW 权限控制
+- 支持源订阅且自动更新, 控制面板可调整服务端底层各种高级参数
 
 架构决策见 [`docs/ADR.md`](docs/ADR.md), API 契约见 [`docs/server_api.md`](docs/server_api.md).
 
@@ -47,7 +47,7 @@ docker run -d --name kmtv \
 
 > 内容声明: KMTV 不内置, 不托管, 不索引, 不推荐任何视频源. 部署者需要自行配置合法来源, 并自行确保其使用方式符合适用的版权, 授权协议及当地法律法规要求.
 
-如果期望首次启动时自动导入源订阅, 可使用 `KMTV_INIT_SOURCE_URL` 变量:
+如果期望首次启动时就自动导入源订阅, 可使用 `KMTV_INIT_SOURCE_URL` 变量:
 
 ```bash
 docker run -d --name kmtv \
@@ -254,7 +254,7 @@ Copyright (c) 2026 mritd.
 
 ## 贡献
 
-欢迎 PR .提交前请阅读 [`AGENTS.md`](AGENTS.md) 与 [`docs/ADR.md`](docs/ADR.md), 并通过构建任务验证:
+欢迎 PR. 提交前请阅读 [`AGENTS.md`](AGENTS.md) 与 [`docs/ADR.md`](docs/ADR.md), 并通过构建任务验证:
 
 ```bash
 task test web:test web:lint
