@@ -1,0 +1,210 @@
+/* Navigation */
+"Back" = "Back";
+
+/* Tab bar */
+"Home" = "Home";
+"Favorites" = "Favorites";
+"Me" = "Me";
+
+/* Categories */
+"Categories" = "Categories";
+"Movies" = "Movies";
+"TV Series" = "TV Series";
+"Anime" = "Anime";
+"Variety Shows" = "Variety Shows";
+"All" = "All";
+"Popular" = "Popular";
+"Latest" = "Latest";
+"Douban Top" = "Douban Top";
+"Hidden Gems" = "Hidden Gems";
+"Recently Popular" = "Recently Popular";
+"Series" = "Series";
+"Chinese" = "Chinese";
+"Western" = "Western";
+"Korean" = "Korean";
+"Japanese" = "Japanese";
+
+/* Home */
+"KMTV" = "KMTV";
+"Search videos..." = "Search videos...";
+"Continue Watching" = "Continue Watching";
+"Clear" = "Clear";
+"+ Favorite" = "+ Favorite";
+
+/* Login */
+"Sign in to continue" = "Sign in to continue";
+"Username" = "Username";
+"Password" = "Password";
+"Sign In" = "Sign In";
+
+/* Server Setup */
+"Add your server to get started" = "Add your server to get started";
+"Server URL" = "Server URL";
+"Name" = "Name";
+"Connect" = "Connect";
+
+/* Server */
+"Cancel" = "Cancel";
+"Add" = "Add";
+
+/* Search */
+"Search" = "Search";
+"Searching..." = "Searching...";
+"No results found" = "No results found";
+"No description available" = "Unable to get description, fastest source has no synopsis...";
+"Search History" = "Search History";
+"%lld sources" = "%lld sources";
+"Searching available sources %lld / %lld ..." = "Searching available sources %lld / %lld ...";
+"Probing CDN availability %lld / %lld ..." = "Probing CDN availability %lld / %lld ...";
+
+/* Profile */
+"Unknown" = "Unknown";
+"Admin" = "Admin";
+"User" = "User";
+"Regular User" = "Regular User";
+"Passwords do not match" = "Passwords do not match";
+"Admin Panel" = "Admin Panel";
+"Change Password" = "Change Password";
+"Current Password" = "Current Password";
+"New Password" = "New Password";
+"Confirm Password" = "Confirm Password";
+"Save Password" = "Save Password";
+"Passwords don't match" = "Passwords don't match";
+"Password cannot be empty" = "Password cannot be empty";
+"Password changed" = "Password changed";
+"Clear Watch History" = "Clear Watch History";
+"Watch history cleared" = "Watch history cleared";
+"Sign Out" = "Sign Out";
+"Anonymous User" = "Anonymous User";
+"Edit Username" = "Edit Username";
+"Username updated" = "Username updated";
+"Avatar updated" = "Avatar updated";
+"Avatar removed" = "Avatar removed";
+"Tap to change avatar" = "Tap to change avatar";
+"Remove Avatar" = "Remove Avatar";
+"Change Avatar" = "Change Avatar";
+"Error" = "Error";
+"OK" = "OK";
+
+/* Favorites */
+"No Favorites" = "No Favorites";
+"Videos you favorite will appear here" = "Videos you favorite will appear here";
+"Remove" = "Remove";
+
+/* Player */
+"Sources" = "Sources";
+"CDN Lines" = "CDN Lines";
+"Line %lld" = "Line %lld";
+"Episodes" = "Episodes";
+"Description" = "Description";
+"Play" = "Play";
+"Favorite" = "Favorite";
+"Favorited" = "Favorited";
+"Director: " = "Director: ";
+"Cast: " = "Cast: ";
+
+/* Admin */
+"Subs" = "Subs";
+"Users" = "Users";
+"Settings" = "Settings";
+"Healthy: %lld/%lld" = "Healthy: %lld/%lld";
+"Check All" = "Check All";
+"Add Subscription" = "Add Subscription";
+"Subscription URL" = "Subscription URL";
+"Interval (seconds)" = "Interval (seconds)";
+"Sync" = "Sync";
+"Add User" = "Add User";
+"Role" = "Role";
+"Anonymous Access" = "Anonymous Access";
+"Adult Filter" = "Adult Filter";
+"Site Name" = "Site Name";
+"Access Token TTL" = "Access Token TTL";
+"Media Token TTL" = "Media Token TTL";
+"Playback Mode" = "Playback Mode";
+"7 Days" = "7 Days";
+"30 Days" = "30 Days";
+"365 Days" = "365 Days";
+"15 Minutes" = "15 Minutes";
+"30 Minutes" = "30 Minutes";
+"60 Minutes" = "60 Minutes";
+"120 Minutes" = "120 Minutes";
+"Image Proxy" = "Image Proxy";
+"Server" = "Server";
+"Backend Proxy" = "Backend Proxy";
+"Tencent CDN" = "Tencent CDN";
+"Ali CDN" = "Ali CDN";
+"Client Direct" = "Client Direct";
+"Show all %lld sources" = "Show all %lld sources";
+"Collapse" = "Collapse";
+"Expand" = "Expand";
+"Auto Sync" = "Auto Sync";
+"Sync completed" = "Sync completed";
+"Cannot delete yourself" = "Cannot delete yourself";
+
+/* Playback Settings */
+"Playback" = "Playback";
+"Skip Intro" = "Skip Intro";
+"Skip Outro" = "Skip Outro";
+
+/* Server Setup */
+"Leave empty for anonymous access" = "Leave empty for anonymous access";
+"Server Note (Optional)" = "Server Note (Optional)";
+"Username (Optional)" = "Username (Optional)";
+"Password (Optional)" = "Password (Optional)";
+
+/* TV Settings */
+"Account" = "Account";
+"Server Address" = "Server Address";
+
+/* Version Compatibility */
+"Server Incompatible" = "Server Incompatible";
+
+/* Connection */
+"Connection Error" = "Connection Error";
+"Retry" = "Retry";
+"Change Server" = "Change Server";
+"Connecting..." = "Connecting...";
+"Connection timed out" = "Connection timed out";
+"Connecting to server..." = "Connecting to server...";
+"Login Required" = "This server requires login credentials";
+
+
+/* Validation */
+"Invalid URL format, must start with http:// or https://" = "Invalid URL format, must start with http:// or https://";
+
+/* API Errors */
+"No internet connection" = "No internet connection";
+"Cannot connect to server" = "Cannot connect to server";
+"Network error, please try again" = "Network error, please try again";
+"Failed to parse server response" = "Failed to parse server response";
+"Invalid username or password" = "Invalid username or password";
+"Anonymous access is disabled, please sign in" = "Anonymous access is disabled, please sign in";
+"Session expired, please sign in again" = "Session expired, please sign in again";
+"Username already taken" = "Username already taken";
+"Current password is incorrect" = "Current password is incorrect";
+"Image too large, max 256KB" = "Image too large, max 256KB";
+"Unsupported image format, use JPEG/PNG/GIF/WebP" = "Unsupported image format, use JPEG/PNG/GIF/WebP";
+"No image selected" = "No image selected";
+"Please fill in all required fields" = "Please fill in all required fields";
+"Invalid URL format" = "Invalid URL format";
+"Invalid role" = "Invalid role";
+"Resource not found" = "Resource not found";
+"Invalid ID" = "Invalid ID";
+"Invalid request" = "Invalid request";
+"Missing required parameter" = "Missing required parameter";
+"Request blocked" = "Request blocked";
+"External service unavailable" = "External service unavailable";
+"Server error, please try again later" = "Server error, please try again later";
+"An unexpected error occurred" = "An unexpected error occurred";
+
+/* Performance */
+"Performance" = "Performance";
+"Search Concurrency" = "Search Concurrency";
+"Probe Concurrency" = "Probe Concurrency";
+"Search Timeout" = "Search Timeout";
+"Probe Timeout" = "Probe Timeout";
+
+/* Misc */
+"Yes" = "Yes";
+"No" = "No";
+"N/A" = "N/A";

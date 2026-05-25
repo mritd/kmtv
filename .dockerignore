@@ -1,0 +1,11 @@
+*
+
+!server/
+!server/**
+!web/
+!web/**
+
+server/kmtv
+server/web/dist
+web/dist
+web/node_modules

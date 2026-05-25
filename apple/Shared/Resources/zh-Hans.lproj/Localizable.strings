@@ -1,0 +1,210 @@
+/* Navigation */
+"Back" = "返回";
+
+/* Tab bar */
+"Home" = "首页";
+"Favorites" = "收藏";
+"Me" = "我的";
+
+/* Categories */
+"Categories" = "分类";
+"Movies" = "电影";
+"TV Series" = "剧集";
+"Anime" = "动漫";
+"Variety Shows" = "综艺";
+"All" = "全部";
+"Popular" = "热门";
+"Latest" = "最新";
+"Douban Top" = "豆瓣高分";
+"Hidden Gems" = "冷门佳片";
+"Recently Popular" = "最近热门";
+"Series" = "番剧";
+"Chinese" = "华语";
+"Western" = "欧美";
+"Korean" = "韩国";
+"Japanese" = "日本";
+
+/* Home */
+"KMTV" = "KMTV";
+"Search videos..." = "搜索视频...";
+"Continue Watching" = "继续观看";
+"Clear" = "清除";
+"+ Favorite" = "+ 收藏";
+
+/* Login */
+"Sign in to continue" = "登录以继续";
+"Username" = "用户名";
+"Password" = "密码";
+"Sign In" = "登录";
+
+/* Server Setup */
+"Add your server to get started" = "添加服务器以开始使用";
+"Server URL" = "服务器地址";
+"Name" = "名称";
+"Connect" = "连接";
+
+/* Server */
+"Cancel" = "取消";
+"Add" = "添加";
+
+/* Search */
+"Search" = "搜索";
+"Searching..." = "搜索中...";
+"No results found" = "未找到结果";
+"No description available" = "无法获取影片简介, 当前最快源无简介...";
+"Search History" = "搜索历史";
+"%lld sources" = "%lld 个来源";
+"Searching available sources %lld / %lld ..." = "正在搜索可用源 %lld / %lld ...";
+"Probing CDN availability %lld / %lld ..." = "正在探测 CDN 可用性 %lld / %lld ...";
+
+/* Profile */
+"Unknown" = "未知";
+"Admin" = "管理员";
+"User" = "用户";
+"Regular User" = "普通用户";
+"Passwords do not match" = "两次输入的密码不一致";
+"Admin Panel" = "管理面板";
+"Change Password" = "修改密码";
+"Current Password" = "当前密码";
+"New Password" = "新密码";
+"Confirm Password" = "确认密码";
+"Save Password" = "保存密码";
+"Passwords don't match" = "两次输入的密码不一致";
+"Password cannot be empty" = "密码不能为空";
+"Password changed" = "密码已修改";
+"Clear Watch History" = "清除观看历史";
+"Watch history cleared" = "观看历史已清除";
+"Sign Out" = "退出登录";
+"Anonymous User" = "匿名用户";
+"Edit Username" = "修改用户名";
+"Username updated" = "用户名已更新";
+"Avatar updated" = "头像已更新";
+"Avatar removed" = "头像已移除";
+"Tap to change avatar" = "点击更换头像";
+"Remove Avatar" = "移除头像";
+"Change Avatar" = "更换头像";
+"Error" = "错误";
+"OK" = "确定";
+
+/* Favorites */
+"No Favorites" = "暂无收藏";
+"Videos you favorite will appear here" = "收藏的视频将显示在这里";
+"Remove" = "移除";
+
+/* Player */
+"Sources" = "来源";
+"CDN Lines" = "CDN 线路";
+"Line %lld" = "线路 %lld";
+"Episodes" = "选集";
+"Description" = "简介";
+"Play" = "播放";
+"Favorite" = "收藏";
+"Favorited" = "已收藏";
+"Director: " = "导演: ";
+"Cast: " = "演员: ";
+
+/* Admin */
+"Subs" = "订阅";
+"Users" = "用户";
+"Settings" = "设置";
+"Healthy: %lld/%lld" = "健康: %lld/%lld";
+"Check All" = "全部检测";
+"Add Subscription" = "添加订阅";
+"Subscription URL" = "订阅地址";
+"Interval (seconds)" = "间隔 (秒)";
+"Sync" = "同步";
+"Add User" = "添加用户";
+"Role" = "角色";
+"Anonymous Access" = "匿名访问";
+"Adult Filter" = "成人内容过滤";
+"Site Name" = "站点名称";
+"Access Token TTL" = "访问 token 有效期";
+"Media Token TTL" = "媒体 token 有效期";
+"Playback Mode" = "播放模式";
+"7 Days" = "7 天";
+"30 Days" = "30 天";
+"365 Days" = "365 天";
+"15 Minutes" = "15 分钟";
+"30 Minutes" = "30 分钟";
+"60 Minutes" = "60 分钟";
+"120 Minutes" = "120 分钟";
+"Image Proxy" = "图片代理";
+"Server" = "服务器";
+"Backend Proxy" = "后端转发";
+"Tencent CDN" = "腾讯 CDN";
+"Ali CDN" = "阿里 CDN";
+"Client Direct" = "客户端直连";
+"Show all %lld sources" = "显示全部 %lld 个来源";
+"Collapse" = "收起";
+"Expand" = "展开";
+"Auto Sync" = "自动同步";
+"Sync completed" = "同步完成";
+"Cannot delete yourself" = "不能删除自己";
+
+/* Playback Settings */
+"Playback" = "播放设置";
+"Skip Intro" = "跳过片头";
+"Skip Outro" = "跳过片尾";
+
+/* Server Setup */
+"Leave empty for anonymous access" = "留空则以匿名方式访问";
+"Server Note (Optional)" = "服务器备注(可选)";
+"Username (Optional)" = "用户名(可选)";
+"Password (Optional)" = "密码(可选)";
+
+/* TV Settings */
+"Account" = "账号";
+"Server Address" = "服务器地址";
+
+/* Version Compatibility */
+"Server Incompatible" = "服务器版本不兼容";
+
+/* Connection */
+"Connection Error" = "连接错误";
+"Retry" = "重试";
+"Change Server" = "更换服务器";
+"Connecting..." = "连接中...";
+"Connection timed out" = "连接超时";
+"Connecting to server..." = "正在连接服务器...";
+"Login Required" = "此服务器需要登录凭据";
+
+
+/* Validation */
+"Invalid URL format, must start with http:// or https://" = "URL 格式错误, 必须以 http:// 或 https:// 开头";
+
+/* API Errors */
+"No internet connection" = "无网络连接";
+"Cannot connect to server" = "无法连接服务器";
+"Network error, please try again" = "网络错误, 请重试";
+"Failed to parse server response" = "服务器响应解析失败";
+"Invalid username or password" = "用户名或密码错误";
+"Anonymous access is disabled, please sign in" = "该服务器禁止匿名登录, 请输入账号密码";
+"Session expired, please sign in again" = "登录已过期, 请重新登录";
+"Username already taken" = "用户名已被占用";
+"Current password is incorrect" = "当前密码不正确";
+"Image too large, max 256KB" = "图片过大, 最大 256KB";
+"Unsupported image format, use JPEG/PNG/GIF/WebP" = "不支持的图片格式, 请使用 JPEG/PNG/GIF/WebP";
+"No image selected" = "未选择图片";
+"Please fill in all required fields" = "请填写所有必填项";
+"Invalid URL format" = "URL 格式错误";
+"Invalid role" = "无效的角色";
+"Resource not found" = "资源未找到";
+"Invalid ID" = "无效的 ID";
+"Invalid request" = "无效的请求";
+"Missing required parameter" = "缺少必要参数";
+"Request blocked" = "请求被拦截";
+"External service unavailable" = "外部服务不可用";
+"Server error, please try again later" = "服务器错误, 请稍后重试";
+"An unexpected error occurred" = "发生未知错误";
+
+/* Performance */
+"Performance" = "性能";
+"Search Concurrency" = "搜索并发数";
+"Probe Concurrency" = "探测并发数";
+"Search Timeout" = "搜索超时";
+"Probe Timeout" = "探测超时";
+
+/* Misc */
+"Yes" = "是";
+"No" = "否";
+"N/A" = "N/A";

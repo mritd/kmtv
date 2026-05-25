@@ -1,0 +1,183 @@
+version: "3"
+
+vars:
+  BINARY: kmtv
+
+tasks:
+  default:
+    desc: Build the project
+    deps: [build]
+
+  build:
+    desc: Build everything (frontend + backend)
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo "v0.0.0-dev"
+      GIT_COMMIT:
+        sh: git rev-parse HEAD 2>/dev/null || echo "unknown"
+      BUILD_TIME:
+        sh: date -u +%Y-%m-%dT%H:%M:%SZ
+    cmds:
+      - task: web:build
+      - cd server && go build -trimpath -ldflags "-w -s -X github.com/mritd/kmtv/internal/version.Version={{.VERSION}} -X github.com/mritd/kmtv/internal/version.GitCommit={{.GIT_COMMIT}} -X github.com/mritd/kmtv/internal/version.BuildTime={{.BUILD_TIME}}" -o {{.BINARY}} .
+    sources:
+      - "server/**/*.go"
+      - "web/index.html"
+      - "web/package.json"
+      - "web/bun.lock"
+      - "web/src/**/*"
+      - "web/tsconfig.json"
+      - "web/vite.config.ts"
+    generates:
+      - "server/{{.BINARY}}"
+
+  server:
+    desc: Build frontend and run backend
+    vars:
+      GIT_COMMIT:
+        sh: git rev-parse HEAD 2>/dev/null || echo "unknown"
+      BUILD_TIME:
+        sh: date -u +%Y-%m-%dT%H:%M:%SZ
+    cmds:
+      - rm -f dev.db dev.db-shm dev.db-wal
+      - task: web:build
+      - cd server && go run -ldflags "-w -s -X github.com/mritd/kmtv/internal/version.Version=v0.0.0-dev -X github.com/mritd/kmtv/internal/version.GitCommit={{.GIT_COMMIT}} -X github.com/mritd/kmtv/internal/version.BuildTime={{.BUILD_TIME}}" . --listen :8080 --db-path ../dev.db
+
+  web:install:
+    desc: Install frontend dependencies
+    dir: web
+    cmds:
+      - bun install
+
+  web:dev:
+    desc: Run frontend dev server
+    dir: web
+    cmds:
+      - bun run dev
+
+  web:build:
+    desc: Build frontend for production
+    dir: web
+    cmds:
+      - bun run build
+      - rm -rf ../server/web/dist
+      - mkdir -p ../server/web/dist
+      - cp -R dist/. ../server/web/dist/
+
+  web:test:
+    desc: Run frontend tests
+    dir: web
+    cmds:
+      - bun run test
+
+  web:lint:
+    desc: Type-check frontend
+    dir: web
+    cmds:
+      - bun run lint
+
+  web:i18n-check:
+    desc: Verify i18n key parity across locales
+    dir: web
+    cmds:
+      - bun run i18n-check
+
+  web:bilingual-check:
+    desc: Advisory scan for missing bilingual comments on exports
+    dir: web
+    cmds:
+      - bun run bilingual-check
+
+  web:coverage:
+    desc: Run vitest with coverage thresholds
+    dir: web
+    cmds:
+      - bun run coverage
+
+  ios:
+    desc: Build and run iOS app on iPhone 16 Pro (iOS 18.6)
+    cmds:
+      - ./scripts/simulator.sh KMTV 'iOS Simulator' 'iPhone 16 Pro' '18.6' com.mritd.kmtv.ios KMTV.app
+
+  ios26:
+    desc: Build and run iOS app on iPhone 17 Pro (iOS 26)
+    cmds:
+      - ./scripts/simulator.sh KMTV 'iOS Simulator' 'iPhone 17 Pro' '26.1' com.mritd.kmtv.ios KMTV.app
+
+  ipad:
+    desc: Build and run iOS app on iPad Pro 11-inch M4 (iPadOS 18.6)
+    cmds:
+      - ./scripts/simulator.sh KMTV 'iOS Simulator' 'iPad Pro 11-inch (M4)' '18.6' com.mritd.kmtv.ios KMTV.app
+
+  ipad26:
+    desc: Build and run iOS app on iPad Pro 11-inch M5 (iPadOS 26)
+    cmds:
+      - ./scripts/simulator.sh KMTV 'iOS Simulator' 'iPad Pro 11-inch (M5)' '26.1' com.mritd.kmtv.ios KMTV.app
+
+  tv:
+    desc: Build and run tvOS app on Apple TV (tvOS 18.5)
+    cmds:
+      - ./scripts/simulator.sh KMTVTV 'tvOS Simulator' 'Apple TV' '18.5' com.mritd.kmtv.tv KMTVTV.app
+
+  tv26:
+    desc: Build and run tvOS app on Apple TV (tvOS 26.2)
+    cmds:
+      - ./scripts/simulator.sh KMTVTV 'tvOS Simulator' 'Apple TV' '26.2' com.mritd.kmtv.tv KMTVTV.app
+
+  device:
+    desc: Build and install iOS app to a connected physical device
+    interactive: true
+    cmds:
+      - ./scripts/device.sh
+
+  install:
+    desc: Build and install to GOPATH/bin
+    deps: [build]
+    cmds:
+      - install -m 755 server/{{.BINARY}} {{.GOPATH}}/bin/{{.BINARY}}
+    vars:
+      GOPATH:
+        sh: go env GOPATH
+
+  test:
+    desc: Run tests
+    dir: server
+    cmds:
+      - go test ./...
+
+  lint:
+    desc: Run linter
+    dir: server
+    cmds:
+      - golangci-lint run
+
+  docker:
+    desc: Build Docker image
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo "v0.0.0-dev"
+      GIT_COMMIT:
+        sh: git rev-parse HEAD 2>/dev/null || echo "unknown"
+      BUILD_TIME:
+        sh: date -u +%Y-%m-%dT%H:%M:%SZ
+    cmds:
+      - docker buildx build --build-arg VERSION={{.VERSION}} --build-arg GIT_COMMIT={{.GIT_COMMIT}} --build-arg BUILD_TIME={{.BUILD_TIME}} -t mritd/kmtv -f server/Dockerfile . --load
+
+  docker:push:
+    desc: Build and push Docker image
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo "v0.0.0-dev"
+      GIT_COMMIT:
+        sh: git rev-parse HEAD 2>/dev/null || echo "unknown"
+      BUILD_TIME:
+        sh: date -u +%Y-%m-%dT%H:%M:%SZ
+    cmds:
+      - docker buildx build --platform=linux/amd64,linux/arm64 --build-arg VERSION={{.VERSION}} --build-arg GIT_COMMIT={{.GIT_COMMIT}} --build-arg BUILD_TIME={{.BUILD_TIME}} -t mritd/kmtv -f server/Dockerfile . --push
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -f server/{{.BINARY}}
+      - rm -f dev.db
+      - rm -rf server/web/dist

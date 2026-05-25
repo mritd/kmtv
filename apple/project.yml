@@ -1,0 +1,112 @@
+name: KMTV
+options:
+  bundleIdPrefix: com.mritd.kmtv
+  deploymentTarget:
+    iOS: "18.0"
+    tvOS: "18.0"
+  xcodeVersion: "16.0"
+  generateEmptyDirectories: true
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+packages:
+  Kingfisher:
+    url: https://github.com/onevcat/Kingfisher.git
+    from: "8.0.0"
+  SkeletonUI:
+    url: https://github.com/CSolanaM/SkeletonUI.git
+    from: "2.0.0"
+
+configFiles:
+  Debug: Signing.example.xcconfig
+  Release: Signing.example.xcconfig
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  KMTV:
+    type: application
+    platform: iOS
+    sources:
+      - path: KMTV
+      - path: Shared
+    resources:
+      - path: Shared/Resources
+    dependencies:
+      - package: Kingfisher
+      - package: SkeletonUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mritd.kmtv.ios
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: 1
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
+        INFOPLIST_KEY_UILaunchScreen_Generation: true
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_NSAppTransportSecurity_AllowsArbitraryLoads: true
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+
+  KMTVTV:
+    type: application
+    platform: tvOS
+    sources:
+      - path: KMTVTV
+      - path: Shared
+    resources:
+      - path: Shared/Resources
+    dependencies:
+      - package: Kingfisher
+      - package: SkeletonUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mritd.kmtv.tv
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: 1
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
+        INFOPLIST_KEY_UILaunchScreen_Generation: true
+        INFOPLIST_KEY_NSAppTransportSecurity_AllowsArbitraryLoads: true
+        ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+
+  KMTVTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: KMTVTests
+    dependencies:
+      - target: KMTV
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mritd.kmtv.tests
+        GENERATE_INFOPLIST_FILE: true
+
+  KMTVUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: KMTVUITests
+    dependencies:
+      - target: KMTV
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mritd.kmtv.uitests
+        GENERATE_INFOPLIST_FILE: true
+
+  KMTVTVUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    sources:
+      - path: KMTVTVUITests
+    dependencies:
+      - target: KMTVTV
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mritd.kmtv.tv.uitests
+        GENERATE_INFOPLIST_FILE: true

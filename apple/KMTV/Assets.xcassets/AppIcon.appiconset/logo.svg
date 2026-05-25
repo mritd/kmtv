@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <clipPath id="icon-clip">
+      <rect x="0" y="0" width="1024" height="1024"/>
+    </clipPath>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0c0c38"/>
+      <stop offset="30%" stop-color="#1a1468"/>
+      <stop offset="60%" stop-color="#2a1a90"/>
+      <stop offset="100%" stop-color="#1a3078"/>
+    </linearGradient>
+    <radialGradient id="o1" cx="25%" cy="30%" r="55%">
+      <stop offset="0%" stop-color="#4020d8" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#4020d8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="o2" cx="75%" cy="70%" r="50%">
+      <stop offset="0%" stop-color="#1850a0" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#1850a0" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="piece-shadow" x="-5%" y="-5%" width="115%" height="115%">
+      <feDropShadow dx="2" dy="3" stdDeviation="6" flood-color="#060020" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <g clip-path="url(#icon-clip)">
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+    <rect width="1024" height="1024" fill="url(#o1)"/>
+    <rect width="1024" height="1024" fill="url(#o2)"/>
+
+    <g filter="url(#piece-shadow)">
+      <!-- Upper arm back (darker) -->
+      <polygon points="501.0,341 647.5,341 810,170 662,170" fill="#8878B8"/>
+      <!-- Upper arm front (brighter) -->
+      <polygon points="340,512 485,512 647.5,341 501.0,341" fill="#B8A8E0"/>
+
+      <!-- Lower leg back (darker) -->
+      <polygon points="501.0,683 647.5,683 810,854 662,854" fill="#4888A8"/>
+      <!-- Lower leg front (brighter) -->
+      <polygon points="340,512 485,512 647.5,683 501.0,683" fill="#78C0D8"/>
+
+      <!-- Stem (front, brightest) -->
+      <rect x="195" y="170" width="145" height="684"
+            rx="6" ry="6" fill="#E4DCF0"/>
+    </g>
+    
+  </g>
+</svg>

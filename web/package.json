@@ -1,0 +1,43 @@
+{
+  "name": "kmtv-web",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "lint": "tsc --noEmit",
+    "i18n-check": "bunx tsx ../scripts/check-i18n-keys.ts",
+    "bilingual-check": "bunx tsx ../scripts/check-bilingual-comments.ts"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.100.10",
+    "artplayer": "5.4.0",
+    "hls.js": "1.6.16",
+    "i18next": "26.2.0",
+    "i18next-browser-languagedetector": "8.2.1",
+    "motion": "12.40.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "react-i18next": "17.0.8",
+    "react-router-dom": "7.15.1",
+    "zustand": "5.0.8"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "@vitest/coverage-v8": "4.1.6",
+    "happy-dom": "20.9.0",
+    "jsdom": "29.1.1",
+    "typescript": "6.0.3",
+    "vite": "8.0.13",
+    "vitest": "4.1.6"
+  }
+}

@@ -1,0 +1,32 @@
+# Local dev artifacts
+.task/
+.superpowers/
+.claude/
+.codex/
+
+# OS / IDE
+.DS_Store
+.idea/
+*.iml
+
+# Binary
+/kmtv
+/server/kmtv
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Legacy browser assets
+web/node_modules/
+server/web/
+
+# Xcode
+apple/build/
+apple/KMTV.xcodeproj/xcuserdata/
+apple/KMTV.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcuserstate
+
+# Local-only Apple signing config (each contributor maintains their own)
+apple/Signing.local.xcconfig

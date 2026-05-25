@@ -1,0 +1,26 @@
+// Apple code-signing configuration entry point.
+// Apple 代码签名配置入口.
+//
+// The Xcode project references this file at build time. To set your own Team ID,
+// create apple/Signing.local.xcconfig (gitignored) with:
+//
+//     DEVELOPMENT_TEAM = YOUR_TEAM_ID
+//
+// The `#include?` directive below conditionally pulls in your local override
+// when present and is silently ignored on fresh forks, so the committed Xcode
+// project never carries any contributor's personal Team ID.
+//
+// Xcode 项目在构建时读取本文件. 配置自己的 Team ID 时, 创建
+// apple/Signing.local.xcconfig (已 gitignore), 写入:
+//
+//     DEVELOPMENT_TEAM = YOUR_TEAM_ID
+//
+// 下方 `#include?` 指令在文件存在时条件性引入, 否则静默跳过, 因此提交的
+// Xcode 工程永远不会包含任何贡献者的个人 Team ID.
+//
+// Find your Team ID at https://developer.apple.com/account → Membership.
+// 在 https://developer.apple.com/account → Membership 查看你的 Team ID.
+
+DEVELOPMENT_TEAM =
+
+#include? "Signing.local.xcconfig"
