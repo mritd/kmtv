@@ -37,7 +37,12 @@ export function createTestAPI(overrides: Partial<APIClient> = {}): APIClient {
     deleteSubscription: async () => undefined,
     syncSubscription: async () => undefined,
     listUsers: async () => ({ users: [] }),
-    createUser: async (user) => ({ id: 1, username: user.username, role: user.role }),
+    createUser: async (user) => ({
+      id: 1,
+      username: user.username,
+      role: user.role,
+      allow_adult_content: user.allow_adult_content ?? false,
+    }),
     updateUser: async () => undefined,
     deleteUser: async () => undefined,
     ...overrides,

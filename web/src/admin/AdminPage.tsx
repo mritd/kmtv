@@ -84,7 +84,9 @@ export function AdminPage() {
     if (!auth.user) return;
     adminModalStore.getState().open({
       kind: "user.password",
-      user: { id: auth.user.id, username: auth.user.username, role: auth.user.role },
+      // allow_adult_content is irrelevant to the password modal and is not exposed via /me.
+      // allow_adult_content 与密码弹窗无关, 且 /me 不暴露该字段.
+      user: { id: auth.user.id, username: auth.user.username, role: auth.user.role, allow_adult_content: false },
     });
   }
 

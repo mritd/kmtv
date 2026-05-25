@@ -32,6 +32,20 @@ func (h *Handler) PlaybackURL(c *gin.Context) {
 		c.JSON(http.StatusForbidden, errs.Blocked.WithMsg("blocked: "+err.Error()))
 		return
 	}
+	if req.Source != "" {
+		src, err := h.store.GetSourceByKey(req.Source)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, errs.ServerError.WithMsg("failed to look up source"))
+			return
+		}
+		if src == nil {
+			c.JSON(http.StatusNotFound, errs.NotFound.WithMsg("source not found"))
+			return
+		}
+		if !h.requireSourceAccess(c, src) {
+			return
+		}
+	}
 
 	mode := appruntime.Default().PlaybackMode()
 	if mode == consts.PlaybackModeDirect {

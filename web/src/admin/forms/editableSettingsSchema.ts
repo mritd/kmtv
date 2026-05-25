@@ -75,7 +75,11 @@ export const editableSettingsSchema: ReadonlyArray<EditableSettingEntry> = [
   { kind: "text", key: "site_name", label: "站点名称" },
   { kind: "boolean", key: "anonymous_access", label: "匿名访问" },
   { kind: "number", key: "health_check_interval", label: "健康检查间隔 (秒)", min: 60, step: 60 },
-  { kind: "boolean", key: "adult_filter_enabled", label: "成人内容过滤" },
+  // nsfw_filter_enabled is the site-wide NSFW filter: ON blocks NSFW for everyone;
+  // OFF lets per-user allow_adult_content decide. Default ON, so NSFW is blocked by default.
+  // nsfw_filter_enabled 是全站 NSFW 过滤开关: 开启即对所有人屏蔽 NSFW;
+  // 关闭则交由用户级 allow_adult_content 决定. 默认开启, 故默认屏蔽 NSFW.
+  { kind: "boolean", key: "nsfw_filter_enabled", label: "NSFW 内容过滤 (全站)" },
   {
     kind: "enum",
     key: "douban_image_proxy",

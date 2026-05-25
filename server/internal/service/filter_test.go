@@ -9,9 +9,9 @@ import (
 func TestFilterAdultSources(t *testing.T) {
 	sources := []model.Source{
 		{Key: "a.com", Name: "Normal A"},
-		{Key: "b.com", Name: "\U0001F51EAdult B"},
+		{Key: "b.com", Name: "Adult B", IsAdult: true},
 		{Key: "c.com", Name: "Normal C"},
-		{Key: "d.com", Name: "\U0001F51EAdult D"},
+		{Key: "d.com", Name: "Adult D", IsAdult: true},
 	}
 
 	result := FilterAdultSources(sources)
@@ -32,13 +32,13 @@ func TestFilterAdultResults(t *testing.T) {
 			Title: "Movie A",
 			Sources: []model.SourceResult{
 				{SourceKey: "a.com", SourceName: "Normal A"},
-				{SourceKey: "b.com", SourceName: "\U0001F51EAdult B"},
+				{SourceKey: "b.com", SourceName: "Adult B", IsAdult: true},
 			},
 		},
 		{
 			Title: "Movie B",
 			Sources: []model.SourceResult{
-				{SourceKey: "c.com", SourceName: "\U0001F51EAdult C"},
+				{SourceKey: "c.com", SourceName: "Adult C", IsAdult: true},
 			},
 		},
 	}

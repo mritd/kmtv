@@ -13,6 +13,15 @@ import (
 	"github.com/mritd/kmtv/internal/utils"
 )
 
+type updateSourceRequest struct {
+	Name    string `json:"name"`
+	API     string `json:"api"`
+	Detail  string `json:"detail"`
+	Comment string `json:"comment"`
+	Enabled bool   `json:"enabled"`
+	IsAdult *bool  `json:"is_adult"`
+}
+
 // ListSources returns all video sources.
 // ListSources 返回所有视频源.
 func (h *Handler) ListSources(c *gin.Context) {
@@ -62,20 +71,34 @@ func (h *Handler) UpdateSource(c *gin.Context) {
 		return
 	}
 
-	var src model.Source
-	if err := c.ShouldBindJSON(&src); err != nil {
+	var req updateSourceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, errs.InvalidRequest)
 		return
 	}
 
-	if src.API != "" {
-		if err := utils.ValidateExternalURL(src.API); err != nil {
+	if req.API != "" {
+		if err := utils.ValidateExternalURL(req.API); err != nil {
 			c.JSON(http.StatusBadRequest, errs.InvalidURL.WithMsg("invalid API URL: "+err.Error()))
 			return
 		}
 	}
 
-	if err := h.store.UpdateSource(id, src.Name, src.API, src.Detail, src.Comment, src.Enabled); err != nil {
+	existing, err := h.store.GetSourceByID(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errs.ServerError.WithMsg("failed to look up source"))
+		return
+	}
+	if existing == nil {
+		c.JSON(http.StatusNotFound, errs.NotFound.WithMsg("source not found"))
+		return
+	}
+	isAdult := existing.IsAdult
+	if req.IsAdult != nil {
+		isAdult = *req.IsAdult
+	}
+
+	if err := h.store.UpdateSourceFull(id, req.Name, req.API, req.Detail, req.Comment, req.Enabled, isAdult); err != nil {
 		if errors.Is(err, errs.ErrNotFound) {
 			c.JSON(http.StatusNotFound, errs.NotFound.WithMsg("source not found"))
 			return

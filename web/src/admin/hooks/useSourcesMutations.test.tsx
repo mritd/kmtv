@@ -52,6 +52,7 @@ const sampleSource: Source = {
   detail: "",
   enabled: true,
   searchable: true,
+  is_adult: false,
   comment: "",
   health: "healthy",
   last_check: "",
@@ -65,7 +66,7 @@ describe("useSourcesMutations", () => {
       const { result } = renderHook(() => useSourcesMutations(), { wrapper: makeWrapper() });
       result.current.create.mutate({
         key: "src-b", name: "B", api: "https://b.example",
-        detail: "", enabled: true, searchable: true, comment: "",
+        detail: "", enabled: true, searchable: true, is_adult: false, comment: "",
       });
       await waitFor(() => expect(result.current.create.isSuccess).toBe(true));
     });
@@ -75,7 +76,7 @@ describe("useSourcesMutations", () => {
       const { result } = renderHook(() => useSourcesMutations(), { wrapper: Wrapper });
       result.current.create.mutate({
         key: "src-c", name: "C", api: "https://c.example",
-        detail: "", enabled: true, searchable: true, comment: "",
+        detail: "", enabled: true, searchable: true, is_adult: false, comment: "",
       });
       await waitFor(() => expect(result.current.create.isSuccess).toBe(true));
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["admin", "sources"] });
@@ -87,7 +88,7 @@ describe("useSourcesMutations", () => {
       const { result } = renderHook(() => useSourcesMutations(), { wrapper: makeWrapper() });
       result.current.update.mutate({
         id: 1,
-        payload: { key: "src-a", name: "A Updated", api: "https://a.example", detail: "", enabled: true, searchable: true, comment: "" },
+        payload: { key: "src-a", name: "A Updated", api: "https://a.example", detail: "", enabled: true, searchable: true, is_adult: false, comment: "" },
       });
       await waitFor(() => expect(result.current.update.isSuccess).toBe(true));
     });
@@ -97,7 +98,7 @@ describe("useSourcesMutations", () => {
       const { result } = renderHook(() => useSourcesMutations(), { wrapper: Wrapper });
       result.current.update.mutate({
         id: 1,
-        payload: { key: "src-a", name: "A Updated", api: "https://a.example", detail: "", enabled: true, searchable: true, comment: "" },
+        payload: { key: "src-a", name: "A Updated", api: "https://a.example", detail: "", enabled: true, searchable: true, is_adult: false, comment: "" },
       });
       await waitFor(() => expect(result.current.update.isSuccess).toBe(true));
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["admin", "sources"] });

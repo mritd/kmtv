@@ -177,6 +177,12 @@ func TestMigrateUpgradesLegacySchema(t *testing.T) {
 	if !columnExists(t, s.db, "sources", "searchable") {
 		t.Fatal("expected sources.searchable column after migration")
 	}
+	if !columnExists(t, s.db, "users", "allow_adult_content") {
+		t.Fatal("expected users.allow_adult_content column after migration")
+	}
+	if !columnExists(t, s.db, "sources", "is_adult") {
+		t.Fatal("expected sources.is_adult column after migration")
+	}
 }
 
 func TestMigrateAddsOpaqueTokenAuthToExistingV5DB(t *testing.T) {

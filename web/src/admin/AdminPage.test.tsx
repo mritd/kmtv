@@ -38,6 +38,7 @@ function renderAdmin(overrides: Partial<Parameters<typeof createTestAPI>[0]> = {
           detail: "",
           enabled: true,
           searchable: true,
+          is_adult: false,
           comment: "",
           health: "healthy",
           last_check: "2026-05-16T00:00:00Z",
@@ -47,7 +48,7 @@ function renderAdmin(overrides: Partial<Parameters<typeof createTestAPI>[0]> = {
       ],
     }),
     listSubscriptions: async () => ({ subscriptions: [{ id: 1, url: "https://config.example", auto_update: true, interval: 3600, last_sync: "", updated_at: "" }] }),
-    listUsers: async () => ({ users: [{ id: 1, username: "admin", role: "admin" }] }),
+    listUsers: async () => ({ users: [{ id: 1, username: "admin", role: "admin", allow_adult_content: false }] }),
     getSettings: async () => ({ settings: { version: "v0.0.0-dev", search_concurrency: "8" } }),
     ...overrides,
   });
@@ -118,7 +119,7 @@ describe("AdminPage", () => {
       await waitFor(() =>
         expect(adminModalStore.getState().current).toEqual({
           kind: "user.password",
-          user: { id: 1, username: "admin", role: "admin" },
+          user: { id: 1, username: "admin", role: "admin", allow_adult_content: false },
         }),
       );
     });
@@ -131,12 +132,12 @@ describe("AdminPage", () => {
           sources: [
             {
               id: 1, key: "a", name: "A", api: "https://a.example",
-              detail: "", enabled: true, searchable: true, comment: "",
+              detail: "", enabled: true, searchable: true, is_adult: false, comment: "",
               health: "healthy", last_check: "", created_at: "", updated_at: "",
             },
             {
               id: 2, key: "b", name: "B", api: "https://b.example",
-              detail: "", enabled: false, searchable: false, comment: "",
+              detail: "", enabled: false, searchable: false, is_adult: false, comment: "",
               health: "unhealthy", last_check: "", created_at: "", updated_at: "",
             },
           ],

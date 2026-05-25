@@ -80,7 +80,7 @@ func TestGetAllSettings(t *testing.T) {
 	expected := map[string]string{
 		consts.SettingAnonymousAccess:     "true",
 		consts.SettingHealthCheckInterval: "3600",
-		consts.SettingAdultFilterEnabled:  "true",
+		consts.SettingNSFWFilterEnabled:   "true",
 		consts.SettingSiteName:            "KMTV",
 		consts.SettingPublicBaseURL:       "",
 		consts.SettingAccessTokenTTL:      "604800",

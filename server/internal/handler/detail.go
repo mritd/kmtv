@@ -40,6 +40,9 @@ func (h *Handler) Detail(c *gin.Context) {
 		c.JSON(http.StatusNotFound, errs.NotFound.WithMsg("source not found"))
 		return
 	}
+	if !h.requireSourceAccess(c, src) {
+		return
+	}
 
 	detailURL := vodsource.BuildDetailURL(src.API, videoID)
 	sourceResp, body, err := h.sourceClient.FetchList(c.Request.Context(), detailURL)

@@ -19,6 +19,7 @@ const sampleSource: Source = {
   detail: "",
   enabled: true,
   searchable: true,
+  is_adult: false,
   comment: "",
   health: "healthy",
   last_check: "",
@@ -125,7 +126,7 @@ describe("AdminModal", () => {
     const user = userEvent.setup();
     renderModal(createTestAPI(), {
       kind: "user.password",
-      user: { id: 1, username: "alice", role: "admin", created_at: "", updated_at: "" },
+      user: { id: 1, username: "alice", role: "admin", allow_adult_content: false, created_at: "", updated_at: "" },
     });
     const newPwd = screen.getByLabelText("新密码");
     const confirmPwd = screen.getByLabelText("确认密码");

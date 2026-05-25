@@ -24,6 +24,7 @@
  */
 
 import { type FormEvent, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { APIError } from "@/api/client";
@@ -42,6 +43,7 @@ import { toast } from "@/shared/ui/Toast";
  * ?next= 值经过净化以拒绝绝对 URL、协议相对 URL 和反斜杠路径 (开放重定向攻击向量).
  */
 export function LoginPage() {
+  const { t } = useTranslation("auth");
   const auth = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -53,8 +55,8 @@ export function LoginPage() {
     rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") && !rawNext.startsWith("/\\")
       ? rawNext
       : "/";
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("admin");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -68,7 +70,7 @@ export function LoginPage() {
       navigate(safeNext, { replace: true });
     } catch (err) {
       const description = err instanceof APIError ? err.message : err instanceof Error ? err.message : undefined;
-      toast.error({ title: "Login failed", description });
+      toast.error({ title: t("loginFailed"), description });
     } finally {
       setLoading(false);
     }
@@ -79,15 +81,15 @@ export function LoginPage() {
       <form className="login-card" onSubmit={submit}>
         <h1>KMTV</h1>
         <label>
-          Username
+          {t("username")}
           <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
         </label>
         <label>
-          Password
+          {t("password")}
           <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" />
         </label>
         <Button type="submit" variant="primary" disabled={loading}>
-          {loading ? "Signing in..." : "Sign in"}
+          {loading ? t("signInPending") : t("signIn")}
         </Button>
       </form>
     </main>

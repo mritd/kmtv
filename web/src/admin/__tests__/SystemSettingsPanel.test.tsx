@@ -18,7 +18,7 @@ const baseSettings = {
   search_concurrency: "8",
   anonymous_access: "false",
   health_check_interval: "120",
-  adult_filter_enabled: "true",
+  nsfw_filter_enabled: "true",
   douban_image_proxy: "tencent",
   probe_concurrency: "4",
   probe_timeout: "10",
@@ -60,6 +60,16 @@ describe("SystemSettingsPanel", () => {
       // In read-only mode there are no <input> fields.
       // 只读模式下不应有 <input> 字段.
       expect(screen.queryByRole("spinbutton")).toBeNull();
+    });
+
+    it("labels nsfw_filter_enabled as a filter, not an allow toggle", async () => {
+      renderPanel();
+
+      // Backend semantics: nsfw_filter_enabled=true enables the filter (blocks NSFW).
+      // The label must reflect filtering, never "allow", or admins misread the toggle.
+      // 后端语义: nsfw_filter_enabled=true 启用过滤 (屏蔽 NSFW). 标签必须体现"过滤"而非"允许".
+      expect(await screen.findByText("NSFW 内容过滤 (全站)")).toBeInTheDocument();
+      expect(screen.queryByText(/允许 *NSFW/)).toBeNull();
     });
 
     it("shows the version string at the bottom", async () => {

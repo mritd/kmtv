@@ -6,6 +6,7 @@ const auth = {
   password: "Password",
   signIn: "Sign in",
   signInPending: "Signing in...",
+  loginFailed: "Login failed",
   invalidCredentials: "Invalid username or password.",
 } as const;
 

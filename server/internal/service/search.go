@@ -52,6 +52,7 @@ func NewSearchServiceWithClient(s *store.Store, ps *ProxyService, client *http.C
 type rawSearchResult struct {
 	SourceKey  string
 	SourceName string
+	IsAdult    bool
 	Duration   float64 // response time in ms
 	Item       model.VideoSourceItem
 	Episodes   []model.Episode // pre-validated episodes from working CDN line
@@ -94,6 +95,7 @@ func (ss *SearchService) SearchWithProgress(ctx context.Context, query string, p
 	type searchHit struct {
 		SourceKey  string
 		SourceName string
+		IsAdult    bool
 		Duration   float64
 		Item       model.VideoSourceItem
 	}
@@ -142,6 +144,7 @@ func (ss *SearchService) SearchWithProgress(ctx context.Context, query string, p
 			hits = append(hits, searchHit{
 				SourceKey:  src.Key,
 				SourceName: src.Name,
+				IsAdult:    src.IsAdult,
 				Duration:   duration,
 				Item:       item,
 			})
@@ -182,6 +185,7 @@ func (ss *SearchService) SearchWithProgress(ctx context.Context, query string, p
 			return &rawSearchResult{
 				SourceKey:  h.SourceKey,
 				SourceName: h.SourceName,
+				IsAdult:    h.IsAdult,
 				Duration:   h.Duration,
 				Item:       h.Item,
 				Episodes:   allGroups[0],
@@ -199,6 +203,7 @@ func (ss *SearchService) SearchWithProgress(ctx context.Context, query string, p
 		return &rawSearchResult{
 			SourceKey:  h.SourceKey,
 			SourceName: h.SourceName,
+			IsAdult:    h.IsAdult,
 			Duration:   h.Duration,
 			Item:       h.Item,
 			Episodes:   alive[0],
@@ -273,6 +278,7 @@ func deduplicateResults(results []rawSearchResult) []model.SearchResult {
 		sr := model.SourceResult{
 			SourceKey:  r.SourceKey,
 			SourceName: r.SourceName,
+			IsAdult:    r.IsAdult,
 			VideoID:    model.FormatID(r.Item.VodID),
 			Duration:   r.Duration,
 			Episodes:   r.Episodes,

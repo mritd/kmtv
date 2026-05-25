@@ -45,6 +45,11 @@ var migrations = []migration{
 		name:    "add_opaque_token_auth",
 		up:      migrateAddOpaqueTokenAuth,
 	},
+	{
+		version: 7,
+		name:    "add_adult_content_access",
+		up:      migrateAddAdultContentAccess,
+	},
 }
 
 // migrate applies schema changes in version order and records completed steps.
@@ -130,6 +135,7 @@ func migrateCreateCoreTables(tx *sql.Tx) error {
 			password TEXT NOT NULL,
 			avatar TEXT DEFAULT '',
 			role TEXT NOT NULL DEFAULT 'user',
+			allow_adult_content BOOLEAN NOT NULL DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -140,6 +146,7 @@ func migrateCreateCoreTables(tx *sql.Tx) error {
 			api TEXT NOT NULL,
 			detail TEXT NOT NULL DEFAULT '',
 			enabled BOOLEAN NOT NULL DEFAULT 1,
+			is_adult BOOLEAN NOT NULL DEFAULT 0,
 			comment TEXT NOT NULL DEFAULT '',
 			health TEXT NOT NULL DEFAULT 'unknown',
 			last_check DATETIME,
@@ -201,7 +208,7 @@ func migrateInsertDefaultSettings(tx *sql.Tx) error {
 	defaults := map[string]string{
 		consts.SettingAnonymousAccess:     "true",
 		consts.SettingHealthCheckInterval: "3600",
-		consts.SettingAdultFilterEnabled:  "true",
+		consts.SettingNSFWFilterEnabled:   "true",
 		consts.SettingSiteName:            "KMTV",
 		consts.SettingDoubanImageProxy:    "tencent",
 		consts.SettingPublicBaseURL:       "",
@@ -288,6 +295,59 @@ func migrateAddOpaqueTokenAuth(tx *sql.Tx) error {
 		}
 	}
 	return nil
+}
+
+func migrateAddAdultContentAccess(tx *sql.Tx) error {
+	hasUsers, err := tableExists(tx, "users")
+	if err != nil {
+		return err
+	}
+	if hasUsers {
+		hasAllowAdultContent, err := tableHasColumn(tx, "users", "allow_adult_content")
+		if err != nil {
+			return err
+		}
+		if !hasAllowAdultContent {
+			if _, err := tx.Exec(`ALTER TABLE users ADD COLUMN allow_adult_content BOOLEAN NOT NULL DEFAULT 0`); err != nil {
+				return fmt.Errorf("add users.allow_adult_content column: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`UPDATE users SET allow_adult_content = 1 WHERE role = 'admin'`); err != nil {
+			return fmt.Errorf("backfill admin adult content access: %w", err)
+		}
+	}
+
+	hasSources, err := tableExists(tx, "sources")
+	if err != nil {
+		return err
+	}
+	if hasSources {
+		hasIsAdult, err := tableHasColumn(tx, "sources", "is_adult")
+		if err != nil {
+			return err
+		}
+		if !hasIsAdult {
+			if _, err := tx.Exec(`ALTER TABLE sources ADD COLUMN is_adult BOOLEAN NOT NULL DEFAULT 0`); err != nil {
+				return fmt.Errorf("add sources.is_adult column: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`UPDATE sources SET is_adult = 1 WHERE name LIKE '%🔞%' OR name LIKE '%18禁%'`); err != nil {
+			return fmt.Errorf("backfill adult sources: %w", err)
+		}
+	}
+	return nil
+}
+
+func tableExists(tx *sql.Tx, tableName string) (bool, error) {
+	var name string
+	err := tx.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, tableName).Scan(&name)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return false, fmt.Errorf("check %s table: %w", tableName, err)
 }
 
 func tableHasColumn(tx *sql.Tx, tableName, columnName string) (bool, error) {

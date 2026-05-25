@@ -13,8 +13,10 @@ describe("AppShell", () => {
     // Probe of /auth/me must complete before the unauthenticated branch renders the login form.
     // /auth/me 探测完成后才会渲染 unauthenticated 分支的登录表单.
     expect(await screen.findByRole("heading", { name: "KMTV" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Username")).toBeInTheDocument();
-    expect(screen.getByLabelText("Password")).toBeInTheDocument();
+    // Login form is i18n'd (auth namespace, zh test locale) and must not pre-fill credentials.
+    // 登录表单已做 i18n (auth 命名空间, 测试语言为 zh), 且不得预填凭据.
+    expect(screen.getByLabelText("用户名")).toHaveValue("");
+    expect(screen.getByLabelText("密码")).toHaveValue("");
   });
 
   it("shows lightweight app navigation when a token snapshot exists", () => {
@@ -88,7 +90,7 @@ describe("AppShell", () => {
     // The login form must render (we are now on /login).
     // 登录表单出现 (此时已在 /login 上).
     expect(await screen.findByRole("heading", { name: "KMTV" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Username")).toBeInTheDocument();
+    expect(screen.getByLabelText("用户名")).toBeInTheDocument();
   });
 
   it("signs in through the login form", async () => {
@@ -109,7 +111,11 @@ describe("AppShell", () => {
 
     // Wait for probe to resolve to unauthenticated and the login button to mount.
     // 等待探测完成进入 unauthenticated 分支, 登录按钮挂载.
-    const submit = await screen.findByRole("button", { name: "Sign in" });
+    const submit = await screen.findByRole("button", { name: "登录" });
+    // Credentials are no longer pre-filled, so the user must type them before submitting.
+    // 凭据不再预填, 用户必须先输入再提交.
+    await user.type(screen.getByLabelText("用户名"), "admin");
+    await user.type(screen.getByLabelText("密码"), "admin");
     await user.click(submit);
 
     expect(api.login).toHaveBeenCalledWith("admin", "admin");

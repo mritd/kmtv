@@ -18,7 +18,7 @@ func scanSource(row interface{ Scan(...any) error }) (*model.Source, error) {
 	var lastCheck *time.Time
 	err := row.Scan(
 		&src.ID, &src.Key, &src.Name, &src.API, &src.Detail,
-		&src.Enabled, &src.Searchable, &src.Comment, &src.Health, &lastCheck,
+		&src.Enabled, &src.IsAdult, &src.Searchable, &src.Comment, &src.Health, &lastCheck,
 		&src.CreatedAt, &src.UpdatedAt,
 	)
 	if err != nil {
@@ -53,14 +53,14 @@ func (s *Store) querySources(query string, args ...any) ([]model.Source, error) 
 	return sources, nil
 }
 
-const sourceColumns = `id, key, name, api, detail, enabled, searchable, comment, health, last_check, created_at, updated_at`
+const sourceColumns = `id, key, name, api, detail, enabled, is_adult, searchable, comment, health, last_check, created_at, updated_at`
 
 // CreateSource inserts a new source.
 // CreateSource 插入一个新视频源.
 func (s *Store) CreateSource(src *model.Source) (int64, error) {
 	result, err := s.db.Exec(
-		`INSERT INTO sources (key, name, api, detail, enabled, comment) VALUES (?, ?, ?, ?, ?, ?)`,
-		src.Key, src.Name, src.API, src.Detail, src.Enabled, src.Comment,
+		`INSERT INTO sources (key, name, api, detail, enabled, is_adult, comment) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		src.Key, src.Name, src.API, src.Detail, src.Enabled, src.IsAdult, src.Comment,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("create source: %w", err)
@@ -137,9 +137,22 @@ func (s *Store) ListEnabledSources() ([]model.Source, error) {
 // UpdateSource updates a source's mutable fields.
 // UpdateSource 更新视频源的可变字段.
 func (s *Store) UpdateSource(id int64, name, api, detail, comment string, enabled bool) error {
+	src, err := s.GetSourceByID(id)
+	if err != nil {
+		return err
+	}
+	if src == nil {
+		return errs.ErrNotFound
+	}
+	return s.UpdateSourceFull(id, name, api, detail, comment, enabled, src.IsAdult)
+}
+
+// UpdateSourceFull updates a source's mutable fields including adult classification.
+// UpdateSourceFull 更新视频源可变字段, 包括成人内容分类.
+func (s *Store) UpdateSourceFull(id int64, name, api, detail, comment string, enabled, isAdult bool) error {
 	result, err := s.db.Exec(
-		`UPDATE sources SET name = ?, api = ?, detail = ?, comment = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-		name, api, detail, comment, enabled, id,
+		`UPDATE sources SET name = ?, api = ?, detail = ?, comment = ?, enabled = ?, is_adult = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		name, api, detail, comment, enabled, isAdult, id,
 	)
 	if err != nil {
 		return fmt.Errorf("update source: %w", err)
@@ -235,15 +248,16 @@ func (s *Store) DeleteSource(id int64) error {
 // UpsertSourceByKey 插入视频源, 如果 key 已存在则更新.
 func (s *Store) UpsertSourceByKey(src *model.Source) error {
 	_, err := s.db.Exec(
-		`INSERT INTO sources (key, name, api, detail, enabled, comment)
-		 VALUES (?, ?, ?, ?, ?, ?)
+		`INSERT INTO sources (key, name, api, detail, enabled, is_adult, comment)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(key) DO UPDATE SET
 			name = excluded.name,
 			api = excluded.api,
 			detail = excluded.detail,
+			is_adult = excluded.is_adult,
 			comment = excluded.comment,
 			updated_at = CURRENT_TIMESTAMP`,
-		src.Key, src.Name, src.API, src.Detail, src.Enabled, src.Comment,
+		src.Key, src.Name, src.API, src.Detail, src.Enabled, src.IsAdult, src.Comment,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert source by key: %w", err)

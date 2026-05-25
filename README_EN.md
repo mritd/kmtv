@@ -7,6 +7,18 @@
 **This project is developed for personal use. Please do not publish videos or articles promoting it on Bilibili, Xiaohongshu, WeChat Official Accounts, Douyin, or other mainland China social platforms.**
 **This project does not authorize inclusion in any "tech weekly/monthly" style project or website, and does not accept sponsorship, paid custom development, or other commercial activity.**
 
+<details>
+<summary>Screenshots</summary>
+
+  <img width="2560" height="1321" alt="1" src="https://github.com/user-attachments/assets/e49690c0-4931-4e83-af92-1fc5fae5e4f2" />
+  <img width="2560" height="1150" alt="2" src="https://github.com/user-attachments/assets/12dc91c4-9b06-4ba5-9776-618a78d707e3" />
+  <img width="2559" height="1002" alt="3" src="https://github.com/user-attachments/assets/5bbd4188-1290-44f4-b594-d7c1694d6ff2" />
+  <img width="2560" height="1294" alt="4" src="https://github.com/user-attachments/assets/f3eaf097-7af4-497f-94f6-1ad3f2587869" />
+  <img width="568" height="1084" alt="5" src="https://github.com/user-attachments/assets/4e31c7c5-636c-42d5-9361-897bdf335318" />
+  <img width="1118" height="886" alt="6" src="https://github.com/user-attachments/assets/9c6d2e1e-682b-499c-9238-195619f20940" />
+
+</details>
+
 ## Features
 
 - Single-file deployment with a high-performance Go backend and embedded Web assets

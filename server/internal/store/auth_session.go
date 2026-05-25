@@ -51,7 +51,7 @@ func (s *Store) GetValidAuthSessionByHash(tokenHash string) (*model.AuthSession,
 	err := s.db.QueryRow(
 		`SELECT
 			a.id, a.user_id, a.token_hash, a.created_at, a.expires_at, a.revoked_at, a.last_seen_at, a.user_agent, a.ip,
-			u.id, u.username, u.password, u.avatar, u.role, u.created_at, u.updated_at
+			u.id, u.username, u.password, u.avatar, u.role, u.allow_adult_content, u.created_at, u.updated_at
 		 FROM auth_sessions a
 		 JOIN users u ON u.id = a.user_id
 		 WHERE a.token_hash = ? AND a.revoked_at IS NULL AND a.expires_at > ?`,
@@ -59,13 +59,50 @@ func (s *Store) GetValidAuthSessionByHash(tokenHash string) (*model.AuthSession,
 		time.Now(),
 	).Scan(
 		&session.ID, &session.UserID, &session.TokenHash, &session.CreatedAt, &session.ExpiresAt, &revokedAt, &lastSeenAt, &session.UserAgent, &session.IP,
-		&user.ID, &user.Username, &user.Password, &user.Avatar, &user.Role, &user.CreatedAt, &user.UpdatedAt,
+		&user.ID, &user.Username, &user.Password, &user.Avatar, &user.Role, &user.AllowAdultContent, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, nil
 	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("get valid auth session: %w", err)
+	}
+	if revokedAt.Valid {
+		t := revokedAt.Time
+		session.RevokedAt = &t
+	}
+	if lastSeenAt.Valid {
+		t := lastSeenAt.Time
+		session.LastSeenAt = &t
+	}
+	return &session, &user, nil
+}
+
+// GetValidAuthSessionByID returns a live auth session and its user by session ID.
+// GetValidAuthSessionByID 根据 session ID 返回有效 auth session 及其用户.
+func (s *Store) GetValidAuthSessionByID(id int64) (*model.AuthSession, *model.User, error) {
+	var session model.AuthSession
+	var user model.User
+	var revokedAt sql.NullTime
+	var lastSeenAt sql.NullTime
+	err := s.db.QueryRow(
+		`SELECT
+			a.id, a.user_id, a.token_hash, a.created_at, a.expires_at, a.revoked_at, a.last_seen_at, a.user_agent, a.ip,
+			u.id, u.username, u.password, u.avatar, u.role, u.allow_adult_content, u.created_at, u.updated_at
+		 FROM auth_sessions a
+		 JOIN users u ON u.id = a.user_id
+		 WHERE a.id = ? AND a.revoked_at IS NULL AND a.expires_at > ?`,
+		id,
+		time.Now(),
+	).Scan(
+		&session.ID, &session.UserID, &session.TokenHash, &session.CreatedAt, &session.ExpiresAt, &revokedAt, &lastSeenAt, &session.UserAgent, &session.IP,
+		&user.ID, &user.Username, &user.Password, &user.Avatar, &user.Role, &user.AllowAdultContent, &user.CreatedAt, &user.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("get valid auth session by id: %w", err)
 	}
 	if revokedAt.Valid {
 		t := revokedAt.Time

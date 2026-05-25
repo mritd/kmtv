@@ -223,7 +223,7 @@ Admin 可见设置键:
 - `site_name`
 - `anonymous_access`
 - `health_check_interval`
-- `adult_filter_enabled`
+- `nsfw_filter_enabled`
 - `douban_image_proxy`
 - `search_concurrency`
 - `probe_concurrency`

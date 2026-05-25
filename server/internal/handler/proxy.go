@@ -13,6 +13,7 @@ import (
 
 	"github.com/mritd/kmtv/internal/consts"
 	"github.com/mritd/kmtv/internal/errs"
+	"github.com/mritd/kmtv/internal/model"
 	appruntime "github.com/mritd/kmtv/internal/runtime"
 	"github.com/mritd/kmtv/internal/service"
 	"github.com/mritd/kmtv/internal/utils"
@@ -30,7 +31,11 @@ func (h *Handler) ProxyM3U8(c *gin.Context) {
 		c.JSON(http.StatusForbidden, errs.Blocked.WithMsg("blocked: "+err.Error()))
 		return
 	}
-	if !h.requireMediaToken(c, service.MediaKindM3U8, targetURL) {
+	mediaToken, ok := h.requireMediaToken(c, service.MediaKindM3U8, targetURL)
+	if !ok {
+		return
+	}
+	if !h.requireMediaTokenSourceAccess(c, mediaToken) {
 		return
 	}
 
@@ -38,7 +43,7 @@ func (h *Handler) ProxyM3U8(c *gin.Context) {
 
 	proxyBase := h.publicBaseURL(c.Request)
 	signer := func(kind, rawURL, sourceKey string) (string, error) {
-		return h.mediaSvc.IssueMediaToken(0, kind, rawURL, sourceKey, time.Duration(appruntime.Default().MediaTokenTTL())*time.Second)
+		return h.mediaSvc.IssueMediaToken(mediaToken.AuthSessionID, kind, rawURL, sourceKey, time.Duration(appruntime.Default().MediaTokenTTL())*time.Second)
 	}
 	content, err := h.proxySvc.FetchM3U8(c.Request.Context(), targetURL, proxyBase, sourceKey, c.Request.Header, signer)
 	if err != nil {
@@ -62,7 +67,11 @@ func (h *Handler) ProxySegment(c *gin.Context) {
 		c.JSON(http.StatusForbidden, errs.Blocked.WithMsg("blocked: "+err.Error()))
 		return
 	}
-	if !h.requireMediaToken(c, service.MediaKindSegment, targetURL) {
+	mediaToken, ok := h.requireMediaToken(c, service.MediaKindSegment, targetURL)
+	if !ok {
+		return
+	}
+	if !h.requireMediaTokenSourceAccess(c, mediaToken) {
 		return
 	}
 
@@ -81,7 +90,11 @@ func (h *Handler) ProxyKey(c *gin.Context) {
 		c.JSON(http.StatusForbidden, errs.Blocked.WithMsg("blocked: "+err.Error()))
 		return
 	}
-	if !h.requireMediaToken(c, service.MediaKindKey, targetURL) {
+	mediaToken, ok := h.requireMediaToken(c, service.MediaKindKey, targetURL)
+	if !ok {
+		return
+	}
+	if !h.requireMediaTokenSourceAccess(c, mediaToken) {
 		return
 	}
 
@@ -90,19 +103,52 @@ func (h *Handler) ProxyKey(c *gin.Context) {
 
 // requireMediaToken verifies a URL-bound media token before proxying media.
 // requireMediaToken 在代理媒体前校验绑定 URL 的媒体 token.
-func (h *Handler) requireMediaToken(c *gin.Context, kind, targetURL string) bool {
+func (h *Handler) requireMediaToken(c *gin.Context, kind, targetURL string) (*model.MediaToken, bool) {
 	token := c.Query("mt")
 	if token == "" {
 		c.JSON(http.StatusUnauthorized, errs.NotLoggedIn.WithMsg("missing media token"))
-		return false
+		return nil, false
 	}
-	ok, err := h.mediaSvc.VerifyMediaToken(token, kind, targetURL)
+	mediaToken, ok, err := h.mediaSvc.VerifyMediaTokenDetail(token, kind, targetURL)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, errs.ServerError.WithMsg("failed to verify media token"))
-		return false
+		return nil, false
 	}
 	if !ok {
 		c.JSON(http.StatusUnauthorized, errs.NotLoggedIn.WithMsg("invalid or expired media token"))
+		return nil, false
+	}
+	return mediaToken, true
+}
+
+func (h *Handler) requireMediaTokenSourceAccess(c *gin.Context, mediaToken *model.MediaToken) bool {
+	if mediaToken == nil || mediaToken.SourceKey == "" {
+		return true
+	}
+	src, err := h.store.GetSourceByKey(mediaToken.SourceKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errs.ServerError.WithMsg("failed to look up source"))
+		return false
+	}
+	if src == nil || !src.IsAdult {
+		return true
+	}
+	enabled, err := h.nsfwFilterEnabled()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errs.ServerError.WithMsg("failed to read adult content setting"))
+		return false
+	}
+	if enabled || mediaToken.AuthSessionID == 0 {
+		c.JSON(http.StatusForbidden, errs.Blocked.WithMsg("adult content access denied"))
+		return false
+	}
+	_, user, err := h.store.GetValidAuthSessionByID(mediaToken.AuthSessionID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errs.ServerError.WithMsg("failed to verify media session"))
+		return false
+	}
+	if user == nil || !user.AllowAdultContent {
+		c.JSON(http.StatusForbidden, errs.Blocked.WithMsg("adult content access denied"))
 		return false
 	}
 	return true

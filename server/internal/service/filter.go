@@ -17,7 +17,7 @@ func isAdultSource(name string) bool {
 func FilterAdultSources(sources []model.Source) []model.Source {
 	var filtered []model.Source
 	for _, s := range sources {
-		if !isAdultSource(s.Name) {
+		if !s.IsAdult {
 			filtered = append(filtered, s)
 		}
 	}
@@ -33,7 +33,7 @@ func FilterAdultResults(results []model.SearchResult) []model.SearchResult {
 	for _, r := range results {
 		var sources []model.SourceResult
 		for _, sr := range r.Sources {
-			if !isAdultSource(sr.SourceName) {
+			if !sr.IsAdult {
 				sources = append(sources, sr)
 			}
 		}

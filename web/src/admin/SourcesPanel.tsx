@@ -3,12 +3,12 @@
  * SourcesPanel — 管理所有已配置视频源的管理面板.
  *
  * Responsibilities / 职责:
- *   - List sources sorted: non-NSFW first, then NSFW, both groups preserving server order.
- *     按顺序展示源: 非 NSFW 在前, NSFW 在后, 组内保持服务器顺序.
+ *   - List sources sorted: non-adult first, then adult (by source.is_adult), preserving server order.
+ *     按顺序展示源: 非成人源在前, 成人源 (按 source.is_adult) 在后, 组内保持服务器顺序.
  *   - Provide per-row actions: check health, edit, enable/disable, delete.
  *     提供逐行操作: 探测健康、编辑、启用/禁用、删除.
- *   - Provide bulk actions: check-all, bulk-enable-NSFW, import, new.
- *     提供批量操作: 全量探测、批量启用 NSFW、导入、新建.
+ *   - Provide bulk actions: check-all, enable-all, import, new.
+ *     提供批量操作: 全量探测、启用全部、导入、新建.
  *   - Poll automatically while any source is mid-probe (driven by useSourcesQuery).
  *     任一源处于探测中时自动轮询 (由 useSourcesQuery 驱动).
  *
@@ -33,23 +33,19 @@ import { adminModalStore } from "@/store/adminModalStore";
 import { useSourcesMutations } from "./hooks/useSourcesMutations";
 import { AdminTableSkeleton } from "./skeletons/AdminTableSkeleton";
 
-// NSFW_PREFIX is the conventional emoji prefix that marks adult-content sources.
-// Centralised here so sortSources and isNsfw both use the same sentinel.
-// NSFW_PREFIX 是标记成人内容源的约定前缀 emoji.
-// 集中定义让 sortSources 和 isNsfw 使用同一哨兵值.
-const NSFW_PREFIX = "🔞";
-
-// isNsfw returns true when the source name begins with the NSFW emoji prefix.
+// isNsfw returns true when the source is classified as adult content.
+// Uses the structured source.is_adult field (backed by the DB) rather than a name prefix.
 // isNsfw
-// 当源名称以 NSFW emoji 前缀开头时返回 true.
+// 当源被分类为成人内容时返回 true.
+// 使用结构化的 source.is_adult 字段 (由数据库支撑), 而非名称前缀.
 function isNsfw(source: Source): boolean {
-  return source.name.startsWith(NSFW_PREFIX);
+  return source.is_adult;
 }
 
-// sortSources puts non-NSFW sources first, preserving original order within each group.
+// sortSources puts non-adult sources first, preserving original order within each group.
 // Stable sort is achieved by tagging each element with its original index before sorting.
 // sortSources
-// 把非 NSFW 源排前面, 组内保留原始顺序.
+// 把非成人源排前面, 组内保留原始顺序.
 // 通过在排序前标记原始下标来实现稳定排序.
 function sortSources(sources: Source[]): Source[] {
   return sources
@@ -81,31 +77,31 @@ export function SourcesPanel() {
   // anyChecking drives the disabled state of the "check-all" button.
   // anyChecking 驱动 "全量探测" 按钮的禁用状态.
   const anyChecking = useMemo(() => sortedSources.some((s) => s.health === "checking"), [sortedSources]);
-  // nsfwDisabled is the target set for "enable all NSFW" — only sources that are NSFW AND disabled.
-  // nsfwDisabled 是 "启用全部 NSFW" 的目标集合 — 仅 NSFW 且当前禁用的源.
-  const nsfwDisabled = useMemo(() => sortedSources.filter((s) => isNsfw(s) && !s.enabled), [sortedSources]);
+  // disabledSources is the target set for "enable all" — every source currently disabled.
+  // disabledSources 是 "启用全部源" 的目标集合 — 所有当前禁用的源.
+  const disabledSources = useMemo(() => sortedSources.filter((s) => !s.enabled), [sortedSources]);
 
   if (query.isLoading) return <AdminTableSkeleton />;
   if (query.isError) return <StatusState title={t("source.loadFailed")} tone="error" />;
 
-  // enableAllNsfw uses the bulk endpoint so all rows update atomically in a single SQLite
+  // enableAllSources uses the bulk endpoint so all rows update atomically in a single SQLite
   // transaction. A fan-out of N concurrent PUTs raced against the WAL writer lock and
   // failed with SQLITE_BUSY for all but the first request.
-  // enableAllNsfw
+  // enableAllSources
   // 走批量端点, 所有行在单次 SQLite 事务中原子更新.
   // 之前的散列 N 个并发 PUT 会撞 WAL 写锁, 除第一个外全部 SQLITE_BUSY 失败.
-  async function enableAllNsfw() {
-    const total = nsfwDisabled.length;
+  async function enableAllSources() {
+    const total = disabledSources.length;
     if (total === 0) {
-      toast.info({ title: t("source.enableNsfwNone") });
+      toast.info({ title: t("source.enableAllNone") });
       return;
     }
     try {
       await mutations.bulkSetEnabled.mutateAsync({
-        ids: nsfwDisabled.map((source) => source.id),
+        ids: disabledSources.map((source) => source.id),
         enabled: true,
       });
-      toast.success({ title: t("source.enableNsfwSuccess", { count: total }) });
+      toast.success({ title: t("source.enableAllSuccess", { count: total }) });
     } catch (error) {
       toast.error({
         title: t("errors.saveFailed"),
@@ -161,11 +157,11 @@ export function SourcesPanel() {
           <Button
             type="button"
             variant="secondary"
-            onClick={enableAllNsfw}
-            title={t("source.enableNsfwTitle")}
+            onClick={enableAllSources}
+            title={t("source.enableAllTitle")}
             disabled={mutations.bulkSetEnabled.isPending || mutations.toggleEnabled.isPending}
           >
-            {t("source.enableNsfwButton")}
+            {t("source.enableAllButton")}
           </Button>
           <Button type="button" variant="primary" onClick={() => adminModalStore.getState().open({ kind: "source.new" })}>
             {t("source.newButton")}
@@ -192,6 +188,9 @@ export function SourcesPanel() {
                 <span>{source.api}</span>
               </div>
               <div className="admin-row-status">
+                {source.is_adult ? (
+                  <span className="status-pill status-pill-on">{t("source.nsfwBadge")}</span>
+                ) : null}
                 <span className={`status-pill ${source.enabled ? "status-pill-on" : "status-pill-off"}`}>
                   {source.enabled ? t("status.enabled") : t("status.disabled")}
                 </span>

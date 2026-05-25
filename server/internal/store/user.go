@@ -54,6 +54,12 @@ func isUsernameChar(c rune) bool {
 // CreateUser inserts a new user with a bcrypt-hashed password.
 // CreateUser 插入一个新用户, 并使用 bcrypt hash 保存密码.
 func (s *Store) CreateUser(username, password, role string) (int64, error) {
+	return s.CreateUserWithAdultAccess(username, password, role, false)
+}
+
+// CreateUserWithAdultAccess inserts a new user with adult content access policy.
+// CreateUserWithAdultAccess 插入一个带成人内容访问策略的新用户.
+func (s *Store) CreateUserWithAdultAccess(username, password, role string, allowAdultContent bool) (int64, error) {
 	if err := ValidateUsername(username); err != nil {
 		return 0, err
 	}
@@ -71,8 +77,8 @@ func (s *Store) CreateUser(username, password, role string) (int64, error) {
 	}
 
 	result, err := s.db.Exec(
-		`INSERT INTO users (username, password, role) VALUES (?, ?, ?)`,
-		username, hash, role,
+		`INSERT INTO users (username, password, role, allow_adult_content) VALUES (?, ?, ?, ?)`,
+		username, hash, role, allowAdultContent,
 	)
 	if err != nil {
 		if isUniqueConstraint(err) {
@@ -88,8 +94,8 @@ func (s *Store) CreateUser(username, password, role string) (int64, error) {
 func (s *Store) GetUserByID(id int64) (*model.User, error) {
 	var u model.User
 	err := s.db.QueryRow(
-		`SELECT id, username, password, avatar, role, created_at, updated_at FROM users WHERE id = ?`, id,
-	).Scan(&u.ID, &u.Username, &u.Password, &u.Avatar, &u.Role, &u.CreatedAt, &u.UpdatedAt)
+		`SELECT id, username, password, avatar, role, allow_adult_content, created_at, updated_at FROM users WHERE id = ?`, id,
+	).Scan(&u.ID, &u.Username, &u.Password, &u.Avatar, &u.Role, &u.AllowAdultContent, &u.CreatedAt, &u.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -104,8 +110,8 @@ func (s *Store) GetUserByID(id int64) (*model.User, error) {
 func (s *Store) GetUserByUsername(username string) (*model.User, error) {
 	var u model.User
 	err := s.db.QueryRow(
-		`SELECT id, username, password, avatar, role, created_at, updated_at FROM users WHERE username = ?`, username,
-	).Scan(&u.ID, &u.Username, &u.Password, &u.Avatar, &u.Role, &u.CreatedAt, &u.UpdatedAt)
+		`SELECT id, username, password, avatar, role, allow_adult_content, created_at, updated_at FROM users WHERE username = ?`, username,
+	).Scan(&u.ID, &u.Username, &u.Password, &u.Avatar, &u.Role, &u.AllowAdultContent, &u.CreatedAt, &u.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -119,7 +125,7 @@ func (s *Store) GetUserByUsername(username string) (*model.User, error) {
 // ListUsers 按 ID 顺序获取所有用户.
 func (s *Store) ListUsers() ([]model.User, error) {
 	rows, err := s.db.Query(
-		`SELECT id, username, role, created_at, updated_at FROM users ORDER BY id`,
+		`SELECT id, username, role, allow_adult_content, created_at, updated_at FROM users ORDER BY id`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
@@ -129,7 +135,7 @@ func (s *Store) ListUsers() ([]model.User, error) {
 	var users []model.User
 	for rows.Next() {
 		var u model.User
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.AllowAdultContent, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}
 		users = append(users, u)
@@ -225,6 +231,12 @@ func (s *Store) DeleteUser(id int64) error {
 // UpdateUserFull updates username, role, and optionally password in a single transaction.
 // UpdateUserFull 在单个事务中更新用户名, 角色和可选密码.
 func (s *Store) UpdateUserFull(id int64, username, role, password string) error {
+	return s.UpdateUserFullWithAdultAccess(id, username, role, password, false)
+}
+
+// UpdateUserFullWithAdultAccess updates username, role, adult access, and optionally password in a single transaction.
+// UpdateUserFullWithAdultAccess 在单个事务中更新用户名, 角色, 成人内容访问策略和可选密码.
+func (s *Store) UpdateUserFullWithAdultAccess(id int64, username, role, password string, allowAdultContent bool) error {
 	if err := ValidateUsername(username); err != nil {
 		return err
 	}
@@ -237,8 +249,8 @@ func (s *Store) UpdateUserFull(id int64, username, role, password string) error 
 
 	now := time.Now()
 	result, err := tx.Exec(
-		`UPDATE users SET username = ?, role = ?, updated_at = ? WHERE id = ?`,
-		username, role, now, id,
+		`UPDATE users SET username = ?, role = ?, allow_adult_content = ?, updated_at = ? WHERE id = ?`,
+		username, role, allowAdultContent, now, id,
 	)
 	if err != nil {
 		if isUniqueConstraint(err) {

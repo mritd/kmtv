@@ -6,6 +6,7 @@ const auth = {
   password: "密码",
   signIn: "登录",
   signInPending: "登录中...",
+  loginFailed: "登录失败",
   invalidCredentials: "用户名或密码错误.",
 } as const;
 

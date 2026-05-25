@@ -25,6 +25,7 @@ const minimalSource: Source = {
   detail: "https://detail.example.com",
   enabled: true,
   searchable: true,
+  is_adult: false,
   comment: "",
   health: "healthy",
   last_check: "2026-01-01T00:00:00Z",
@@ -45,6 +46,7 @@ const minimalUser: AdminUser = {
   id: 1,
   username: "admin",
   role: "admin",
+  allow_adult_content: false,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };

@@ -58,6 +58,9 @@ export function UsersPanel() {
               <span>{user.role === "admin" ? t("role.admin") : t("role.user")}</span>
             </div>
             <div className="admin-row-status">
+              {user.allow_adult_content ? (
+                <span className="status-pill status-pill-on">{t("user.adultBadge")}</span>
+              ) : null}
               <span className={`status-pill ${user.role === "admin" ? "status-pill-on" : "status-pill-off"}`}>
                 {user.role === "admin" ? t("role.admin") : t("role.user")}
               </span>

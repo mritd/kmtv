@@ -14,8 +14,8 @@ import { adminModalStore } from "@/store/adminModalStore";
 
 import { UsersPanel } from "../UsersPanel";
 
-const adminUser: AdminUser = { id: 1, username: "alice", role: "admin" };
-const normalUser: AdminUser = { id: 2, username: "bob", role: "user" };
+const adminUser: AdminUser = { id: 1, username: "alice", role: "admin", allow_adult_content: true };
+const normalUser: AdminUser = { id: 2, username: "bob", role: "user", allow_adult_content: false };
 
 function renderPanel(overrides: Partial<Parameters<typeof createTestAPI>[0]> = {}) {
   const queryClient = new QueryClient({
@@ -41,6 +41,19 @@ describe("UsersPanel", () => {
 
       expect(await screen.findByText("alice")).toBeInTheDocument();
       expect(await screen.findByText("bob")).toBeInTheDocument();
+    });
+
+    it("shows the NSFW badge only for users allowed adult content", async () => {
+      renderPanel({
+        listUsers: async () => ({ users: [adminUser, normalUser] }),
+      });
+
+      await screen.findByText("alice");
+      // i18n key user.adultBadge = "NSFW"; alice is allowed, bob is not.
+      // i18n key user.adultBadge = "NSFW"; alice 允许, bob 不允许.
+      const badges = screen.getAllByText("NSFW");
+      expect(badges).toHaveLength(1);
+      expect(badges[0]).toHaveClass("status-pill-on");
     });
 
     it("renders an empty table when there are no users", async () => {

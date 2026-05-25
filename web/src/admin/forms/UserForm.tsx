@@ -25,12 +25,13 @@ import { toast } from "@/shared/ui/Toast";
 import { useUsersMutations } from "../hooks/useUsersMutations";
 import { useForm } from "./useForm";
 
-// UserFormValues holds the three editable fields for create/edit.
-// UserFormValues 持有新建/编辑的三个可编辑字段.
+// UserFormValues holds the editable fields for create/edit.
+// UserFormValues 持有新建/编辑的可编辑字段.
 type UserFormValues = {
   username: string;
   password: string;
   role: "admin" | "user";
+  allowAdultContent: boolean;
 };
 
 /**
@@ -52,6 +53,7 @@ export function UserForm({ user, onDone }: { user?: AdminUser; onDone: () => voi
       username: user?.username ?? "",
       password: "",
       role: user?.role ?? "user",
+      allowAdultContent: user?.allow_adult_content ?? false,
     },
     {
       username: (value) => (value.trim() ? undefined : t("user.form.errors.usernameRequired")),
@@ -73,15 +75,20 @@ export function UserForm({ user, onDone }: { user?: AdminUser; onDone: () => voi
       });
     };
     if (isEdit && user) {
-      // Edit path: only username and role are sent; password is managed separately.
-      // 编辑路径: 仅发送 username 和 role; 密码通过单独入口管理.
-      const payload: UpdateUserPayload = { username: values.username, role: values.role };
+      // Edit path: username, role, and adult-content policy are sent; password is managed separately.
+      // 编辑路径: 发送 username, role 和成人内容策略; 密码通过单独入口管理.
+      const payload: UpdateUserPayload = {
+        username: values.username,
+        role: values.role,
+        allow_adult_content: values.allowAdultContent,
+      };
       mutations.update.mutate({ id: user.id, payload }, { onSuccess: onDone, onError });
     } else {
       const payload: CreateUserPayload = {
         username: values.username,
         password: values.password,
         role: values.role,
+        allow_adult_content: values.allowAdultContent,
       };
       mutations.create.mutate(payload, { onSuccess: onDone, onError });
     }
@@ -122,6 +129,16 @@ export function UserForm({ user, onDone }: { user?: AdminUser; onDone: () => voi
           onChange={(value) => setField("role", value as "admin" | "user")}
           ariaLabel={t("user.form.roleLabel")}
         />
+      </label>
+      <label className="form-toggle">
+        <input
+          type="checkbox"
+          checked={values.allowAdultContent}
+          onChange={(e) => setField("allowAdultContent", e.target.checked)}
+          aria-label={t("user.form.allowAdultLabel")}
+        />
+        <span className="form-toggle-track" aria-hidden="true" />
+        <span className="form-toggle-label">{t("user.form.allowAdultLabel")}</span>
       </label>
       <div className="admin-form-actions">
         <Button type="button" variant="secondary" onClick={onDone}>

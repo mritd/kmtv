@@ -29,9 +29,9 @@ const (
 	// SettingHealthCheckInterval 是视频源健康检查间隔的 DB 设置 key.
 	SettingHealthCheckInterval = "health_check_interval"
 
-	// SettingAdultFilterEnabled is the DB setting key for adult content filtering.
-	// SettingAdultFilterEnabled 是成人内容过滤开关的 DB 设置 key.
-	SettingAdultFilterEnabled = "adult_filter_enabled"
+	// SettingNSFWFilterEnabled is the DB setting key for site-wide NSFW content filtering.
+	// SettingNSFWFilterEnabled 是全站 NSFW 内容过滤开关的 DB 设置 key.
+	SettingNSFWFilterEnabled = "nsfw_filter_enabled"
 
 	// SettingDoubanImageProxy is the DB setting key for Douban image proxy mode.
 	// SettingDoubanImageProxy 是豆瓣图片代理模式的 DB 设置 key.

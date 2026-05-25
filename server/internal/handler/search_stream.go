@@ -7,9 +7,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
 
-	"github.com/mritd/kmtv/internal/consts"
 	"github.com/mritd/kmtv/internal/errs"
 	"github.com/mritd/kmtv/internal/model"
 	"github.com/mritd/kmtv/internal/service"
@@ -52,16 +50,6 @@ func (h *Handler) SearchStream(c *gin.Context) {
 	c.Writer.Header().Set("Connection", "keep-alive")
 	c.Writer.WriteHeaderNow()
 
-	// Check adult filter setting.
-	// 检查成人内容过滤设置.
-	adultFilter := true
-	filterStr, err := h.store.GetSetting(consts.SettingAdultFilterEnabled)
-	if err != nil {
-		logrus.WithError(err).Warn("failed to read adult_filter_enabled setting, defaulting to enabled")
-	} else if filterStr == "false" {
-		adultFilter = false
-	}
-
 	// Buffered channel bridges concurrent progress callbacks to serial SSE writes.
 	// 带缓冲 channel 将并发进度回调转换为串行 SSE 写入.
 	progressCh := make(chan sseProgressEvent, 64)
@@ -85,7 +73,7 @@ func (h *Handler) SearchStream(c *gin.Context) {
 
 	go func() {
 		defer close(progressCh)
-		results, err := h.searchSvc.SearchWithProgress(c.Request.Context(), query, page, adultFilter, onProgress)
+		results, err := h.searchSvc.SearchWithProgress(c.Request.Context(), query, page, h.shouldFilterAdult(c), onProgress)
 		done <- searchResult{results: results, err: err}
 	}()
 

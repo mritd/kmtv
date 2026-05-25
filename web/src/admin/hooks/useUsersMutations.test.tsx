@@ -32,7 +32,12 @@ describe("useUsersMutations", () => {
   describe("create", () => {
     it("resolves with the created user on success", async () => {
       const api = createTestAPI({
-        createUser: async (u) => ({ id: 99, username: u.username, role: u.role }),
+        createUser: async (u) => ({
+          id: 99,
+          username: u.username,
+          role: u.role,
+          allow_adult_content: u.allow_adult_content ?? false,
+        }),
       });
       const { Wrapper } = makeSpyWrapper(api);
       const { result } = renderHook(() => useUsersMutations(), { wrapper: Wrapper });

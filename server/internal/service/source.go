@@ -262,12 +262,13 @@ func (ss *SourceService) ImportConfig(data []byte) (int, error) {
 
 	count := 0
 	for _, src := range parsed.Sources {
+		src.IsAdult = isAdultSource(src.Name)
 		// NSFW sources default to disabled on first import; the UpsertSourceByKey
 		// CONFLICT clause leaves existing rows' enabled flag untouched, so this
 		// only affects new inserts.
 		// 首次导入的 🔞 视频源默认禁用; UpsertSourceByKey 的 CONFLICT 子句
 		// 不会改写已存在行的 enabled 字段, 所以只影响新插入.
-		if strings.HasPrefix(src.Name, "🔞") {
+		if src.IsAdult {
 			src.Enabled = false
 		}
 		if err := ss.store.UpsertSourceByKey(&src); err != nil {

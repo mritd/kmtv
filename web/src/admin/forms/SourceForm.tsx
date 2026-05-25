@@ -4,7 +4,7 @@
  *
  * Responsibilities / 职责:
  *   - Validate key, name, and api fields as required — 校验 key/name/api 字段必填
- *   - Auto-suggest enabled=false for NSFW-prefixed (🔞) new sources — 新建 🔞 源时自动建议 disabled
+ *   - Auto-suggest enabled=false for new sources marked is_adult — 新建标记为 is_adult 的源时自动建议 disabled
  *   - Lock auto-suggest once the user has explicitly toggled the enabled checkbox — 用户手动操作后锁定自动建议
  *   - Dispatch create or update mutation based on whether a source is provided — 根据是否传入 source 分发新建/更新 mutation
  *   - Show toast on mutation error — mutation 错误时显示 toast
@@ -34,13 +34,10 @@ type SourceFormValues = {
   api: string;
   detail: string;
   enabled: boolean;
+  is_adult: boolean;
   searchable: boolean;
   comment: string;
 };
-
-// NSFW_PREFIX is the emoji prefix that auto-suggests enabled=false for new sources.
-// NSFW_PREFIX 是触发新建源自动建议 enabled=false 的 emoji 前缀.
-const NSFW_PREFIX = "🔞";
 
 // valuesFromSource converts an optional existing Source into the form's initial values.
 // valuesFromSource 将可选的已有 Source 转换为表单初始值.
@@ -51,6 +48,7 @@ function valuesFromSource(source: Source | undefined): SourceFormValues {
     api: source?.api ?? "",
     detail: source?.detail ?? "",
     enabled: source?.enabled ?? true,
+    is_adult: source?.is_adult ?? false,
     searchable: source?.searchable ?? true,
     comment: source?.comment ?? "",
   };
@@ -83,25 +81,24 @@ export function SourceForm({ source, onDone }: { source?: Source; onDone: () => 
   });
 
   // enabledDirtyRef tracks whether the user has explicitly toggled enabled.
-  // While clean (new-source path only), changing the name to a 🔞 prefix flips
-  // enabled to false; any user toggle locks the field from automatic changes.
+  // While clean (new-source path only), toggling is_adult on flips enabled to
+  // false; any user toggle locks the field from automatic changes.
   // enabledDirtyRef
-  // 记录用户是否手动切换过 enabled. 在未触碰时(仅新建路径), 改名到 🔞 前缀会自动设为 false;
+  // 记录用户是否手动切换过 enabled. 在未触碰时(仅新建路径), 勾选 is_adult 会自动设为 false;
   // 一旦用户主动操作即锁定, 后续不再自动调整.
   const enabledDirtyRef = useRef<boolean>(isEdit);
 
-  // Auto-suggest enabled=false for NSFW-named new sources until the user opts in.
-  // 新建 🔞 源时, 在用户未手动操作前自动建议 enabled=false.
+  // Auto-suggest enabled=false for new sources marked is_adult until the user opts in.
+  // 新建标记为 is_adult 的源时, 在用户未手动操作前自动建议 enabled=false.
   useEffect(() => {
     if (isEdit) return;
     if (enabledDirtyRef.current) return;
-    const shouldDisable = values.name.startsWith(NSFW_PREFIX);
-    if (shouldDisable && values.enabled) {
+    if (values.is_adult && values.enabled) {
       setField("enabled", false);
-    } else if (!shouldDisable && !values.enabled) {
+    } else if (!values.is_adult && !values.enabled) {
       setField("enabled", true);
     }
-  }, [values.name, values.enabled, isEdit, setField]);
+  }, [values.is_adult, values.enabled, isEdit, setField]);
 
   // handleEnabledChange marks the field as user-controlled and updates the value.
   // handleEnabledChange 将字段标记为用户控制并更新值.
@@ -166,6 +163,17 @@ export function SourceForm({ source, onDone }: { source?: Source; onDone: () => 
         <input type="checkbox" checked={values.searchable} onChange={(e) => setField("searchable", e.target.checked)} />
         <span className="form-toggle-track" aria-hidden="true" />
         <span className="form-toggle-label">{t("source.form.searchableLabel")}</span>
+      </label>
+
+      <label className="form-toggle">
+        <input
+          type="checkbox"
+          checked={values.is_adult}
+          onChange={(e) => setField("is_adult", e.target.checked)}
+          aria-label={t("source.form.isAdultLabel")}
+        />
+        <span className="form-toggle-track" aria-hidden="true" />
+        <span className="form-toggle-label">{t("source.form.isAdultLabel")}</span>
       </label>
 
       <label>

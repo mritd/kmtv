@@ -23,6 +23,7 @@ const healthySource: Source = {
   api: "https://a.example",
   detail: "",
   enabled: true,
+  is_adult: false,
   searchable: true,
   comment: "",
   health: "healthy",
@@ -31,14 +32,34 @@ const healthySource: Source = {
   updated_at: "",
 };
 
+// Adult source marked via the structured is_adult field, NOT a name prefix —
+// this proves NSFW detection no longer depends on the 🔞 name convention.
+// 通过结构化 is_adult 字段标记的成人源, 名称不含 🔞 前缀 — 证明 NSFW 判定不再依赖名称约定.
 const disabledNsfwSource: Source = {
   id: 2,
   key: "nsfw-b",
-  name: "🔞 Adult Source",
+  name: "Adult Source",
   api: "https://b.example",
   detail: "",
   enabled: false,
+  is_adult: true,
   searchable: false,
+  comment: "",
+  health: "unknown",
+  last_check: "",
+  created_at: "",
+  updated_at: "",
+};
+
+const disabledSource: Source = {
+  id: 3,
+  key: "src-c",
+  name: "Source C",
+  api: "https://c.example",
+  detail: "",
+  enabled: false,
+  is_adult: false,
+  searchable: true,
   comment: "",
   health: "unknown",
   last_check: "",
@@ -106,6 +127,18 @@ describe("SourcesPanel", () => {
       expect(rows[0]).toHaveTextContent("Source A");
       expect(rows[1]).toHaveTextContent("Adult Source");
     });
+
+    it("shows the NSFW badge only for sources with is_adult", async () => {
+      renderPanel({
+        listSources: async () => ({ sources: [healthySource, disabledNsfwSource] }),
+      });
+
+      await screen.findByText("Source A");
+      // i18n key source.nsfwBadge = "NSFW"; only the is_adult source is marked.
+      // i18n key source.nsfwBadge = "NSFW"; 仅 is_adult 源被标记.
+      const badges = screen.getAllByText("NSFW");
+      expect(badges).toHaveLength(1);
+    });
   });
 
   describe("bulk actions", () => {
@@ -127,6 +160,27 @@ describe("SourcesPanel", () => {
       await user.click(screen.getByRole("button", { name: "导入" }));
 
       expect(adminModalStore.getState().current).toEqual({ kind: "source.import" });
+    });
+
+    it("enables every disabled source (not just NSFW) when 'enable all' is clicked", async () => {
+      const user = userEvent.setup();
+      const bulkSetSourcesEnabled = vi.fn(async (_ids: number[], _enabled: boolean) => undefined);
+      renderPanel({
+        // Mix of enabled + disabled non-NSFW + disabled NSFW; only the disabled ones are targeted.
+        // 混合 启用 + 禁用非 NSFW + 禁用 NSFW; 仅禁用的源会被启用.
+        listSources: async () => ({ sources: [healthySource, disabledSource, disabledNsfwSource] }),
+        bulkSetSourcesEnabled,
+      });
+
+      await screen.findByText("Source A");
+      await user.click(screen.getByRole("button", { name: "启用全部源" }));
+
+      await waitFor(() => expect(bulkSetSourcesEnabled).toHaveBeenCalledTimes(1));
+      const [ids, enabled] = bulkSetSourcesEnabled.mock.calls[0];
+      expect(enabled).toBe(true);
+      // Both disabled sources (ids 3 and 2) targeted; the enabled source (id 1) excluded.
+      // 两个禁用源 (id 3 和 2) 被启用; 已启用的源 (id 1) 被排除.
+      expect([...ids].sort((a, b) => a - b)).toEqual([2, 3]);
     });
   });
 

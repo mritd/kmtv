@@ -21,13 +21,14 @@ func FormatID(v any) string {
 // User represents a system user.
 // User 表示系统用户.
 type User struct {
-	ID        int64     `json:"id"`
-	Username  string    `json:"username"`
-	Password  string    `json:"-"`
-	Avatar    string    `json:"-"`
-	Role      string    `json:"role"` // admin, user
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID                int64     `json:"id"`
+	Username          string    `json:"username"`
+	Password          string    `json:"-"`
+	Avatar            string    `json:"-"`
+	Role              string    `json:"role"` // admin, user
+	AllowAdultContent bool      `json:"allow_adult_content"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 // Source represents a video source endpoint.
@@ -39,6 +40,7 @@ type Source struct {
 	API        string    `json:"api"`    // video source API URL
 	Detail     string    `json:"detail"` // site homepage URL
 	Enabled    bool      `json:"enabled"`
+	IsAdult    bool      `json:"is_adult"`
 	Searchable bool      `json:"searchable"` // false if source returned "暂不支持搜索" etc.
 	Comment    string    `json:"comment"`
 	Health     string    `json:"health"` // healthy, unhealthy, unknown
@@ -82,6 +84,7 @@ type SearchResult struct {
 type SourceResult struct {
 	SourceKey  string    `json:"source_key"`
 	SourceName string    `json:"source_name"`
+	IsAdult    bool      `json:"is_adult"`
 	VideoID    string    `json:"video_id"`
 	Duration   float64   `json:"duration_ms"` // response time in ms
 	Episodes   []Episode `json:"episodes"`

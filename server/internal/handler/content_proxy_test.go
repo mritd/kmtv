@@ -131,6 +131,63 @@ func TestSearchEnrichesMissingDescription(t *testing.T) {
 	}
 }
 
+func TestSearchFiltersAdultSourcesByUserAccess(t *testing.T) {
+	var searchRequests int
+	var upstream *httptest.Server
+	upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		searchRequests++
+		if r.URL.Query().Get("ac") != "videolist" {
+			t.Fatalf("unexpected upstream request: %s", r.URL.String())
+		}
+		_, _ = w.Write([]byte(`{
+			"code": 1,
+			"list": [{
+				"vod_id": 101,
+				"vod_name": "Adult Movie",
+				"type_name": "movie",
+				"vod_year": "2026",
+				"vod_play_url": "HD$` + upstream.URL + `/live/adult.m3u8"
+			}]
+		}`))
+	}))
+	defer upstream.Close()
+
+	h, r := setupTestHandler(t)
+	disableAnonymousAccess(t, h)
+	h.proxySvc = service.NewProxyServiceWithClient(upstream.Client())
+	h.searchSvc = service.NewSearchServiceWithClient(h.store, h.proxySvc, upstream.Client())
+	id, err := h.store.CreateSource(&model.Source{
+		Key:        "adult-search.example",
+		Name:       "Adult Search",
+		API:        upstream.URL + "/api.php/provide/vod",
+		Enabled:    true,
+		IsAdult:    true,
+		Searchable: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateSource error: %v", err)
+	}
+	if err := h.store.UpdateSourceHealth(id, consts.HealthHealthy); err != nil {
+		t.Fatalf("UpdateSourceHealth error: %v", err)
+	}
+	createTestUser(t, h, "adult_blocked_search", "pw", "user")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/search?q=adult", nil)
+	req.Header.Set("Authorization", loginAndGetBearer(t, r, "adult_blocked_search", "pw"))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if searchRequests != 0 {
+		t.Fatalf("adult source should be filtered before upstream search, got %d requests", searchRequests)
+	}
+	m := decodeJSON(t, rec)
+	if results, ok := m["results"].([]any); ok && len(results) != 0 {
+		t.Fatalf("expected no results for blocked user, got %+v", results)
+	}
+}
+
 func TestSearchSuggestions(t *testing.T) {
 	_, r := setupTestHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/search/suggestions?q=abc", nil)
@@ -449,6 +506,40 @@ func TestDetailFetchesVideoSourceAndProbesEpisodes(t *testing.T) {
 	}
 }
 
+func TestDetailBlocksAdultSourceForUnauthorizedUser(t *testing.T) {
+	var upstreamRequests int
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamRequests++
+		_, _ = w.Write([]byte(`{"code":1,"list":[]}`))
+	}))
+	defer upstream.Close()
+
+	h, r := setupTestHandler(t)
+	disableAnonymousAccess(t, h)
+	createTestUser(t, h, "adult_blocked_detail", "pw", "user")
+	if _, err := h.store.CreateSource(&model.Source{
+		Key:        "adult-detail.example",
+		Name:       "Adult Detail",
+		API:        upstream.URL + "/api.php/provide/vod",
+		Enabled:    true,
+		IsAdult:    true,
+		Searchable: true,
+	}); err != nil {
+		t.Fatalf("CreateSource error: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/detail?source=adult-detail.example&id=1", nil)
+	req.Header.Set("Authorization", loginAndGetBearer(t, r, "adult_blocked_detail", "pw"))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if upstreamRequests != 0 {
+		t.Fatalf("adult detail should be blocked before upstream request, got %d requests", upstreamRequests)
+	}
+}
+
 func TestDetailDirectModeSkipsCDNProbe(t *testing.T) {
 	service.ApplyRuntimeSetting(consts.SettingPlaybackMode, consts.PlaybackModeDirect)
 	t.Cleanup(func() {
@@ -659,6 +750,15 @@ func TestPlaybackURLProxyModeReturnsTokenizedProxyURL(t *testing.T) {
 	h, r := setupTestHandler(t)
 	disableAnonymousAccess(t, h)
 	createTestUser(t, h, "playback_admin", "pw", "admin")
+	if _, err := h.store.CreateSource(&model.Source{
+		Key:        "src",
+		Name:       "Playback Source",
+		API:        "https://source.example/api.php",
+		Enabled:    true,
+		Searchable: true,
+	}); err != nil {
+		t.Fatalf("CreateSource error: %v", err)
+	}
 
 	body := strings.NewReader(`{"url":"https://media.example/index.m3u8","source":"src"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/playback/url", body)
@@ -686,6 +786,15 @@ func TestPlaybackURLDirectModeReturnsUpstreamURL(t *testing.T) {
 	h, r := setupTestHandler(t)
 	disableAnonymousAccess(t, h)
 	createTestUser(t, h, "playback_direct", "pw", "admin")
+	if _, err := h.store.CreateSource(&model.Source{
+		Key:        "src",
+		Name:       "Playback Source",
+		API:        "https://source.example/api.php",
+		Enabled:    true,
+		Searchable: true,
+	}); err != nil {
+		t.Fatalf("CreateSource error: %v", err)
+	}
 	t.Cleanup(func() {
 		service.ApplyRuntimeSetting(consts.SettingPlaybackMode, consts.PlaybackModeProxy)
 	})
@@ -707,6 +816,94 @@ func TestPlaybackURLDirectModeReturnsUpstreamURL(t *testing.T) {
 	m := decodeJSON(t, rec)
 	if m["mode"] != "direct" || m["url"] != "https://media.example/index.m3u8" {
 		t.Fatalf("unexpected direct response: %+v", m)
+	}
+}
+
+func TestPlaybackURLAdultAccessPolicy(t *testing.T) {
+	h, r := setupTestHandler(t)
+	disableAnonymousAccess(t, h)
+	if _, err := h.store.CreateSource(&model.Source{
+		Key:        "adult-playback.example",
+		Name:       "Adult Playback",
+		API:        "https://source.example/api.php",
+		Enabled:    true,
+		IsAdult:    true,
+		Searchable: true,
+	}); err != nil {
+		t.Fatalf("CreateSource error: %v", err)
+	}
+	createTestUser(t, h, "adult_blocked_playback", "pw", "user")
+	if _, err := h.store.CreateUserWithAdultAccess("adult_allowed_playback", "pw", "user", true); err != nil {
+		t.Fatalf("CreateUserWithAdultAccess error: %v", err)
+	}
+
+	body := `{"url":"https://media.example/index.m3u8","source":"adult-playback.example"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/playback/url", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", loginAndGetBearer(t, r, "adult_blocked_playback", "pw"))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("blocked user expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/playback/url", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", loginAndGetBearer(t, r, "adult_allowed_playback", "pw"))
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("global filter enabled expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if err := h.store.SetSetting(consts.SettingNSFWFilterEnabled, "false"); err != nil {
+		t.Fatalf("SetSetting nsfw_filter_enabled: %v", err)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/playback/url", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", loginAndGetBearer(t, r, "adult_allowed_playback", "pw"))
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("global filter disabled and allowed user expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestProxyRejectsAdultMediaWhenGlobalFilterEnabled(t *testing.T) {
+	h, r := setupTestHandler(t)
+	disableAnonymousAccess(t, h)
+	if _, err := h.store.CreateSource(&model.Source{
+		Key:        "adult-proxy.example",
+		Name:       "Adult Proxy",
+		API:        "https://source.example/api.php",
+		Enabled:    true,
+		IsAdult:    true,
+		Searchable: true,
+	}); err != nil {
+		t.Fatalf("CreateSource error: %v", err)
+	}
+	userID, err := h.store.CreateUserWithAdultAccess("adult_allowed_proxy", "pw", "user", true)
+	if err != nil {
+		t.Fatalf("CreateUserWithAdultAccess error: %v", err)
+	}
+	user, err := h.store.GetUserByID(userID)
+	if err != nil {
+		t.Fatalf("GetUserByID error: %v", err)
+	}
+	issued, err := h.authSvc.IssueAccessToken(user, time.Hour, "test", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("IssueAccessToken error: %v", err)
+	}
+	rawURL := "https://media.example/seg.ts"
+	token, err := h.mediaSvc.IssueMediaToken(issued.SessionID, service.MediaKindSegment, rawURL, "adult-proxy.example", time.Minute)
+	if err != nil {
+		t.Fatalf("IssueMediaToken error: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/proxy/segment?url="+url.QueryEscape(rawURL)+"&source=adult-proxy.example&mt="+url.QueryEscape(token), nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("global filter enabled adult proxy expected 403, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

@@ -42,6 +42,7 @@ describe("useSourcesQuery", () => {
             detail: "",
             enabled: true,
             searchable: true,
+            is_adult: false,
             comment: "",
             health: "healthy",
             last_check: "",
@@ -75,7 +76,7 @@ describe("useSourcesQuery", () => {
         sources: [
           {
             id: 1, key: "src-b", name: "B", api: "", detail: "",
-            enabled: true, searchable: false, comment: "",
+            enabled: true, searchable: false, is_adult: false, comment: "",
             health: "checking", last_check: "", created_at: "", updated_at: "",
           },
         ],
@@ -114,7 +115,7 @@ describe("useSubscriptionsQuery", () => {
 describe("useUsersQuery", () => {
   it("returns users list on success", async () => {
     const api = createTestAPI({
-      listUsers: async () => ({ users: [{ id: 1, username: "alice", role: "admin" }] }),
+      listUsers: async () => ({ users: [{ id: 1, username: "alice", role: "admin", allow_adult_content: false }] }),
     });
     const { result } = renderHook(() => useUsersQuery(), { wrapper: makeWrapper(api) });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));

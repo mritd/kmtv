@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/mritd/kmtv/internal/model"
 	"github.com/mritd/kmtv/internal/store"
 	"github.com/mritd/kmtv/internal/utils"
 )
@@ -66,13 +67,20 @@ func (m *MediaTokenService) IssueMediaToken(authSessionID int64, kind, rawURL, s
 // VerifyMediaToken checks that token is valid for this exact kind and URL.
 // VerifyMediaToken 校验 token 对当前 kind 和精确 URL 是否有效.
 func (m *MediaTokenService) VerifyMediaToken(token, kind, rawURL string) (bool, error) {
+	_, ok, err := m.VerifyMediaTokenDetail(token, kind, rawURL)
+	return ok, err
+}
+
+// VerifyMediaTokenDetail checks that token is valid and returns its stored metadata.
+// VerifyMediaTokenDetail 校验 token 是否有效, 并返回其存储的元数据.
+func (m *MediaTokenService) VerifyMediaTokenDetail(token, kind, rawURL string) (*model.MediaToken, bool, error) {
 	if err := utils.ValidateOpaqueToken(token); err != nil {
-		return false, nil
+		return nil, false, nil
 	}
 	got, err := m.store.GetValidMediaToken(utils.HashToken(token), kind, HashMediaURL(rawURL))
 	if err != nil || got == nil {
-		return false, err
+		return nil, false, err
 	}
 	_ = m.store.TouchMediaToken(got.ID)
-	return true, nil
+	return got, true, nil
 }

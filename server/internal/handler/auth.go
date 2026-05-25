@@ -53,11 +53,12 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 	resp := gin.H{
-		"id":           user.ID,
-		"username":     user.Username,
-		"role":         user.Role,
-		"access_token": issued.Token,
-		"expires_at":   issued.ExpiresAt.Format(time.RFC3339),
+		"id":                  user.ID,
+		"username":            user.Username,
+		"role":                user.Role,
+		"allow_adult_content": user.AllowAdultContent,
+		"access_token":        issued.Token,
+		"expires_at":          issued.ExpiresAt.Format(time.RFC3339),
 	}
 	if user.Avatar != "" {
 		resp["avatar"] = "/api/v1/avatar/" + user.Username
@@ -84,7 +85,12 @@ func (h *Handler) Logout(c *gin.Context) {
 func (h *Handler) Me(c *gin.Context) {
 	if token := utils.ExtractBearerToken(c.GetHeader("Authorization")); token != "" {
 		if _, user, err := h.authSvc.VerifyAccessToken(token); err == nil && user != nil {
-			resp := gin.H{"id": user.ID, "username": user.Username, "role": user.Role}
+			resp := gin.H{
+				"id":                  user.ID,
+				"username":            user.Username,
+				"role":                user.Role,
+				"allow_adult_content": user.AllowAdultContent,
+			}
 			if user.Avatar != "" {
 				resp["avatar"] = "/api/v1/avatar/" + user.Username
 			}
@@ -96,7 +102,7 @@ func (h *Handler) Me(c *gin.Context) {
 	// No valid bearer token, check anonymous access.
 	// 没有有效 bearer token 时检查匿名访问.
 	if anonAccess, _ := h.store.GetSetting(consts.SettingAnonymousAccess); anonAccess == "true" {
-		c.JSON(http.StatusOK, gin.H{"id": 0, "username": "anonymous", "role": "user"})
+		c.JSON(http.StatusOK, gin.H{"id": 0, "username": "anonymous", "role": "user", "allow_adult_content": false})
 		return
 	}
 
@@ -137,7 +143,12 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 	// 用户名变更必须清理 bearer 用户快照缓存.
 	h.authSvc.InvalidateUserCache(user.ID)
 
-	resp := gin.H{"id": user.ID, "username": newUsername, "role": user.Role}
+	resp := gin.H{
+		"id":                  user.ID,
+		"username":            newUsername,
+		"role":                user.Role,
+		"allow_adult_content": user.AllowAdultContent,
+	}
 	if user.Avatar != "" {
 		resp["avatar"] = "/api/v1/avatar/" + newUsername
 	}
@@ -254,10 +265,11 @@ func (h *Handler) UploadAvatar(c *gin.Context) {
 	h.authSvc.InvalidateUserCache(user.ID)
 
 	c.JSON(http.StatusOK, gin.H{
-		"id":       user.ID,
-		"username": user.Username,
-		"role":     user.Role,
-		"avatar":   "/api/v1/avatar/" + user.Username,
+		"id":                  user.ID,
+		"username":            user.Username,
+		"role":                user.Role,
+		"allow_adult_content": user.AllowAdultContent,
+		"avatar":              "/api/v1/avatar/" + user.Username,
 	})
 }
 
@@ -279,9 +291,10 @@ func (h *Handler) DeleteAvatar(c *gin.Context) {
 	h.authSvc.InvalidateUserCache(user.ID)
 
 	c.JSON(http.StatusOK, gin.H{
-		"id":       user.ID,
-		"username": user.Username,
-		"role":     user.Role,
+		"id":                  user.ID,
+		"username":            user.Username,
+		"role":                user.Role,
+		"allow_adult_content": user.AllowAdultContent,
 	})
 }
 

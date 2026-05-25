@@ -6,9 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
 
-	"github.com/mritd/kmtv/internal/consts"
 	"github.com/mritd/kmtv/internal/errs"
 	"github.com/mritd/kmtv/internal/model"
 	"github.com/mritd/kmtv/internal/utils"
@@ -31,17 +29,7 @@ func (h *Handler) Search(c *gin.Context) {
 		}
 	}
 
-	// Check adult filter setting.
-	// 检查成人内容过滤设置.
-	adultFilter := true
-	filterStr, err := h.store.GetSetting(consts.SettingAdultFilterEnabled)
-	if err != nil {
-		logrus.WithError(err).Warn("failed to read adult_filter_enabled setting, defaulting to enabled")
-	} else if filterStr == "false" {
-		adultFilter = false
-	}
-
-	results, err := h.searchSvc.Search(c.Request.Context(), query, page, adultFilter)
+	results, err := h.searchSvc.Search(c.Request.Context(), query, page, h.shouldFilterAdult(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, errs.ServerError.WithMsg("search failed"))
 		return

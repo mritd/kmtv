@@ -14,6 +14,7 @@ const sampleSource = {
   detail: "",
   enabled: true,
   searchable: true,
+  is_adult: false,
   comment: "",
   health: "healthy" as const,
   last_check: "",

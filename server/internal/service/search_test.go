@@ -343,6 +343,7 @@ func TestSearchWithProgressReturnsNilWhenNoSourcesRemain(t *testing.T) {
 		Name:       "18禁 Adult",
 		API:        "https://adult.example/api.php",
 		Enabled:    true,
+		IsAdult:    true,
 		Searchable: true,
 	})
 	if err != nil {

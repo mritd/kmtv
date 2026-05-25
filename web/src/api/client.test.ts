@@ -285,6 +285,7 @@ describe("APIClient", () => {
           detail: "",
           enabled: true,
           searchable: true,
+          is_adult: false,
           comment: "",
           health: "unknown",
           last_check: "",
@@ -314,6 +315,7 @@ describe("APIClient", () => {
       detail: "",
       enabled: true,
       searchable: true,
+      is_adult: false,
       comment: "",
     });
     await client.updateSource(1, {
@@ -323,6 +325,7 @@ describe("APIClient", () => {
       detail: "",
       enabled: true,
       searchable: true,
+      is_adult: false,
       comment: "",
     });
     await client.bulkSetSourcesEnabled([1, 2], true);
