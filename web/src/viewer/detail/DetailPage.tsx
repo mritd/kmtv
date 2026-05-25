@@ -255,7 +255,9 @@ function DetailPageContent({ sourceKey: source, videoId: id }: DetailPageContent
         if (currentRouteIDRef.current !== routeID || recoveryGeneration.current !== generation) {
           return;
         }
-        const match = response.results.find((result) => matchesDetail(result, detailForSource));
+        // results may be null/absent (e.g. zero sources configured); guard before .find().
+        // results 可能为 null/缺失 (如未配置任何源); 调用 .find() 前先防御.
+        const match = (response.results ?? []).find((result) => matchesDetail(result, detailForSource));
         if (!match) {
           setBundleState((current) => {
             if (currentRouteIDRef.current !== routeID || recoveryGeneration.current !== generation) {

@@ -47,7 +47,9 @@ func (s *Store) GetAllSettings() ([]model.Setting, error) {
 	}
 	defer func() { _ = rows.Close() }()
 
-	var settings []model.Setting
+	// Non-nil slice so an empty result marshals to JSON [] rather than null.
+	// 使用非 nil 切片, 让空结果序列化为 JSON [] 而非 null.
+	settings := []model.Setting{}
 	for rows.Next() {
 		var st model.Setting
 		if err := rows.Scan(&st.Key, &st.Value, &st.UpdatedAt); err != nil {

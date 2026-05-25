@@ -39,6 +39,13 @@ func (h *Handler) Search(c *gin.Context) {
 	// 对缺少简介的结果补充详情, 从最快视频源拉取, 最多并行处理 5 个结果.
 	h.enrichDescriptions(c, results)
 
+	// Never emit "results": null (the service returns nil for zero sources / no matches);
+	// clients call array methods on this field and a null crashes them.
+	// 不能返回 "results": null (服务在零源/无匹配时返回 nil); 客户端会对该字段调用数组方法, null 会导致崩溃.
+	if results == nil {
+		results = []model.SearchResult{}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"results": results})
 }
 

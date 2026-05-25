@@ -52,7 +52,9 @@ export function useSourcesQuery() {
     refetchInterval: (q) => {
       const data = q.state.data;
       if (!data) return false;
-      return data.sources.some((s) => s.health === "checking") ? POLLING_INTERVAL_MS : false;
+      // sources may be null (backend emits null for an empty list); guard before .some().
+      // sources 可能为 null (后端对空列表返回 null), 调用 .some() 前先防御.
+      return data.sources?.some((s) => s.health === "checking") ? POLLING_INTERVAL_MS : false;
     },
   });
 }

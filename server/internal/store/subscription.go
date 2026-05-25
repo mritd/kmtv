@@ -53,7 +53,9 @@ func (s *Store) ListSubscriptions() ([]model.Subscription, error) {
 	}
 	defer func() { _ = rows.Close() }()
 
-	var subs []model.Subscription
+	// Non-nil slice so an empty result marshals to JSON [] rather than null.
+	// 使用非 nil 切片, 让空结果序列化为 JSON [] 而非 null.
+	subs := []model.Subscription{}
 	for rows.Next() {
 		var sub model.Subscription
 		var lastSync *time.Time

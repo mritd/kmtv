@@ -28,8 +28,15 @@ func TestListSources(t *testing.T) {
 	}
 
 	m := decodeJSON(t, rec)
-	if _, ok := m["sources"]; !ok {
-		t.Error("expected 'sources' key in response")
+	// An empty source list must serialize to a JSON array [], never null — a null here
+	// crashes clients that call array methods on the field (e.g. the admin poll loop).
+	// 空源列表必须序列化为 JSON 数组 [], 不能是 null — null 会让对该字段调用数组方法的客户端崩溃 (如管理端轮询).
+	sources, ok := m["sources"].([]any)
+	if !ok {
+		t.Fatalf("expected 'sources' to be a JSON array (not null), got %T: %v", m["sources"], m["sources"])
+	}
+	if len(sources) != 0 {
+		t.Errorf("expected empty sources array, got %d entries", len(sources))
 	}
 }
 
@@ -419,5 +426,31 @@ func TestAdminSubscriptionErrorPaths(t *testing.T) {
 				t.Fatalf("status = %d, want %d: %s", rec.Code, tt.status, rec.Body.String())
 			}
 		})
+	}
+}
+
+// TestListSubscriptions_EmptyIsArray guards that an empty subscription list serializes to
+// JSON [] rather than null, matching the sources/search contract so clients never receive null arrays.
+// TestListSubscriptions_EmptyIsArray 确保空订阅列表序列化为 JSON [] 而非 null, 与 sources/search 契约一致.
+func TestListSubscriptions_EmptyIsArray(t *testing.T) {
+	h, r := setupTestHandler(t)
+	disableAnonymousAccess(t, h)
+	createTestUser(t, h, "admin_subs_empty", "pw", "admin")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/subscriptions", nil)
+	req.Header.Set("Authorization", adminBearer(t, h, "admin_subs_empty"))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	m := decodeJSON(t, rec)
+	subs, ok := m["subscriptions"].([]any)
+	if !ok {
+		t.Fatalf("expected 'subscriptions' to be a JSON array (not null), got %T: %v", m["subscriptions"], m["subscriptions"])
+	}
+	if len(subs) != 0 {
+		t.Errorf("expected empty subscriptions array, got %d entries", len(subs))
 	}
 }

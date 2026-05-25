@@ -132,7 +132,9 @@ func (s *Store) ListUsers() ([]model.User, error) {
 	}
 	defer func() { _ = rows.Close() }()
 
-	var users []model.User
+	// Non-nil slice so an empty result marshals to JSON [] rather than null.
+	// 使用非 nil 切片, 让空结果序列化为 JSON [] 而非 null.
+	users := []model.User{}
 	for rows.Next() {
 		var u model.User
 		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.AllowAdultContent, &u.CreatedAt, &u.UpdatedAt); err != nil {

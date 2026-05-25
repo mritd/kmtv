@@ -3,6 +3,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
 
+import type { SourcesResponse } from "@/api/types";
 import { createTestAPI } from "@/test/testAPI";
 import { APIProvider } from "./context";
 import {
@@ -65,6 +66,18 @@ describe("useSourcesQuery", () => {
     const { result } = renderHook(() => useSourcesQuery(), { wrapper: makeWrapper(api) });
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.error).toBeInstanceOf(Error);
+  });
+
+  it("tolerates a null sources field without crashing the poll gate", async () => {
+    // A misbehaving/legacy backend may send { sources: null } for an empty list; the
+    // refetchInterval guard (data.sources?.some) must not throw on it.
+    // 后端可能对空列表返回 { sources: null }; refetchInterval 的 data.sources?.some 守卫不能因此抛错.
+    const api = createTestAPI({
+      listSources: async () => ({ sources: null } as unknown as SourcesResponse),
+    });
+    const { result } = renderHook(() => useSourcesQuery(), { wrapper: makeWrapper(api) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.sources).toBeNull();
   });
 
   it("polls when any source health is 'checking'", async () => {

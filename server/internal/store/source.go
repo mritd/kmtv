@@ -39,7 +39,10 @@ func (s *Store) querySources(query string, args ...any) ([]model.Source, error) 
 	}
 	defer func() { _ = rows.Close() }()
 
-	var sources []model.Source
+	// Non-nil slice so an empty result marshals to JSON [] rather than null,
+	// which would otherwise break clients that call array methods on the field.
+	// 使用非 nil 切片, 让空结果序列化为 JSON [] 而非 null, 避免客户端对该字段调用数组方法时出错.
+	sources := []model.Source{}
 	for rows.Next() {
 		src, err := scanSource(rows)
 		if err != nil {
