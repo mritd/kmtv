@@ -159,7 +159,7 @@ Durable architectural decisions for the KMTV Go backend, native Apple clients, a
 - Use base58 opaque bearer tokens for API auth.
 - Store only token hashes in SQLite.
 - Use URL-bound opaque media tokens for proxy playback.
-- Default media token TTL is 30 minutes, configurable through `media_token_ttl`.
+- Default media token TTL is 6 hours, configurable through `media_token_ttl`.
 
 **Consequences:**
 - Clients send API auth through `Authorization: Bearer <access_token>`.

@@ -84,7 +84,7 @@ func TestGetAllSettings(t *testing.T) {
 		consts.SettingSiteName:            "KMTV",
 		consts.SettingPublicBaseURL:       "",
 		consts.SettingAccessTokenTTL:      "604800",
-		consts.SettingMediaTokenTTL:       "1800",
+		consts.SettingMediaTokenTTL:       "21600",
 		consts.SettingPlaybackMode:        consts.PlaybackModeProxy,
 	}
 	found := make(map[string]string)

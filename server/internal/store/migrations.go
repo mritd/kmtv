@@ -50,6 +50,11 @@ var migrations = []migration{
 		name:    "add_adult_content_access",
 		up:      migrateAddAdultContentAccess,
 	},
+	{
+		version: 8,
+		name:    "extend_default_media_token_ttl",
+		up:      migrateExtendDefaultMediaTokenTTL,
+	},
 }
 
 // migrate applies schema changes in version order and records completed steps.
@@ -334,6 +339,21 @@ func migrateAddAdultContentAccess(tx *sql.Tx) error {
 		if _, err := tx.Exec(`UPDATE sources SET is_adult = 1 WHERE name LIKE '%🔞%' OR name LIKE '%18禁%'`); err != nil {
 			return fmt.Errorf("backfill adult sources: %w", err)
 		}
+	}
+	return nil
+}
+
+func migrateExtendDefaultMediaTokenTTL(tx *sql.Tx) error {
+	_, err := tx.Exec(
+		`UPDATE settings
+		 SET value = ?, updated_at = CURRENT_TIMESTAMP
+		 WHERE key = ? AND value = ?`,
+		fmt.Sprintf("%d", consts.DefaultMediaTokenTTL),
+		consts.SettingMediaTokenTTL,
+		"1800",
+	)
+	if err != nil {
+		return fmt.Errorf("extend default media token ttl: %w", err)
 	}
 	return nil
 }

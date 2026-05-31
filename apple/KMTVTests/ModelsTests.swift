@@ -168,7 +168,7 @@ final class ModelsTests: XCTestCase {
                 "nsfw_filter_enabled": "true",
                 "douban_image_proxy": "server",
                 "access_token_ttl": "604800",
-                "media_token_ttl": "1800",
+                "media_token_ttl": "21600",
                 "playback_mode": "proxy"
             }
         }
@@ -179,7 +179,7 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(response.settings["nsfw_filter_enabled"], "true")
         XCTAssertEqual(response.settings["douban_image_proxy"], "server")
         XCTAssertEqual(response.settings["access_token_ttl"], "604800")
-        XCTAssertEqual(response.settings["media_token_ttl"], "1800")
+        XCTAssertEqual(response.settings["media_token_ttl"], "21600")
         XCTAssertEqual(response.settings["playback_mode"], "proxy")
     }
 

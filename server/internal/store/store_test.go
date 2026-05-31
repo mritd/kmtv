@@ -270,6 +270,76 @@ func TestMigrateAddsOpaqueTokenAuthToExistingV5DB(t *testing.T) {
 	}
 }
 
+func TestMigrateExtendsOnlyLegacyDefaultMediaTokenTTL(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "legacy default", value: "1800", want: "21600"},
+		{name: "operator override", value: "7200", want: "7200"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dbPath := filepath.Join(t.TempDir(), "settings-v7.db")
+			db, err := sql.Open("sqlite", dbPath)
+			if err != nil {
+				t.Fatalf("open v7 db: %v", err)
+			}
+			statements := []string{
+				`CREATE TABLE settings (
+					key TEXT PRIMARY KEY,
+					value TEXT NOT NULL DEFAULT '',
+					updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+				)`,
+				`CREATE TABLE schema_migrations (
+					version INTEGER PRIMARY KEY,
+					name TEXT NOT NULL,
+					applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+				)`,
+				`INSERT INTO schema_migrations (version, name) VALUES
+					(1, 'create_core_tables'),
+					(2, 'add_user_avatar'),
+					(3, 'add_source_searchable'),
+					(4, 'insert_default_settings'),
+					(5, 'insert_public_base_url_setting'),
+					(6, 'add_opaque_token_auth'),
+					(7, 'add_adult_content_access')`,
+			}
+			for _, stmt := range statements {
+				if _, err := db.Exec(stmt); err != nil {
+					t.Fatalf("prepare v7 db: %v", err)
+				}
+			}
+			if _, err := db.Exec(
+				`INSERT INTO settings (key, value) VALUES (?, ?)`,
+				consts.SettingMediaTokenTTL,
+				tt.value,
+			); err != nil {
+				t.Fatalf("insert media_token_ttl: %v", err)
+			}
+			if err := db.Close(); err != nil {
+				t.Fatalf("close v7 db: %v", err)
+			}
+
+			s, err := New(dbPath)
+			if err != nil {
+				t.Fatalf("open migrated v7 store: %v", err)
+			}
+			defer func() { _ = s.Close() }()
+
+			value, err := s.GetSetting(consts.SettingMediaTokenTTL)
+			if err != nil {
+				t.Fatalf("GetSetting media_token_ttl: %v", err)
+			}
+			if value != tt.want {
+				t.Fatalf("media_token_ttl = %q, want %q", value, tt.want)
+			}
+		})
+	}
+}
+
 func TestMigrationHelpersReportDatabaseErrors(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {

@@ -237,6 +237,8 @@ Admin-visible setting keys:
 
 `public_base_url` configures the external base URL used when rewriting M3U8 proxy links. `KMTV_PUBLIC_BASE_URL` has higher priority than this DB setting. If neither is configured, KMTV keeps the current forwarded-header fallback behavior.
 
+`media_token_ttl` defaults to 21600 seconds so URL-bound proxy playback tokens stay valid across long episodes.
+
 Common errors: `500 ServerError`.
 
 ### `PUT /admin/settings`

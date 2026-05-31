@@ -237,6 +237,8 @@ Admin 可见设置键:
 
 `public_base_url` 用于配置重写 M3U8 代理链接时使用的外部访问根地址. `KMTV_PUBLIC_BASE_URL` 的优先级高于这个 DB 设置. 两者都没有配置时, KMTV 保持当前的 forwarded header 回退逻辑.
 
+`media_token_ttl` 默认值为 21600 秒, 用于保证 URL 绑定的代理播放 token 能覆盖长剧集播放.
+
 常见错误: `500 ServerError`.
 
 ### `PUT /admin/settings`

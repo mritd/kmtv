@@ -71,7 +71,7 @@ const (
 
 	// DefaultMediaTokenTTL is the default media token TTL in seconds.
 	// DefaultMediaTokenTTL 是默认 media token 有效期, 单位秒.
-	DefaultMediaTokenTTL int64 = 30 * 60
+	DefaultMediaTokenTTL int64 = 6 * 60 * 60
 
 	// PlaybackModeProxy proxies media through KMTV.
 	// PlaybackModeProxy 表示通过 KMTV 代理媒体.
