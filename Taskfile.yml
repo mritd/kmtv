@@ -130,6 +130,12 @@ tasks:
     cmds:
       - ./scripts/device.sh
 
+  ipa:
+    desc: Build a physical-device IPA for iOS or tvOS
+    interactive: true
+    cmds:
+      - ./scripts/ipa.sh
+
   install:
     desc: Build and install to GOPATH/bin
     deps: [build]
