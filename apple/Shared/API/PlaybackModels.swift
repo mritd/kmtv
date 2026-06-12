@@ -7,7 +7,7 @@ struct VideoDetail: Codable, Sendable {
     let title: String
     let type: String
     let year: String
-    let cover: String
+    var cover: String
     let desc: String
     let director: String
     let actor: String

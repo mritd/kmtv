@@ -7,6 +7,8 @@ struct DetailView: View {
     let sources: [SourceResult]
     let sourceKey: String
     let videoId: String
+    var coverHint: String = ""
+    var resumeIntent: EpisodeResumeIntent?
 
     @Environment(AppViewModel.self) private var appVM
     @Environment(\.modelContext) private var modelContext
@@ -31,7 +33,9 @@ struct DetailView: View {
             if viewModel == nil, let client = appVM.apiClient {
                 let vm = PlayerViewModel(
                     apiClient: client, modelContext: modelContext, serverURL: appVM.serverURL,
-                    sources: sources, sourceKey: sourceKey, videoId: videoId, title: title
+                    sources: sources, sourceKey: sourceKey, videoId: videoId, title: title,
+                    coverHint: coverHint,
+                    initialEpisodeIndex: resumeIntent?.episodeIndex
                 )
                 viewModel = vm
                 let ok = await vm.loadDetail(sourceKey: sourceKey, videoId: videoId)

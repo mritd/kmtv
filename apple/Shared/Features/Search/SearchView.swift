@@ -6,17 +6,19 @@ struct SearchView: View {
     @Environment(AppViewModel.self) private var appVM
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel: SearchViewModel?
+    @State private var coverHint = ""
+    @State private var resumeIntent: EpisodeResumeIntent?
     #if os(tvOS)
-    @Binding var pendingQuery: String?
+    @Binding var pendingSearch: SearchQuery?
     @State private var selectedPlay: PlayDestination?
     #else
-    var initialQuery: String?
+    var initialSearch: SearchQuery?
     @Binding var path: NavigationPath
     #endif
 
     #if os(iOS)
-    init(initialQuery: String? = nil, path: Binding<NavigationPath> = .constant(NavigationPath())) {
-        self.initialQuery = initialQuery
+    init(initialSearch: SearchQuery? = nil, path: Binding<NavigationPath> = .constant(NavigationPath())) {
+        self.initialSearch = initialSearch
         self._path = path
     }
     #endif
@@ -26,9 +28,13 @@ struct SearchView: View {
             if let viewModel {
                 #if os(tvOS)
                 TVSearchContentView(viewModel: viewModel, appVM: appVM,
+                                    coverHint: $coverHint,
+                                    resumeIntent: $resumeIntent,
                                     onPlay: { selectedPlay = $0 })
                 #else
-                SearchContentView(viewModel: viewModel, path: $path, appVM: appVM)
+                SearchContentView(viewModel: viewModel, path: $path, appVM: appVM,
+                                  coverHint: $coverHint,
+                                  resumeIntent: $resumeIntent)
                 #endif
             } else {
                 ProgressView()
@@ -45,32 +51,42 @@ struct SearchView: View {
                 viewModel = vm
                 vm.loadHistory()
                 #if os(tvOS)
-                if let query = pendingQuery, !query.isEmpty {
-                    pendingQuery = nil
-                    vm.query = query
-                    await vm.search(query: query)
+                if let search = pendingSearch, !search.query.isEmpty {
+                    pendingSearch = nil
+                    await runSearch(search, with: vm)
+                }
+                #else
+                if let initialSearch, !initialSearch.query.isEmpty {
+                    await runSearch(initialSearch, with: vm)
                 }
                 #endif
             }
         }
         #if os(tvOS)
-        .onChange(of: pendingQuery) { _, query in
-            guard let query, !query.isEmpty else { return }
-            pendingQuery = nil
-            viewModel?.query = query
-            Task { await viewModel?.search(query: query) }
+        .onChange(of: pendingSearch) { _, search in
+            guard let search, !search.query.isEmpty else { return }
+            guard let viewModel else { return }
+            pendingSearch = nil
+            Task { await runSearch(search, with: viewModel) }
         }
         .fullScreenCover(item: $selectedPlay) { dest in
             DetailView(title: dest.title, sources: dest.sources,
-                       sourceKey: dest.sourceKey, videoId: dest.videoId)
-        }
-        #else
-        .task {
-            if let initialQuery, !initialQuery.isEmpty {
-                await viewModel?.search(query: initialQuery)
-            }
+                       sourceKey: dest.sourceKey, videoId: dest.videoId,
+                       coverHint: dest.coverHint,
+                       resumeIntent: dest.resumeIntent)
         }
         #endif
+    }
+
+    private func runSearch(_ search: SearchQuery, with viewModel: SearchViewModel) async {
+        coverHint = search.coverHint
+        resumeIntent = search.resumeIntent
+        viewModel.query = search.query
+        await viewModel.search(query: search.query)
+    }
+
+    static func bestCover(resultCover: String, coverHint: String) -> String {
+        resultCover.isEmpty ? coverHint : resultCover
     }
 }
 
@@ -78,6 +94,8 @@ struct SearchView: View {
 struct TVSearchContentView: View {
     @Bindable var viewModel: SearchViewModel
     let appVM: AppViewModel
+    @Binding var coverHint: String
+    @Binding var resumeIntent: EpisodeResumeIntent?
     var onPlay: ((PlayDestination) -> Void)?
 
     var body: some View {
@@ -99,6 +117,8 @@ struct TVSearchContentView: View {
         .scrollClipDisabled()
         .searchable(text: $viewModel.query, prompt: "Search videos...")
         .onSubmit(of: .search) {
+            coverHint = ""
+            resumeIntent = nil
             Task { await viewModel.search() }
         }
     }
@@ -137,7 +157,9 @@ struct TVSearchContentView: View {
                         title: result.title,
                         sources: result.sources,
                         sourceKey: source?.sourceKey ?? "",
-                        videoId: source?.videoId ?? ""
+                        videoId: source?.videoId ?? "",
+                        coverHint: SearchView.bestCover(resultCover: result.cover, coverHint: coverHint),
+                        resumeIntent: resumeIntent
                     )
                     onPlay?(dest)
                 } label: {
@@ -182,6 +204,8 @@ struct SearchContentView: View {
     @Bindable var viewModel: SearchViewModel
     @Binding var path: NavigationPath
     let appVM: AppViewModel
+    @Binding var coverHint: String
+    @Binding var resumeIntent: EpisodeResumeIntent?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -191,11 +215,20 @@ struct SearchContentView: View {
                 SearchTextField(
                     text: $viewModel.query,
                     placeholder: String(localized: "Search videos..."),
-                    onSubmit: { Task { await viewModel.search() } }
+                    onSubmit: {
+                        coverHint = ""
+                        resumeIntent = nil
+                        Task { await viewModel.search() }
+                    }
                 )
                 .frame(height: 22)
                 if !viewModel.query.isEmpty {
-                    Button { viewModel.query = ""; viewModel.clearResults() } label: {
+                    Button {
+                        coverHint = ""
+                        resumeIntent = nil
+                        viewModel.query = ""
+                        viewModel.clearResults()
+                    } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(Theme.textSecondary)
                     }
@@ -239,7 +272,9 @@ struct SearchContentView: View {
                     title: result.title,
                     sources: result.sources,
                     sourceKey: source?.sourceKey ?? "",
-                    videoId: source?.videoId ?? ""
+                    videoId: source?.videoId ?? "",
+                    coverHint: SearchView.bestCover(resultCover: result.cover, coverHint: coverHint),
+                    resumeIntent: resumeIntent
                 ))
             } label: {
                 searchResultRow(result)
@@ -406,6 +441,8 @@ struct SearchContentView: View {
                 FlowLayout(spacing: 8) {
                     ForEach(viewModel.searchHistory, id: \.query) { item in
                         Button {
+                            coverHint = ""
+                            resumeIntent = nil
                             Task { await viewModel.search(query: item.query) }
                         } label: {
                             Text(item.query)

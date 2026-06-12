@@ -14,10 +14,14 @@ struct HomeView: View {
     @State private var currentHeroIndex = 0
 
     private func navigateToSearch(_ query: String) {
+        navigateToSearch(SearchQuery(query: query))
+    }
+
+    private func navigateToSearch(_ searchQuery: SearchQuery) {
         #if os(tvOS)
-        onSearch?(SearchQuery(query: query))
+        onSearch?(searchQuery)
         #else
-        path.append(SearchQuery(query: query))
+        path.append(searchQuery)
         #endif
     }
 
@@ -151,7 +155,7 @@ struct HomeView: View {
             LazyHStack(spacing: 24) {
                 ForEach(items) { item in
                     Button {
-                        navigateToSearch(item.title)
+                        navigateToSearch(SearchQuery(query: item.title, coverHint: item.cover))
                     } label: {
                         ZStack(alignment: .bottomLeading) {
                             Color(white: 0.08)
@@ -230,7 +234,7 @@ struct HomeView: View {
     @ViewBuilder
     private func heroSlide(_ item: DoubanItem) -> some View {
         Button {
-            navigateToSearch(item.title)
+            navigateToSearch(SearchQuery(query: item.title, coverHint: item.cover))
         } label: {
             ZStack(alignment: .bottomLeading) {
                 KFImage(heroImageURL(item.cover))
@@ -307,7 +311,14 @@ struct HomeView: View {
             LazyHStack(spacing: 12) {
                 ForEach(vm.watchHistory, id: \.persistentModelID) { item in
                     Button {
-                        navigateToSearch(item.title)
+                        navigateToSearch(SearchQuery(
+                            query: item.title,
+                            coverHint: item.cover,
+                            resumeIntent: EpisodeResumeIntent(
+                                episodeIndex: item.episodeIndex,
+                                episodeName: item.episode
+                            )
+                        ))
                     } label: {
                         watchHistoryCard(item)
                     }
@@ -426,7 +437,7 @@ struct HomeView: View {
             LazyHStack(spacing: 12) {
                 ForEach(section.items) { item in
                     Button {
-                        navigateToSearch(item.title)
+                        navigateToSearch(SearchQuery(query: item.title, coverHint: item.cover))
                     } label: {
                         VideoCard(
                             title: item.title,

@@ -270,4 +270,113 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(vm.episodes.map(\.name), ["EP2"])
         XCTAssertEqual(vm.currentEpisodeIndex, 0)
     }
+
+    @MainActor
+    func testLoadDetailAppliesInitialEpisodeIndex() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let api = FakePlayerAPI()
+        api.detailResponse = VideoDetail(
+            id: "video-1", title: "Video", type: "show", year: "2026",
+            cover: "", desc: "", director: "", actor: "", area: "",
+            episodes: [[
+                Episode(name: "EP1", url: "https://cdn.example/ep1.m3u8"),
+                Episode(name: "EP2", url: "https://cdn.example/ep2.m3u8"),
+                Episode(name: "EP3", url: "https://cdn.example/ep3.m3u8")
+            ]]
+        )
+        let vm = PlayerViewModel(
+            apiClient: api,
+            modelContext: container.mainContext,
+            serverURL: "https://kmtv.example",
+            sources: [SourceResult(
+                sourceKey: "source-a",
+                sourceName: "Source A",
+                videoId: "video-1",
+                durationMs: 0,
+                episodes: []
+            )],
+            sourceKey: "source-a",
+            videoId: "video-1",
+            title: "Video",
+            initialEpisodeIndex: 2
+        )
+
+        let ok = await vm.loadDetail(sourceKey: "source-a", videoId: "video-1")
+
+        XCTAssertTrue(ok)
+        XCTAssertEqual(vm.currentEpisodeIndex, 2)
+        XCTAssertEqual(vm.currentEpisodeName, "EP3")
+    }
+
+    @MainActor
+    func testLoadDetailClampsInitialEpisodeIndexToAvailableEpisodes() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let api = FakePlayerAPI()
+        api.detailResponse = VideoDetail(
+            id: "video-1", title: "Video", type: "show", year: "2026",
+            cover: "", desc: "", director: "", actor: "", area: "",
+            episodes: [[
+                Episode(name: "EP1", url: "https://cdn.example/ep1.m3u8"),
+                Episode(name: "EP2", url: "https://cdn.example/ep2.m3u8"),
+                Episode(name: "EP3", url: "https://cdn.example/ep3.m3u8")
+            ]]
+        )
+        let vm = PlayerViewModel(
+            apiClient: api,
+            modelContext: container.mainContext,
+            serverURL: "https://kmtv.example",
+            sources: [SourceResult(
+                sourceKey: "source-a",
+                sourceName: "Source A",
+                videoId: "video-1",
+                durationMs: 0,
+                episodes: []
+            )],
+            sourceKey: "source-a",
+            videoId: "video-1",
+            title: "Video",
+            initialEpisodeIndex: 9
+        )
+
+        let ok = await vm.loadDetail(sourceKey: "source-a", videoId: "video-1")
+
+        XCTAssertTrue(ok)
+        XCTAssertEqual(vm.currentEpisodeIndex, 2)
+        XCTAssertEqual(vm.currentEpisodeName, "EP3")
+    }
+
+    @MainActor
+    func testCoverHintFillsMissingDetailCoverForWatchHistory() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let api = FakePlayerAPI()
+        api.detailResponse = VideoDetail(
+            id: "video-1", title: "Video", type: "show", year: "2026",
+            cover: "", desc: "", director: "", actor: "", area: "",
+            episodes: [[Episode(name: "EP1", url: "https://cdn.example/ep1.m3u8")]]
+        )
+        let vm = PlayerViewModel(
+            apiClient: api,
+            modelContext: container.mainContext,
+            serverURL: "https://kmtv.example",
+            sources: [SourceResult(
+                sourceKey: "source-a",
+                sourceName: "Source A",
+                videoId: "video-1",
+                durationMs: 0,
+                episodes: []
+            )],
+            sourceKey: "source-a",
+            videoId: "video-1",
+            title: "Video",
+            coverHint: "https://img.example/cover.jpg"
+        )
+
+        let ok = await vm.loadDetail(sourceKey: "source-a", videoId: "video-1")
+        vm.onTimeUpdate(current: 10, total: 120)
+
+        let history = WatchHistoryItem.recent(in: container.mainContext, serverURL: "https://kmtv.example")
+        XCTAssertTrue(ok)
+        XCTAssertEqual(vm.detail?.cover, "https://img.example/cover.jpg")
+        XCTAssertEqual(history.first?.cover, "https://img.example/cover.jpg")
+    }
 }

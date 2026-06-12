@@ -34,7 +34,9 @@ struct PlayerView: View {
                 let vm = PlayerViewModel(
                     apiClient: client, modelContext: modelContext, serverURL: appVM.serverURL,
                     sources: destination.sources, sourceKey: destination.sourceKey,
-                    videoId: destination.videoId, title: destination.title
+                    videoId: destination.videoId, title: destination.title,
+                    coverHint: destination.coverHint,
+                    initialEpisodeIndex: destination.resumeIntent?.episodeIndex
                 )
                 viewModel = vm
                 let ok = await vm.loadDetail(sourceKey: destination.sourceKey, videoId: destination.videoId)

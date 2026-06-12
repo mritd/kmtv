@@ -61,6 +61,7 @@ final class PlayerViewModel {
     private let modelContext: ModelContext
     private let serverURL: String
     private let videoTitle: String
+    private let coverHint: String
     private let progressStore: PlaybackProgressStore
 
     /// Coordinates player side effects while this view model owns user-visible state.
@@ -68,14 +69,17 @@ final class PlayerViewModel {
     private let coordinator = PlaybackCoordinator()
 
     init(apiClient: any PlaybackDetailAPIProtocol, modelContext: ModelContext, serverURL: String,
-         sources: [SourceResult], sourceKey: String, videoId: String, title: String) {
+         sources: [SourceResult], sourceKey: String, videoId: String, title: String,
+         coverHint: String = "", initialEpisodeIndex: Int? = nil) {
         self.apiClient = apiClient
         self.modelContext = modelContext
         self.serverURL = serverURL
         self.videoTitle = title
+        self.coverHint = coverHint
         self.progressStore = PlaybackProgressStore(modelContext: modelContext, serverURL: serverURL, title: title)
         self.sources = sources
         self.currentSourceKey = sourceKey
+        self.currentEpisodeIndex = max(0, initialEpisodeIndex ?? 0)
 
         self.isFavorited = FavoriteItem.exists(in: modelContext, serverURL: serverURL, sourceKey: sourceKey, videoId: videoId)
 
@@ -121,7 +125,7 @@ final class PlayerViewModel {
         defer { isLoadingDetail = false }
         do {
             let d = try await apiClient.detail(sourceKey: sourceKey, videoId: videoId)
-            detail = d
+            detail = detailApplyingCoverHint(d)
             currentSourceKey = sourceKey
 
             if !sources.contains(where: { $0.sourceKey == sourceKey }) {
@@ -130,6 +134,7 @@ final class PlayerViewModel {
                     durationMs: 0, episodes: d.episodes.first ?? []
                 ), at: 0)
             }
+            clampCurrentEpisodeIndex()
 
             return !d.episodes.isEmpty && !(d.episodes.first?.isEmpty ?? true)
         } catch {
@@ -343,7 +348,7 @@ final class PlayerViewModel {
             let ok = await loadDetail(sourceKey: source.sourceKey, videoId: source.videoId)
             if ok {
                 currentLineIndex = 0
-                currentEpisodeIndex = 0
+                clampCurrentEpisodeIndex()
                 return
             }
             removeSource(source.sourceKey)
@@ -352,7 +357,7 @@ final class PlayerViewModel {
 
     private func matchEpisode(prevName: String) {
         guard !prevName.isEmpty else {
-            currentEpisodeIndex = 0
+            clampCurrentEpisodeIndex()
             return
         }
         let prevNum = prevName.firstMatch(of: /\d+/)?.output
@@ -365,6 +370,14 @@ final class PlayerViewModel {
         currentEpisodeIndex = 0
     }
 
+    private func clampCurrentEpisodeIndex() {
+        guard !episodes.isEmpty else {
+            currentEpisodeIndex = 0
+            return
+        }
+        currentEpisodeIndex = min(max(0, currentEpisodeIndex), episodes.count - 1)
+    }
+
     /// Applies detail refreshes without replacing stable movie metadata during source switching.
     /// 切换视频源时只刷新剧集, 避免覆盖稳定的影片元数据.
     private func applyDetail(_ newDetail: VideoDetail) {
@@ -373,8 +386,15 @@ final class PlayerViewModel {
             updated.episodes = newDetail.episodes
             detail = updated
         } else {
-            detail = newDetail
+            detail = detailApplyingCoverHint(newDetail)
         }
+    }
+
+    private func detailApplyingCoverHint(_ detail: VideoDetail) -> VideoDetail {
+        guard detail.cover.isEmpty, !coverHint.isEmpty else { return detail }
+        var updated = detail
+        updated.cover = coverHint
+        return updated
     }
 
     private func hasPlayableDetail() -> Bool {

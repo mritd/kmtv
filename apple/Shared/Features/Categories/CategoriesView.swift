@@ -114,7 +114,7 @@ struct CategoriesView: View {
         LazyVGrid(columns: gridLayout, spacing: gridSpacing) {
             ForEach(vm.items) { item in
                 Button {
-                    onSearch?(SearchQuery(query: item.title))
+                    onSearch?(SearchQuery(query: item.title, coverHint: item.cover))
                 } label: {
                     VideoCard(
                         title: item.title,
@@ -286,7 +286,7 @@ struct CategoriesView: View {
                 ForEach(vm.items) { item in
                     #if os(tvOS)
                     Button {
-                        onSearch?(SearchQuery(query: item.title))
+                        onSearch?(SearchQuery(query: item.title, coverHint: item.cover))
                     } label: {
                         VideoCard(
                             title: item.title,
@@ -304,7 +304,7 @@ struct CategoriesView: View {
                         }
                     }
                     #else
-                    NavigationLink(value: SearchQuery(query: item.title)) {
+                    NavigationLink(value: SearchQuery(query: item.title, coverHint: item.cover)) {
                         VideoCard(
                             title: item.title,
                             cover: item.cover,

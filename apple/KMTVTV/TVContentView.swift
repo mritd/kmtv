@@ -7,21 +7,21 @@ enum TVTab: Int, Hashable {
 struct TVContentView: View {
     @Environment(AppViewModel.self) private var appVM
     @State private var selectedTab: TVTab = .home
-    @State private var pendingSearchQuery: String?
+    @State private var pendingSearch: SearchQuery?
 
     var body: some View {
         TabView(selection: $selectedTab) {
             Tab("Home", systemImage: "house.fill", value: .home) {
-                HomeView(onSearch: { navigateToSearch($0.query) })
+                HomeView(onSearch: { navigateToSearch($0) })
             }
             Tab("Categories", systemImage: "rectangle.grid.2x2.fill", value: .categories) {
-                CategoriesView(onSearch: { navigateToSearch($0.query) })
+                CategoriesView(onSearch: { navigateToSearch($0) })
             }
             Tab("Search", systemImage: "magnifyingglass", value: .search) {
-                SearchView(pendingQuery: $pendingSearchQuery)
+                SearchView(pendingSearch: $pendingSearch)
             }
             Tab("Favorites", systemImage: "star.fill", value: .favorites) {
-                FavoritesView(onSearch: { navigateToSearch($0.query) })
+                FavoritesView(onSearch: { navigateToSearch($0) })
             }
             Tab("Settings", systemImage: "gearshape.fill", value: .settings) {
                 TVSettingsView()
@@ -30,8 +30,8 @@ struct TVContentView: View {
         .tint(.white)
     }
 
-    private func navigateToSearch(_ query: String) {
-        pendingSearchQuery = query
+    private func navigateToSearch(_ search: SearchQuery) {
+        pendingSearch = search
         selectedTab = .search
     }
 }

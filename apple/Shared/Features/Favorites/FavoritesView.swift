@@ -59,7 +59,7 @@ struct FavoritesView: View {
         List {
             ForEach(vm.favorites, id: \.persistentModelID) { item in
                 Button {
-                    path.append(SearchQuery(query: item.title))
+                    path.append(SearchQuery(query: item.title, coverHint: item.cover))
                 } label: {
                     favoriteRow(item)
                 }
@@ -104,7 +104,7 @@ struct FavoritesView: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 32), count: 5), spacing: 32) {
                 ForEach(vm.favorites, id: \.persistentModelID) { item in
                     Button {
-                        onSearch?(SearchQuery(query: item.title))
+                        onSearch?(SearchQuery(query: item.title, coverHint: item.cover))
                     } label: {
                         VideoCard(title: item.title, cover: item.cover,
                                   subtitle: "\(item.type) | \(item.year)",

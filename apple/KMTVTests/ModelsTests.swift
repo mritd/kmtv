@@ -3,6 +3,82 @@ import XCTest
 
 final class ModelsTests: XCTestCase {
 
+    func testSearchQueryIdentityIncludesResumeIntent() throws {
+        let firstEpisode = SearchQuery(
+            query: "Video",
+            resumeIntent: EpisodeResumeIntent(episodeIndex: 0, episodeName: "EP1")
+        )
+        let thirdEpisode = SearchQuery(
+            query: "Video",
+            resumeIntent: EpisodeResumeIntent(episodeIndex: 2, episodeName: "EP3")
+        )
+
+        XCTAssertNotEqual(firstEpisode, thirdEpisode)
+        XCTAssertNotEqual(firstEpisode.id, thirdEpisode.id)
+    }
+
+    func testSearchQueryIdentityIncludesCoverHint() throws {
+        let firstCover = SearchQuery(query: "Video", coverHint: "https://img.example/one.jpg")
+        let secondCover = SearchQuery(query: "Video", coverHint: "https://img.example/two.jpg")
+
+        XCTAssertNotEqual(firstCover, secondCover)
+        XCTAssertNotEqual(firstCover.id, secondCover.id)
+    }
+
+    func testPlayDestinationIdentityIncludesResumeIntent() throws {
+        let source = SourceResult(
+            sourceKey: "source-a",
+            sourceName: "Source A",
+            videoId: "video-1",
+            durationMs: 0,
+            episodes: []
+        )
+        let firstEpisode = PlayDestination(
+            title: "Video",
+            sources: [source],
+            sourceKey: "source-a",
+            videoId: "video-1",
+            resumeIntent: EpisodeResumeIntent(episodeIndex: 0, episodeName: "EP1")
+        )
+        let thirdEpisode = PlayDestination(
+            title: "Video",
+            sources: [source],
+            sourceKey: "source-a",
+            videoId: "video-1",
+            resumeIntent: EpisodeResumeIntent(episodeIndex: 2, episodeName: "EP3")
+        )
+
+        XCTAssertNotEqual(firstEpisode, thirdEpisode)
+        XCTAssertNotEqual(firstEpisode.id, thirdEpisode.id)
+    }
+
+    func testPlayDestinationIdentityIncludesCoverHint() throws {
+        let source = SourceResult(
+            sourceKey: "source-a",
+            sourceName: "Source A",
+            videoId: "video-1",
+            durationMs: 0,
+            episodes: []
+        )
+        let firstCover = PlayDestination(
+            title: "Video",
+            sources: [source],
+            sourceKey: "source-a",
+            videoId: "video-1",
+            coverHint: "https://img.example/one.jpg"
+        )
+        let secondCover = PlayDestination(
+            title: "Video",
+            sources: [source],
+            sourceKey: "source-a",
+            videoId: "video-1",
+            coverHint: "https://img.example/two.jpg"
+        )
+
+        XCTAssertNotEqual(firstCover, secondCover)
+        XCTAssertNotEqual(firstCover.id, secondCover.id)
+    }
+
     func testDecodeSearchResponse() throws {
         let json = """
         {
