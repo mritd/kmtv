@@ -71,6 +71,22 @@ print_offline_devices() {
 }
 
 select_device() {
+    if [[ -n "${KMTV_DEVICE_UDID:-}" ]]; then
+        local index
+        for index in "${!UDIDS[@]}"; do
+            if [[ "${UDIDS[$index]}" == "$KMTV_DEVICE_UDID" ]]; then
+                DEVICE_UDID="$KMTV_DEVICE_UDID"
+                DEVICE_NAME="${DEVICES[$index]}"
+                echo "Selected device from KMTV_DEVICE_UDID: $DEVICE_NAME"
+                return
+            fi
+        done
+
+        echo "Device not found for KMTV_DEVICE_UDID=$KMTV_DEVICE_UDID"
+        print_offline_devices
+        exit 1
+    fi
+
     echo "Available devices:"
     echo ""
 

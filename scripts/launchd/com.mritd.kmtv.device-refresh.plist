@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.mritd.kmtv.device-refresh</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>REPLACE_WITH_REPO_DIR/scripts/device-refresh.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>KMTV_DEVICE_UDIDS</key>
+    <string>REPLACE_WITH_DEVICE_UDIDS</string>
+    <key>KMTV_DEVICE_REFRESH_INTERVAL_SECONDS</key>
+    <string>172800</string>
+    <key>KMTV_TASK_BIN</key>
+    <string>REPLACE_WITH_TASK_BIN</string>
+    <key>PATH</key>
+    <string>REPLACE_WITH_TASK_BIN_DIR:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StartInterval</key>
+  <integer>1800</integer>
+
+  <key>StandardOutPath</key>
+  <string>REPLACE_WITH_HOME/Library/Logs/KMTV/device-refresh.launchd.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>REPLACE_WITH_HOME/Library/Logs/KMTV/device-refresh.launchd.err.log</string>
+</dict>
+</plist>
