@@ -12,7 +12,8 @@
     "coverage": "jest --coverage",
     "lint": "tsc --noEmit",
     "i18n-check": "bunx tsx scripts/check-android-i18n-keys.ts",
-    "bilingual-check": "bunx tsx ../scripts/check-bilingual-comments.ts --root android/src"
+    "bilingual-check": "bunx tsx ../scripts/check-bilingual-comments.ts --root android/src",
+    "brand:generate": "bunx tsx scripts/generate-brand-assets.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "15.1.1",

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Adaptive icon foreground (Android 8+): transparent bg + white K-mark.
+     Android composes the foreground with backgroundColor (set via
+     app.config.ts -> android.adaptiveIcon.backgroundColor) and clips the
+     result to the launcher's mask shape (circle, squircle, teardrop, ...).
+     The Android adaptive-icon spec reserves a 25% inset on every side as
+     parallax/animation safe zone, leaving the central 50% (a 512x512 box
+     at x=256..768, y=256..768 on a 1024 canvas) guaranteed visible.
+     Mark transform: translate(256, 256) + scale(0.5) puts the rendered
+     mark bounds at (353.5, 341) to (661, 683), fully inside the safe box. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <g fill="#FFFFFF" transform="translate(256, 256) scale(0.5)">
+    <polygon points="501.0,341 647.5,341 810,170 662,170"/>
+    <polygon points="340,512 485,512 647.5,341 501.0,341"/>
+    <polygon points="501.0,683 647.5,683 810,854 662,854"/>
+    <polygon points="340,512 485,512 647.5,683 501.0,683"/>
+    <rect x="195" y="170" width="145" height="684" rx="6" ry="6"/>
+  </g>
+</svg>
