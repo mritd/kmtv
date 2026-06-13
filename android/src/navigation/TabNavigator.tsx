@@ -6,10 +6,10 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { useTranslation } from "react-i18next";
 
 import { useTheme } from "@/designSystem/useTheme";
-import { FavoritesScreen } from "@/features/Favorites/FavoritesScreen";
 import { ProfileScreen } from "@/features/Profile/ProfileScreen";
 
 import { CategoriesStack } from "./CategoriesStack";
+import { FavoritesStack } from "./FavoritesStack";
 import { HomeStack } from "./HomeStack";
 import type { TabParamList } from "./types";
 
@@ -49,7 +49,7 @@ export function TabNavigator() {
       />
       <Tab.Screen
         name="FavoritesTab"
-        component={FavoritesScreen}
+        component={FavoritesStack}
         options={{
           tabBarLabel: t("nav:links.favorites"),
           tabBarIcon: ({ color, size }) => <Ionicons name="star" color={color} size={size} />,

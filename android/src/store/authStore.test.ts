@@ -17,6 +17,10 @@ function makeAuth(overrides: Partial<AuthAPI> = {}): AuthAPI {
     })),
     logout: jest.fn(async () => undefined),
     me: jest.fn(async () => ({ id: 1, username: "u", role: "user" as const })),
+    updateProfile: jest.fn(async (n: string) => ({ id: 1, username: n, role: "user" as const })),
+    changePassword: jest.fn(async () => undefined),
+    uploadAvatar: jest.fn(async () => ({ id: 1, username: "u", role: "user" as const })),
+    deleteAvatar: jest.fn(async () => ({ id: 1, username: "u", role: "user" as const })),
     ...overrides,
   };
 }
@@ -121,5 +125,16 @@ describe("authStore.handleAuthExpired", () => {
     expect(useAuthStore.getState().status).toBe("serverSetup");
     expect(useAuthStore.getState().token).toBeNull();
     expect(useServerStore.getState().serverURL).toBeNull();
+  });
+
+  it("updateUser replaces user state, leaving token + status untouched", () => {
+    useAuthStore.setState({ status: "authenticated",
+      user: { id: 1, username: "old", role: "user" }, token: "tk" });
+    useAuthStore.getState().updateUser({ id: 1, username: "new", role: "user", avatar: "/x" });
+    const s = useAuthStore.getState();
+    expect(s.user?.username).toBe("new");
+    expect(s.user?.avatar).toBe("/x");
+    expect(s.token).toBe("tk");
+    expect(s.status).toBe("authenticated");
   });
 });

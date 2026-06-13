@@ -129,3 +129,15 @@ describe("M4 wire types", () => {
     expect(destNoResume.resumeIntent).toBeUndefined();
   });
 });
+
+describe("M5 wire types", () => {
+  it("ProfileRequest has a single username field", () => {
+    const r: import("./types").ProfileRequest = { username: "alice" };
+    expect(r.username).toBe("alice");
+  });
+  it("PasswordRequest uses snake_case field names on the wire", () => {
+    const r: import("./types").PasswordRequest = { old_password: "old", new_password: "new" };
+    expect(JSON.stringify(r)).toContain("old_password");
+    expect(JSON.stringify(r)).toContain("new_password");
+  });
+});

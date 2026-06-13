@@ -22,7 +22,10 @@ import { EpisodeGrid } from "./EpisodeGrid";
 import { episodes as selectEpisodes } from "./episodeSelection";
 import { SkipSettingsRow } from "./SkipSettingsRow";
 import { SourceSwitcher } from "./SourceSwitcher";
+import { IconButton } from "@/designSystem/IconButton";
+
 import { usePlayer } from "./usePlayer";
+import { useFavoriteToggle } from "./useFavoriteToggle";
 
 const OVERLAY_AUTO_HIDE_MS = 5000;
 const SKIP_SECONDS = 10;
@@ -231,16 +234,18 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
   return (
     <View style={{ flex: 1, backgroundColor: colors.bgPrimary }}>
       {playerSurface}
-      <View style={{ padding: 16 }}>
-        <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: "700" }}>
-          {state.detail?.title ?? destination.title}
-        </Text>
-        {state.detail ? (
-          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-            {[state.detail.type, state.detail.year].filter(Boolean).join(" · ")}
-          </Text>
-        ) : null}
-      </View>
+      <PlayerTitleRow
+        title={state.detail?.title ?? destination.title}
+        subtitle={state.detail ? [state.detail.type, state.detail.year].filter(Boolean).join(" · ") : ""}
+        serverURL={ctx.serverURL}
+        currentSourceKey={state.currentSourceKey}
+        currentVideoID={
+          state.sources.find((s) => s.source_key === state.currentSourceKey)?.video_id ?? destination.videoId
+        }
+        cover={state.detail?.cover ?? destination.coverHint}
+        type={state.detail?.type ?? ""}
+        year={state.detail?.year ?? ""}
+      />
       {state.sources.length > 1 ? (
         <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
           <SourceSwitcher sources={state.sources} currentKey={state.currentSourceKey} onSelect={(k) => void actions.switchSource(k)} />
@@ -301,6 +306,46 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
       <Modal visible={isFullScreen} onRequestClose={() => setFullScreen(false)} animationType="fade">
         <View style={{ flex: 1, backgroundColor: "black", justifyContent: "center" }}>{videoElement}</View>
       </Modal>
+    </View>
+  );
+}
+
+interface PlayerTitleRowProps {
+  title: string;
+  subtitle: string;
+  serverURL: string;
+  currentSourceKey: string;
+  currentVideoID: string;
+  cover: string;
+  type: string;
+  year: string;
+}
+
+/**
+ * PlayerTitleRow — title + subtitle below the video surface plus a favorite star.
+ * PlayerTitleRow — 视频面板下方的标题、副标题与收藏星.
+ */
+function PlayerTitleRow({ title, subtitle, serverURL, currentSourceKey, currentVideoID, cover, type, year }: PlayerTitleRowProps) {
+  const { colors } = useTheme();
+  const { favorited, toggle } = useFavoriteToggle({
+    serverURL,
+    item: { sourceKey: currentSourceKey, videoId: currentVideoID, title, cover, type, year },
+  });
+  return (
+    <View style={{ padding: 16, flexDirection: "row", alignItems: "flex-start", gap: 4 }}>
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: "700" }}>{title}</Text>
+        {subtitle ? (
+          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>{subtitle}</Text>
+        ) : null}
+      </View>
+      <IconButton
+        testID="playerFavorite"
+        name={favorited ? "star" : "star-outline"}
+        active={favorited}
+        onPress={toggle}
+        accessibilityLabel={favorited ? "favorited" : "favorite"}
+      />
     </View>
   );
 }

@@ -16,8 +16,6 @@ module.exports = {
     "!src/**/*.test.{ts,tsx}",
     "!src/**/__mocks__/**",
     "!src/navigation/**",
-    "!src/features/Favorites/**",
-    "!src/features/Profile/**",
   ],
   coverageThreshold: {
     global: {

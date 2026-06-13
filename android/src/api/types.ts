@@ -284,3 +284,21 @@ export interface PlayDestination {
   coverHint: string;
   resumeIntent?: EpisodeResumeIntent;
 }
+
+/**
+ * Body shape for PUT /api/v1/auth/profile.
+ * PUT /api/v1/auth/profile 的请求体.
+ */
+export interface ProfileRequest {
+  username: string;
+}
+
+/**
+ * Body shape for PUT /api/v1/auth/password. Field names are snake_case on the wire,
+ * matching `server/internal/handler/auth.go:181-182`.
+ * PUT /api/v1/auth/password 的请求体, 字段使用 snake_case, 对齐 server/internal/handler/auth.go:181-182.
+ */
+export interface PasswordRequest {
+  old_password: string;
+  new_password: string;
+}

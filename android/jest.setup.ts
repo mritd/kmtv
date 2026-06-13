@@ -220,3 +220,67 @@ jest.mock(
     };
   },
 );
+
+// expo-image-picker: returns a deterministic stub asset so tests don't need a native runtime.
+// Use the SDK 17 `mediaTypes: ["images"]` shape; `MediaTypeOptions` is deprecated in 17.x.
+// expo-image-picker: 返回确定性 stub asset, 测试无需原生运行时. SDK 17 使用 mediaTypes: ["images"],
+// MediaTypeOptions 在 17.x 已废弃.
+jest.mock(
+  "expo-image-picker",
+  () => ({
+    requestMediaLibraryPermissionsAsync: jest.fn(async () => ({ status: "granted", granted: true })),
+    launchImageLibraryAsync: jest.fn(async () => ({
+      canceled: false,
+      assets: [{ uri: "file:///mock-image.jpg", width: 100, height: 100, mimeType: "image/jpeg" }],
+    })),
+  }),
+);
+
+// expo-image-manipulator: deterministic stub that returns a synthetic compressed URI.
+// expo-image-manipulator: 返回确定性的合成已压缩 URI.
+jest.mock(
+  "expo-image-manipulator",
+  () => ({
+    SaveFormat: { JPEG: "jpeg", PNG: "png" },
+    manipulateAsync: jest.fn(async (uri: string) => ({
+      uri: `${uri}.jpg`,
+      width: 256,
+      height: 256,
+    })),
+  }),
+);
+
+// react-native-gesture-handler: stub Swipeable and GestureHandlerRootView to plain RN views;
+// surface renderRightActions inside a testID="swipeable-actions" wrapper for assertions.
+// react-native-gesture-handler: 把 Swipeable 与 GestureHandlerRootView 退化为普通 RN view,
+// 把 renderRightActions 暴露在 testID="swipeable-actions" 容器里供断言.
+jest.mock(
+  "react-native-gesture-handler",
+  () => {
+    const React = require("react") as typeof import("react");
+    const RN = jest.requireActual("react-native") as typeof import("react-native");
+    return {
+      __esModule: true,
+      GestureHandlerRootView: ({ children, style }: { children: React.ReactNode; style?: unknown }) =>
+        React.createElement(RN.View, { style } as never, children),
+      Swipeable: React.forwardRef(
+        (
+          {
+            children,
+            renderRightActions,
+          }: {
+            children: React.ReactNode;
+            renderRightActions?: () => React.ReactNode;
+          },
+          _ref,
+        ) =>
+          React.createElement(
+            RN.View,
+            { testID: "swipeable" },
+            children,
+            renderRightActions ? React.createElement(RN.View, { testID: "swipeable-actions" }, renderRightActions()) : null,
+          ),
+      ),
+    };
+  },
+);

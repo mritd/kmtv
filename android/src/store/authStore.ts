@@ -37,6 +37,11 @@ interface AuthState {
   ) => Promise<void>;
   logout: () => Promise<void>;
   handleAuthExpired: () => void;
+  /**
+   * Replace the in-memory user (used after profile/avatar mutations).
+   * 替换内存中的 user (用于 profile / avatar 变更后).
+   */
+  updateUser: (user: User) => void;
 }
 
 /**
@@ -129,4 +134,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     useServerStore.getState().clearServerURL();
     set({ token: null, user: null, status: "serverSetup", serverVersion: "" });
   },
+
+  updateUser: (user) => set({ user }),
 }));

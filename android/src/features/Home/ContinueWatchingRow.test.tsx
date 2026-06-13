@@ -71,7 +71,7 @@ describe("ContinueWatchingRow", () => {
         onClear={() => undefined}
       />,
     ));
-    const fill = getAllByTestId("continueProgressFill")[0];
+    const fill = getAllByTestId("continueProgressFill")[0]!;
     expect(fill.props.style).toEqual(
       expect.arrayContaining([expect.objectContaining({ width: "25%" })]),
     );
@@ -85,7 +85,7 @@ describe("ContinueWatchingRow", () => {
         onClear={() => undefined}
       />,
     ));
-    const fill = getAllByTestId("continueProgressFill")[0];
+    const fill = getAllByTestId("continueProgressFill")[0]!;
     expect(fill.props.style).toEqual(
       expect.arrayContaining([expect.objectContaining({ width: "100%" })]),
     );

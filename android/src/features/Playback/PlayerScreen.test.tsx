@@ -82,6 +82,20 @@ test("Video onLoad seeks to resume position and marks consumed", async () => {
   expect(video).toBeTruthy();
 });
 
+test("favorite toggle persists with the current source's video_id", async () => {
+  const { _resetForTests } = require("@/storage/mmkv");
+  const { isFavorited } = require("@/storage/favorites");
+  _resetForTests();
+  const detailAPI: DetailAPI = { detail: jest.fn().mockResolvedValue(detail) };
+  const playbackAPI: PlaybackAPI = { playbackURL: jest.fn().mockResolvedValue({ mode: "proxy", url: "https://p/m3u8" }) };
+  const { findByTestId } = wrap(detailAPI, playbackAPI);
+  const star = await findByTestId("playerFavorite");
+  fireEvent.press(star);
+  expect(isFavorited("http://srv-player", dest.sourceKey, dest.videoId)).toBe(true);
+  fireEvent.press(star);
+  expect(isFavorited("http://srv-player", dest.sourceKey, dest.videoId)).toBe(false);
+});
+
 test("BackHandler dismisses full-screen before popping", async () => {
   const spy = jest.spyOn(BackHandler, "addEventListener");
   const detailAPI: DetailAPI = { detail: jest.fn().mockResolvedValue(detail) };

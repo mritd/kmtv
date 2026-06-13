@@ -87,3 +87,45 @@ test("Play CTA invokes context onPlay with destination", async () => {
   fireEvent.press(getByText("Play"));
   expect(onPlay).toHaveBeenCalledWith(expect.objectContaining({ title: "Inception", sourceKey: "a" }));
 });
+
+test("favorite toggle persists with active source's video_id", async () => {
+  const { _resetForTests } = require("@/storage/mmkv");
+  const { isFavorited } = require("@/storage/favorites");
+  _resetForTests();
+  const api: DetailAPI = { detail: jest.fn().mockResolvedValue(detail) };
+  const { findByText, getByTestId } = wrap(
+    { detailAPI: api, serverURL: "http://s", onPlay: jest.fn() },
+    { params: dest },
+  );
+  await findByText("Inception");
+  fireEvent.press(getByTestId("detailFavorite"));
+  expect(isFavorited("http://s", "a", "v-a")).toBe(true);
+  fireEvent.press(getByTestId("detailFavorite"));
+  expect(isFavorited("http://s", "a", "v-a")).toBe(false);
+});
+
+test("switching source then tapping favorite uses the new source's video_id", async () => {
+  const { _resetForTests } = require("@/storage/mmkv");
+  const { isFavorited } = require("@/storage/favorites");
+  _resetForTests();
+  const srcB: SourceResult = { source_key: "b", source_name: "B", is_adult: false, video_id: "v-b-new",
+    duration_ms: 0, episodes: [] };
+  const multiDest = { ...dest, sources: [src, srcB] };
+  const detailB: VideoDetail = { ...detail, id: "2" };
+  const api: DetailAPI = {
+    detail: jest.fn()
+      .mockResolvedValueOnce(detail)
+      .mockResolvedValueOnce(detailB),
+  };
+  const { findByText, getByText, getByTestId } = wrap(
+    { detailAPI: api, serverURL: "http://s", onPlay: jest.fn() },
+    { params: multiDest },
+  );
+  await findByText("Inception");
+  fireEvent.press(getByText("B"));
+  await waitFor(() => expect(api.detail).toHaveBeenCalledWith("b", "v-b-new"));
+  fireEvent.press(getByTestId("detailFavorite"));
+  expect(isFavorited("http://s", "b", "v-b-new")).toBe(true);
+  // Original source's tuple stays untoggled.
+  expect(isFavorited("http://s", "a", "v-a")).toBe(false);
+});

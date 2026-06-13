@@ -121,4 +121,92 @@ describe("createAPIClient", () => {
     const body = await req.text();
     expect(JSON.parse(body)).toEqual({ username: "u", password: "p" });
   });
+
+  it("getBlob returns the response body as an ArrayBuffer with bearer injected", async () => {
+    const buf = new Uint8Array([1, 2, 3]).buffer;
+    const fetcher = jest.fn(async (_req: Request) =>
+      new Response(buf, { status: 200, headers: { "Content-Type": "image/jpeg" } }));
+    const client = createAPIClient({
+      baseURL: "http://localhost",
+      getToken: () => "tk",
+      onUnauthorized: () => {},
+      fetcher: fetcher as unknown as typeof fetch,
+    });
+    const out = await client.getBlob("/avatar/alice");
+    expect(out.byteLength).toBe(3);
+    const req = (fetcher as unknown as jest.Mock).mock.calls[0][0] as Request;
+    expect(req.headers.get("Authorization")).toBe("Bearer tk");
+    expect(req.method).toBe("GET");
+    expect(req.url).toBe("http://localhost/api/v1/avatar/alice");
+  });
+
+  it("getBlob surfaces 401 via onUnauthorized", async () => {
+    const fetcher = jest.fn(async () => new Response("nope", { status: 401 }));
+    const onUnauth = jest.fn();
+    const client = createAPIClient({
+      baseURL: "http://localhost",
+      getToken: () => "tk",
+      onUnauthorized: onUnauth,
+      fetcher: fetcher as unknown as typeof fetch,
+    });
+    await expect(client.getBlob("/avatar/alice")).rejects.toMatchObject({ kind: "unauthorized" });
+    expect(onUnauth).toHaveBeenCalledTimes(1);
+  });
+
+  it("putMultipart sends FormData with Authorization and lets fetch auto-set the multipart boundary", async () => {
+    let captured: Request | null = null;
+    const fetcher = jest.fn(async (req: Request) => {
+      captured = req;
+      return new Response(JSON.stringify({ id: 1, username: "u", role: "user" }), { status: 200 });
+    });
+    const client = createAPIClient({
+      baseURL: "http://localhost",
+      getToken: () => "tk",
+      onUnauthorized: () => {},
+      fetcher: fetcher as unknown as typeof fetch,
+    });
+    const form = new FormData();
+    form.append("avatar", { uri: "file:///x.jpg", name: "a.jpg", type: "image/jpeg" } as unknown as Blob);
+    const out = await client.putMultipart<{ id: number }>("/auth/avatar", form);
+    expect(out.id).toBe(1);
+    expect(captured!.method).toBe("PUT");
+    expect(captured!.headers.get("Authorization")).toBe("Bearer tk");
+    // Fetch must auto-attach a multipart/form-data Content-Type WITH a boundary token. We never
+    // set it ourselves — verifying the boundary segment exists is the real signal.
+    // 由 fetch 自动追加带 boundary 的 multipart/form-data Content-Type; 我们不手动设置, 校验
+    // boundary 段存在即代表流程正确.
+    const contentType = captured!.headers.get("Content-Type");
+    expect(contentType).toMatch(/^multipart\/form-data;\s*boundary=/);
+  });
+
+  it("delReturning parses the JSON response body", async () => {
+    const fetcher = jest.fn(async () =>
+      new Response(JSON.stringify({ id: 9, username: "u", role: "user" }), { status: 200 }),
+    );
+    const client = createAPIClient({
+      baseURL: "http://localhost",
+      getToken: () => "",
+      onUnauthorized: () => {},
+      fetcher: fetcher as unknown as typeof fetch,
+    });
+    const out = await client.delReturning<{ id: number }>("/auth/avatar");
+    expect(out.id).toBe(9);
+  });
+
+  it("delReturning forwards bearer and uses DELETE method", async () => {
+    let captured: Request | null = null;
+    const fetcher = jest.fn(async (req: Request) => {
+      captured = req;
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+    const client = createAPIClient({
+      baseURL: "http://localhost",
+      getToken: () => "tk",
+      onUnauthorized: () => {},
+      fetcher: fetcher as unknown as typeof fetch,
+    });
+    await client.delReturning<unknown>("/auth/avatar");
+    expect(captured!.method).toBe("DELETE");
+    expect(captured!.headers.get("Authorization")).toBe("Bearer tk");
+  });
 });

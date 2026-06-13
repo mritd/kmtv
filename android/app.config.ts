@@ -1,4 +1,3 @@
-// English. 中文.
 // Expo configuration for the KMTV Android client.
 // KMTV Android 客户端的 Expo 配置.
 
@@ -31,6 +30,13 @@ const config: ExpoConfig = {
         backgroundColor: "#4A8AF5",
         image: "./assets/splash.png",
         resizeMode: "contain",
+      },
+    ],
+    [
+      "expo-image-picker",
+      {
+        photosPermission: "Allow KMTV to access your photos to set a profile picture.",
+        cameraPermission: false,
       },
     ],
   ],

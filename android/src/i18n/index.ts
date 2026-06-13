@@ -7,21 +7,27 @@ import { initReactI18next } from "react-i18next";
 import enBootstrap from "./locales/en/bootstrap";
 import enCategories from "./locales/en/categories";
 import enCommon from "./locales/en/common";
+import enFavorites from "./locales/en/favorites";
 import enHome from "./locales/en/home";
 import enNav from "./locales/en/nav";
 import enPlayback from "./locales/en/playback";
+import enProfile from "./locales/en/profile";
 import enSearch from "./locales/en/search";
 import zhBootstrap from "./locales/zh/bootstrap";
 import zhCategories from "./locales/zh/categories";
 import zhCommon from "./locales/zh/common";
+import zhFavorites from "./locales/zh/favorites";
 import zhHome from "./locales/zh/home";
 import zhNav from "./locales/zh/nav";
 import zhPlayback from "./locales/zh/playback";
+import zhProfile from "./locales/zh/profile";
 import zhSearch from "./locales/zh/search";
 
 const resources = {
-  en: { common: enCommon, nav: enNav, bootstrap: enBootstrap, home: enHome, categories: enCategories, search: enSearch, playback: enPlayback },
-  zh: { common: zhCommon, nav: zhNav, bootstrap: zhBootstrap, home: zhHome, categories: zhCategories, search: zhSearch, playback: zhPlayback },
+  en: { common: enCommon, nav: enNav, bootstrap: enBootstrap, home: enHome, categories: enCategories,
+        search: enSearch, playback: enPlayback, favorites: enFavorites, profile: enProfile },
+  zh: { common: zhCommon, nav: zhNav, bootstrap: zhBootstrap, home: zhHome, categories: zhCategories,
+        search: zhSearch, playback: zhPlayback, favorites: zhFavorites, profile: zhProfile },
 } as const;
 
 /**
@@ -40,7 +46,7 @@ export async function initI18n(lang: Lang): Promise<I18nInstance> {
       compatibilityJSON: "v4",
       lng: lang,
       fallbackLng: "en",
-      ns: ["common", "nav", "bootstrap", "home", "categories", "search", "playback"],
+      ns: ["common", "nav", "bootstrap", "home", "categories", "search", "playback", "favorites", "profile"],
       defaultNS: "common",
       resources,
       interpolation: { escapeValue: false },

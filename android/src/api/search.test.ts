@@ -13,6 +13,9 @@ function mockClient(get: jest.Mock): APIClient {
     post: jest.fn() as unknown as APIClient["post"],
     put: jest.fn() as unknown as APIClient["put"],
     del: jest.fn() as unknown as APIClient["del"],
+    getBlob: jest.fn() as unknown as APIClient["getBlob"],
+    putMultipart: jest.fn() as unknown as APIClient["putMultipart"],
+    delReturning: jest.fn() as unknown as APIClient["delReturning"],
   };
 }
 

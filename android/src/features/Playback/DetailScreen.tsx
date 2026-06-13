@@ -11,6 +11,7 @@ import {
 import { createAPIClient } from "@/api/client";
 import { createDetailAPI, type DetailAPI } from "@/api/detail";
 import type { PlayDestination, VideoDetail } from "@/api/types";
+import { IconButton } from "@/designSystem/IconButton";
 import { PosterImage } from "@/designSystem/PosterImage";
 import { Skeleton } from "@/designSystem/Skeleton";
 import { sizes } from "@/designSystem/theme";
@@ -20,6 +21,7 @@ import { useServerStore } from "@/store/serverStore";
 
 import { EpisodeGrid } from "./EpisodeGrid";
 import { SourceSwitcher } from "./SourceSwitcher";
+import { useFavoriteToggle } from "./useFavoriteToggle";
 
 /**
  * Context value lets tests inject a stub DetailAPI + onPlay handler without booting the store stack.
@@ -107,6 +109,19 @@ function DetailInner({ ctx, destination }: { ctx: DetailScreenContextValue; dest
     [detail, sources, currentSourceKey],
   );
 
+  const activeSource = sources.find((s) => s.source_key === currentSourceKey);
+  const { favorited, toggle: toggleFavorite } = useFavoriteToggle({
+    serverURL: ctx.serverURL,
+    item: {
+      sourceKey: currentSourceKey,
+      videoId: activeSource?.video_id ?? destination.videoId,
+      title: detail?.title ?? destination.title,
+      cover: detail?.cover ?? destination.coverHint,
+      type: detail?.type ?? "",
+      year: detail?.year ?? "",
+    },
+  });
+
   const onSwitchSource = async (sourceKey: string) => {
     const next = sources.find((s) => s.source_key === sourceKey);
     if (!next) return;
@@ -158,7 +173,16 @@ function DetailInner({ ctx, destination }: { ctx: DetailScreenContextValue; dest
           <PosterImage baseURL={ctx.serverURL} cover={detail.cover} style={{ width: "100%", height: "100%" }} />
         </View>
         <View style={styles.info}>
-          <Text style={[styles.title, { color: colors.textPrimary }]} numberOfLines={2}>{detail.title}</Text>
+          <View style={styles.titleRow}>
+            <Text style={[styles.title, { color: colors.textPrimary, flex: 1 }]} numberOfLines={2}>{detail.title}</Text>
+            <IconButton
+              testID="detailFavorite"
+              name={favorited ? "star" : "star-outline"}
+              active={favorited}
+              onPress={toggleFavorite}
+              accessibilityLabel={favorited ? "favorited" : "favorite"}
+            />
+          </View>
           <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
             {[detail.type, detail.year, detail.area].filter(Boolean).join(" · ")}
           </Text>
@@ -215,6 +239,7 @@ const styles = StyleSheet.create({
   heroBg: { position: "absolute", left: 0, right: 0, top: 0, height: 360, opacity: 0.5 },
   bgImage: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 },
   hero: { flexDirection: "row", padding: 16 },
+  titleRow: { flexDirection: "row", alignItems: "flex-start", gap: 4 },
   poster: { width: 110, height: 165, borderRadius: sizes.radius.md, overflow: "hidden", marginRight: 12 },
   info: { flex: 1 },
   title: { fontSize: 19, fontWeight: "800" },

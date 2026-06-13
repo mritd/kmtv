@@ -44,12 +44,22 @@ export type CategoriesStackParamList = {
 };
 
 /**
- * Bottom tabs. Each tab will host its own stack in later milestones.
- * 底部 Tab. 后续里程碑各 Tab 内部将托管独立 stack.
+ * FavoritesTab's nested native-stack: FavoritesRoot + Detail + Player.
+ * FavoritesTab 内的 native-stack: FavoritesRoot + Detail + Player.
+ */
+export type FavoritesStackParamList = {
+  FavoritesRoot: undefined;
+  Detail: PlayDestination;
+  Player: PlayDestination;
+};
+
+/**
+ * Bottom tabs. Each tab hosts its own native-stack from M5+.
+ * 底部 Tab. M5 起每个 Tab 拥有独立 native-stack.
  */
 export type TabParamList = {
   HomeTab: NavigatorScreenParams<HomeStackParamList>;
   CategoriesTab: NavigatorScreenParams<CategoriesStackParamList>;
-  FavoritesTab: undefined;
+  FavoritesTab: NavigatorScreenParams<FavoritesStackParamList>;
   MeTab: undefined;
 };
