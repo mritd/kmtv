@@ -7,7 +7,21 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
-const ROOT = resolve(__dirname, "..", "web", "src");
+// CLI: --root <relative-path> (repeatable). Defaults to web/src for backward compatibility.
+// CLI: --root <相对路径> (可重复). 缺省值 web/src, 保持向后兼容.
+function parseRoots(argv: string[]): string[] {
+  const roots: string[] = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    if (argv[i] === "--root" && i + 1 < argv.length) {
+      roots.push(argv[i + 1]);
+      i += 1;
+    }
+  }
+  return roots.length > 0 ? roots : ["web/src"];
+}
+
+const REPO_ROOT = resolve(__dirname, "..");
+const ROOTS = parseRoots(process.argv.slice(2)).map((p) => resolve(REPO_ROOT, p));
 const EXCLUDE_DIRS = new Set(["__tests__", "test"]);
 const EXCLUDE_SUFFIX = [".test.ts", ".test.tsx", ".d.ts"];
 
@@ -121,9 +135,12 @@ function findExports(filePath: string, lines: string[]): Finding[] {
   return findings;
 }
 
-const files = walk(ROOT);
+const allFiles: string[] = [];
+for (const root of ROOTS) {
+  allFiles.push(...walk(root));
+}
 const findings: Finding[] = [];
-for (const file of files) {
+for (const file of allFiles) {
   const text = readFileSync(file, "utf8");
   const lines = text.split(/\r?\n/);
   findings.push(...findExports(file, lines));

@@ -181,6 +181,54 @@ tasks:
     cmds:
       - docker buildx build --platform=linux/amd64,linux/arm64 --build-arg VERSION={{.VERSION}} --build-arg GIT_COMMIT={{.GIT_COMMIT}} --build-arg BUILD_TIME={{.BUILD_TIME}} -t mritd/kmtv -t mritd/kmtv:{{.VERSION}} -f server/Dockerfile . --push
 
+  android:install:
+    desc: Install Android RN dependencies
+    dir: android
+    cmds:
+      - bun install
+
+  android:dev:
+    desc: Run Expo dev server for the Android RN client
+    dir: android
+    cmds:
+      - bunx expo start --clear
+
+  android:test:
+    desc: Run Android RN unit tests
+    dir: android
+    cmds:
+      - bun run test
+
+  android:coverage:
+    desc: Run Android RN tests with coverage
+    dir: android
+    cmds:
+      - bun run coverage
+
+  android:lint:
+    desc: Type-check Android RN
+    dir: android
+    cmds:
+      - bun run lint
+
+  android:i18n-check:
+    desc: Verify Android RN i18n key parity
+    dir: android
+    cmds:
+      - bun run i18n-check
+
+  android:bilingual-check:
+    desc: Advisory scan for missing bilingual comments on Android RN exports
+    dir: android
+    cmds:
+      - bun run bilingual-check
+
+  android:prebuild:
+    desc: Regenerate android/android Gradle project from app.config.ts
+    dir: android
+    cmds:
+      - bunx expo prebuild --platform android --clean
+
   clean:
     desc: Remove build artifacts
     cmds:

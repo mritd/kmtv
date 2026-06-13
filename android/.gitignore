@@ -1,0 +1,26 @@
+# Expo prebuild outputs are not source of truth; rerun prebuild before each build.
+# Expo prebuild 产物不入库, 每次构建前重新生成.
+/android
+/ios
+
+# Dependencies
+node_modules/
+
+# Build & cache
+.expo/
+.expo-shared/
+dist/
+web-build/
+*.tsbuildinfo
+
+# Test artifacts
+coverage/
+
+# OS / IDE
+.DS_Store
+.idea/
+*.iml
+
+# Local env
+.env*
+!.env.example

@@ -4,6 +4,9 @@
 .claude/
 .codex/
 
+# Local-only design/spec/plan workspace (kept on disk for the agent, not in git)
+docs/superpowers/
+
 # OS / IDE
 .DS_Store
 .idea/
@@ -30,3 +33,10 @@ apple/KMTV.xcodeproj/project.xcworkspace/xcuserdata/
 
 # Local-only Apple signing config (each contributor maintains their own)
 apple/Signing.local.xcconfig
+
+# Android RN
+android/node_modules/
+android/.expo/
+android/android/
+android/ios/
+android/coverage/
