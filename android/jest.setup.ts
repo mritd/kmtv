@@ -1,4 +1,3 @@
-// English. 中文.
 // Global jest setup: mocks for native modules unavailable in node.
 // 全局 jest 启动配置: mock 在 node 环境无法运行的原生模块.
 
@@ -118,5 +117,46 @@ jest.mock(
         } as never),
       ImageBackground: RN.View,
     };
+  },
+);
+
+// react-native-sse: manual driver. Tests get an EventSource constructor that records the
+// instance and exposes dispatch() / triggerError() / triggerClose() so each test simulates
+// the SSE frames it needs. The latest instance is kept on the global so tests can grab it.
+// react-native-sse: 手动驱动. 测试拿到的 EventSource 构造函数会记录实例并暴露 dispatch()
+// triggerError() / triggerClose(), 让用例按需模拟 SSE 帧, 最新实例挂到全局供测试读取.
+jest.mock(
+  "react-native-sse",
+  () => {
+    class MockEventSource {
+      url: string;
+      options: { headers?: Record<string, string> };
+      listeners: Map<string, Set<(evt: { type: string; data?: string; message?: string }) => void>> = new Map();
+      closed = false;
+      constructor(url: string, options: { headers?: Record<string, string> } = {}) {
+        this.url = url;
+        this.options = options;
+        (globalThis as { __lastMockEventSource?: MockEventSource }).__lastMockEventSource = this;
+      }
+      addEventListener(type: string, listener: (evt: { type: string; data?: string; message?: string }) => void): void {
+        if (!this.listeners.has(type)) this.listeners.set(type, new Set());
+        this.listeners.get(type)!.add(listener);
+      }
+      removeEventListener(type: string, listener: (evt: { type: string; data?: string; message?: string }) => void): void {
+        this.listeners.get(type)?.delete(listener);
+      }
+      close(): void { this.closed = true; }
+      dispatch(type: string, data: unknown): void {
+        const payload = typeof data === "string" ? data : JSON.stringify(data);
+        for (const fn of this.listeners.get(type) ?? []) fn({ type, data: payload });
+      }
+      triggerError(message = "stream error"): void {
+        for (const fn of this.listeners.get("error") ?? []) fn({ type: "error", message });
+      }
+      triggerClose(): void {
+        for (const fn of this.listeners.get("close") ?? []) fn({ type: "close" });
+      }
+    }
+    return { __esModule: true, default: MockEventSource };
   },
 );

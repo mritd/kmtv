@@ -71,3 +71,148 @@ export interface HomeSection {
 export interface DoubanHomeResponse {
   sections: HomeSection[];
 }
+
+/**
+ * One sub-category option inside a CategoryGroup (e.g. a genre or ranking tag).
+ * CategoryGroup 内的一个子分类筛选项 (如题材或排行标签).
+ *
+ * `kind` and `format` are optional overrides — see categoryFilter.resolveRecommendFilter for the
+ * presence-test rule that decides when sub overrides the group-level format.
+ * kind 和 format 为可选覆盖, 参见 categoryFilter.resolveRecommendFilter 关于子分类覆盖分组 format 的判定规则.
+ */
+export interface SubCategory {
+  name: string;
+  tag: string;
+  kind?: string;
+  format?: string;
+}
+
+/**
+ * One region filter option inside a CategoryGroup.
+ * CategoryGroup 内的一个地区筛选项.
+ */
+export interface Region {
+  name: string;
+  value: string;
+}
+
+/**
+ * One top-level browse category (e.g. 电影 / 剧集) with its filter options.
+ * 顶层浏览分类 (如电影 / 剧集) 及其筛选项.
+ */
+export interface CategoryGroup {
+  key: string;
+  name: string;
+  douban_kind: string;
+  format: string;
+  subcategories: SubCategory[];
+  regions: Region[];
+}
+
+/**
+ * Top-level response from /douban/categories.
+ * /douban/categories 的顶层响应.
+ */
+export interface DoubanCategoriesResponse {
+  categories: CategoryGroup[];
+}
+
+/**
+ * Resolved query parameters for /douban/recommend/filter.
+ * /douban/recommend/filter 的已解析查询参数.
+ *
+ * `kind` is required server-side; the rest are optional filters or pagination knobs.
+ * kind 服务端必填; 其余字段为可选筛选项或分页参数.
+ */
+export interface DoubanRecommendFilter {
+  kind: string;
+  tag?: string;
+  format?: string;
+  region?: string;
+  start?: number;
+  count?: number;
+}
+
+/**
+ * Paginated item payload for /douban/recommend/filter (and sibling /douban/list endpoints).
+ * /douban/recommend/filter (以及 /douban/list 系列端点) 返回的分页条目负载.
+ */
+export interface DoubanListResponse {
+  items: DoubanItem[];
+}
+
+/**
+ * One playable episode (mirrors server `model.Episode`).
+ * 一集可播放视频 (镜像 server `model.Episode`).
+ */
+export interface Episode {
+  name: string;
+  url: string;
+}
+
+/**
+ * One source attached to a search result — mirrors server `model.SourceResult` (snake_case wire).
+ * 一个搜索结果下的源, 镜像 server `model.SourceResult` (snake_case wire 格式).
+ *
+ * The `duration_ms` field is the upstream source's response time (used by the iOS picker to
+ * surface slow sources); episodes is the full playable list — Detail / Player in M4 consume both.
+ * duration_ms 是上游源的响应时间 (iOS 选源时用于标注慢源); episodes 是完整可播放列表, M4 Detail / Player 消费.
+ */
+export interface SourceResult {
+  source_key: string;
+  source_name: string;
+  is_adult: boolean;
+  video_id: string;
+  duration_ms: number;
+  episodes: Episode[];
+}
+
+/**
+ * Single aggregated search result mirroring server `model.SearchResult`.
+ * 单条聚合搜索结果, 镜像 server `model.SearchResult`.
+ *
+ * Backend has no top-level id; RN code synthesises a list key from the first source
+ * (`source_key + ":" + video_id`).
+ * 后端无顶层 id, RN 端基于首个源合成列表 key (source_key + ":" + video_id).
+ */
+export interface SearchResult {
+  title: string;
+  type: string;
+  year: string;
+  cover: string;
+  desc: string;
+  sources: SourceResult[];
+}
+
+/**
+ * Final aggregated response of a search request — sync endpoint or SSE final frame.
+ * 搜索请求的最终聚合响应 — 同步接口或 SSE 末帧.
+ */
+export interface SearchResponse {
+  results: SearchResult[];
+}
+
+/**
+ * SSE progress phase name emitted by the backend.
+ * 后端推送的 SSE 进度阶段名称.
+ */
+export type SearchProgressPhase = "searching" | "probing" | string;
+
+/**
+ * SSE progress payload — anonymous counts only, no per-source names on the wire.
+ * SSE 进度负载 — 仅包含匿名计数, 线上不带源名称.
+ */
+export interface SearchProgress {
+  phase: SearchProgressPhase;
+  completed: number;
+  total: number;
+}
+
+/**
+ * Normalised SSE event union the search API surfaces to callers.
+ * 搜索 API 对外暴露的归一化 SSE 事件联合类型.
+ */
+export type SearchStreamEvent =
+  | { type: "progress"; progress: SearchProgress }
+  | { type: "result"; response: SearchResponse }
+  | { type: "error"; message: string };

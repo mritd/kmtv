@@ -1,22 +1,311 @@
-// Placeholder Categories screen for M1. Real implementation lands in M3.
-// M1 阶段的 Categories 占位屏, 真实实现见 M3.
+// CategoriesScreen — tabs + sub/region chips + responsive poster grid driven by useDoubanRecommendInfiniteQuery.
+// CategoriesScreen — tab + 子分类/地区胶囊 + 自适应海报网格, 由 useDoubanRecommendInfiniteQuery 驱动.
 
-import { Text, View } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import React, { createContext, useCallback, useContext, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import {
+  ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, View,
+  useWindowDimensions,
+} from "react-native";
 
+import { createAPIClient } from "@/api/client";
+import { createDoubanAPI, type DoubanAPI } from "@/api/douban";
+import type { DoubanItem } from "@/api/types";
+import { useCategoriesQuery, useDoubanRecommendInfiniteQuery } from "@/api/viewerHooks";
+import { PosterImage } from "@/designSystem/PosterImage";
+import { Skeleton } from "@/designSystem/Skeleton";
+import { sizes } from "@/designSystem/theme";
 import { useTheme } from "@/designSystem/useTheme";
+import type { CategoriesStackParamList } from "@/navigation/types";
+import { useAuthStore } from "@/store/authStore";
+import { categoriesStore } from "@/store/categoriesStore";
+import { useServerStore } from "@/store/serverStore";
+
+import { CategoryChip } from "./CategoryChip";
+import { resolveRecommendFilter, resolveSelection } from "./categoryFilter";
+import { flattenCategoryPages } from "./categoryItems";
 
 /**
- * Placeholder screen displaying the tab name centred on the theme background.
- * 在主题背景中央显示 Tab 名称的占位屏.
+ * Context lets tests inject a stub DoubanAPI + serverURL + onSearchTitle without booting
+ * serverStore / authStore. Production path uses CategoriesScreen's default factory.
+ * 测试可通过 context 注入 stub DoubanAPI + serverURL + onSearchTitle, 无需启动 serverStore / authStore.
+ * 生产路径走 CategoriesScreen 的默认工厂.
+ */
+export interface CategoriesScreenContextValue {
+  api: DoubanAPI;
+  serverURL: string;
+  onSearchTitle: (title: string) => void;
+}
+
+export const CategoriesScreenContext = createContext<CategoriesScreenContextValue | null>(null);
+
+function useDefaultDoubanAPI(): { api: DoubanAPI | null; serverURL: string } {
+  const serverURL = useServerStore((s) => s.serverURL) ?? "";
+  const api = useMemo(() => {
+    if (!serverURL) return null;
+    const client = createAPIClient({
+      baseURL: serverURL,
+      getToken: () => useAuthStore.getState().token,
+      onUnauthorized: () => useAuthStore.getState().handleAuthExpired(),
+    });
+    return createDoubanAPI(client);
+  }, [serverURL]);
+  return { api, serverURL };
+}
+
+/**
+ * Compute responsive column count for the poster grid.
+ * 海报网格自适应列数 (与 spec 表 4 一致).
+ *
+ * <600 dp → 3, [600, 840) → 4, ≥840 → 5. Matches design spec section 4 breakpoints.
+ * Exported so it can be unit-tested without rendering the whole screen.
+ * <600 dp → 3, [600, 840) → 4, ≥840 → 5, 与设计规范第 4 节断点一致.
+ * 导出以便不渲染整个屏幕也可单测.
+ */
+export function pickNumColumns(width: number): number {
+  if (width >= 840) return 5;
+  if (width >= 600) return 4;
+  return 3;
+}
+
+function formatGridRating(rate?: string): string {
+  const value = rate?.trim();
+  return value && value !== "0" ? value : "N/A";
+}
+
+/**
+ * CategoriesScreen — entry point exported to the navigator.
+ * CategoriesScreen — 导出给导航器的入口组件.
+ *
+ * Two render paths: context-driven (tests + embedded) and production. Splitting them keeps
+ * useNavigation off the test path so the test fixture is not forced to wrap in NavigationContainer
+ * to satisfy a default it never uses.
+ * 两条渲染路径: 由 context 驱动 (测试与嵌入) 与生产路径. 拆分两路径让 useNavigation 仅在生产路径调用,
+ * 测试不再被强迫包 NavigationContainer 仅为满足一个用不到的默认行为.
  */
 export function CategoriesScreen() {
+  const ctx = useContext(CategoriesScreenContext);
+  return ctx ? <ContextDrivenCategoriesScreen ctx={ctx} /> : <DefaultCategoriesScreen />;
+}
+
+function ContextDrivenCategoriesScreen({ ctx }: { ctx: CategoriesScreenContextValue }) {
+  return <CategoriesScreenInner api={ctx.api} serverURL={ctx.serverURL} onSearchTitle={ctx.onSearchTitle} />;
+}
+
+function DefaultCategoriesScreen() {
+  const { api, serverURL } = useDefaultDoubanAPI();
+  const navigation = useNavigation<NativeStackNavigationProp<CategoriesStackParamList>>();
   const { colors } = useTheme();
+  const { t } = useTranslation("categories");
+  if (!api || !serverURL) {
+    return (
+      <View testID="categoriesUnconfigured" style={[styles.center, { backgroundColor: colors.bgPrimary }]}>
+        <Text style={{ color: colors.textSecondary }}>{t("error.title")}</Text>
+      </View>
+    );
+  }
+  const onSearchTitle = (title: string) => navigation.navigate("Search", { initialQuery: title });
+  return <CategoriesScreenInner api={api} serverURL={serverURL} onSearchTitle={onSearchTitle} />;
+}
+
+interface InnerProps {
+  api: DoubanAPI;
+  serverURL: string;
+  onSearchTitle: (title: string) => void;
+}
+
+function CategoriesScreenInner({ api, serverURL, onSearchTitle }: InnerProps) {
+  const { colors } = useTheme();
+  const { t } = useTranslation("categories");
+  const { width } = useWindowDimensions();
+  const numColumns = pickNumColumns(width);
+
+  useEffect(() => {
+    categoriesStore.getState().hydrate(serverURL);
+  }, [serverURL]);
+
+  const groupKey = categoriesStore((s) => s.groupKey);
+  const subName = categoriesStore((s) => s.subName);
+  const regionName = categoriesStore((s) => s.regionName);
+  const selectGroup = categoriesStore((s) => s.selectGroup);
+  const selectSub = categoriesStore((s) => s.selectSub);
+  const selectRegion = categoriesStore((s) => s.selectRegion);
+
+  const categoriesQuery = useCategoriesQuery(api, serverURL);
+  const groups = useMemo(() => categoriesQuery.data?.categories ?? [], [categoriesQuery.data?.categories]);
+  const resolved = useMemo(
+    () => resolveSelection(groups, { groupKey, subName, regionName }),
+    [groups, groupKey, subName, regionName],
+  );
+  const filter = useMemo(() => resolveRecommendFilter(resolved), [resolved]);
+
+  const recommendQuery = useDoubanRecommendInfiniteQuery(api, serverURL, filter);
+  const items = useMemo(
+    () => flattenCategoryPages(recommendQuery.data?.pages),
+    [recommendQuery.data?.pages],
+  );
+
+  const handleEndReached = useCallback(() => {
+    if (recommendQuery.hasNextPage && !recommendQuery.isFetchingNextPage) {
+      void recommendQuery.fetchNextPage();
+    }
+  }, [recommendQuery.hasNextPage, recommendQuery.isFetchingNextPage, recommendQuery.fetchNextPage]);
+
+  if (categoriesQuery.isLoading) {
+    return (
+      <View testID="categoriesLoading" style={[styles.center, { backgroundColor: colors.bgPrimary }]}>
+        <ActivityIndicator color={colors.accent} />
+      </View>
+    );
+  }
+
+  if (categoriesQuery.isError) {
+    return (
+      <View style={[styles.center, { backgroundColor: colors.bgPrimary, padding: 24 }]}>
+        <Text style={[styles.errorTitle, { color: colors.textPrimary }]}>{t("error.title")}</Text>
+        <Text style={[styles.errorBody, { color: colors.textSecondary }]}>{t("error.description")}</Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => void categoriesQuery.refetch()}
+          style={[styles.retryBtn, { backgroundColor: colors.accent }]}
+        >
+          <Text style={styles.retryText}>{t("retry")}</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  const activeGroup = resolved.group;
+  const subs = activeGroup?.subcategories.filter((s) => s.name.length > 0) ?? [];
+  const regions = activeGroup?.regions.filter((r) => r.name.length > 0) ?? [];
+
   return (
-    <View
-      testID="categoriesPlaceholder"
-      style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bgPrimary }}
-    >
-      <Text style={{ color: colors.textPrimary }}>Categories</Text>
+    <View style={[styles.root, { backgroundColor: colors.bgPrimary }]}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow}>
+        {groups.map((group) => (
+          <CategoryChip
+            key={group.key}
+            label={group.name}
+            active={group.key === activeGroup?.key}
+            onPress={() => selectGroup(group.key)}
+            testID={`category-tab-${group.key}`}
+          />
+        ))}
+      </ScrollView>
+      {subs.length > 0 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+          {subs.map((sub) => (
+            <CategoryChip
+              key={sub.name}
+              label={sub.name}
+              active={sub.name === resolved.sub?.name}
+              onPress={() => selectSub(sub.name)}
+            />
+          ))}
+        </ScrollView>
+      ) : null}
+      {regions.length > 0 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+          {regions.map((region) => (
+            <CategoryChip
+              key={region.name}
+              label={region.name}
+              active={region.name === resolved.region?.name}
+              onPress={() => selectRegion(region.name)}
+            />
+          ))}
+        </ScrollView>
+      ) : null}
+      <FlatList
+        key={`grid-${numColumns}`}
+        testID="categoryGrid"
+        data={items}
+        keyExtractor={(item) => item.id}
+        numColumns={numColumns}
+        contentContainerStyle={styles.gridContent}
+        columnWrapperStyle={styles.gridRow}
+        onEndReached={handleEndReached}
+        onEndReachedThreshold={0.6}
+        renderItem={({ item }) => (
+          <PosterTile
+            item={item}
+            baseURL={serverURL}
+            onPress={() => onSearchTitle(item.title)}
+            cardColor={colors.bgCard}
+            titleColor={colors.textPrimary}
+            metaColor={colors.textSecondary}
+          />
+        )}
+        ListEmptyComponent={
+          recommendQuery.isLoading ? null : (
+            <View style={styles.emptyContainer}>
+              <Text style={[styles.errorTitle, { color: colors.textPrimary }]}>{t("empty.title")}</Text>
+              <Text style={[styles.errorBody, { color: colors.textSecondary }]}>{t("empty.description")}</Text>
+            </View>
+          )
+        }
+        ListFooterComponent={
+          recommendQuery.hasNextPage ? (
+            <View style={styles.loadMore}>
+              <Skeleton width={120} height={18} />
+              <Text style={[styles.loadMoreText, { color: colors.textSecondary }]}>{t("loadingMore")}</Text>
+            </View>
+          ) : null
+        }
+      />
     </View>
   );
 }
+
+interface TileProps {
+  item: DoubanItem;
+  baseURL: string;
+  onPress: () => void;
+  cardColor: string;
+  titleColor: string;
+  metaColor: string;
+}
+
+function PosterTile({ item, baseURL, onPress, cardColor, titleColor, metaColor }: TileProps) {
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" style={[styles.tile, { backgroundColor: cardColor }]}>
+      <View style={styles.posterFrame}>
+        <PosterImage baseURL={baseURL} cover={item.cover} style={styles.posterImg} />
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>{formatGridRating(item.rate)}</Text>
+        </View>
+      </View>
+      <Text numberOfLines={2} style={[styles.title, { color: titleColor }]}>{item.title}</Text>
+      {item.year ? <Text style={[styles.meta, { color: metaColor }]} numberOfLines={1}>{item.year}</Text> : null}
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  tabRow: { paddingHorizontal: 16, paddingVertical: 8 },
+  chipRow: { paddingHorizontal: 16, paddingBottom: 4 },
+  gridContent: { paddingHorizontal: 12, paddingBottom: 32 },
+  gridRow: { justifyContent: "flex-start" },
+  tile: { flex: 1, margin: 4, padding: 6, borderRadius: sizes.radius.md },
+  posterFrame: { aspectRatio: 2 / 3, borderRadius: sizes.radius.sm, overflow: "hidden", marginBottom: 6 },
+  posterImg: { width: "100%", height: "100%" },
+  badge: {
+    position: "absolute", right: 4, top: 4,
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: sizes.radius.sm,
+    backgroundColor: "rgba(0,0,0,0.7)",
+  },
+  badgeText: { color: "white", fontSize: 11 },
+  title: { fontSize: 15 },
+  meta: { fontSize: 11, marginTop: 2 },
+  errorTitle: { fontSize: 17, marginBottom: 6, fontWeight: "600" },
+  errorBody: { fontSize: 15, textAlign: "center" },
+  retryBtn: { marginTop: 16, paddingHorizontal: 18, paddingVertical: 10, borderRadius: sizes.radius.md },
+  retryText: { color: "white", fontSize: 15 },
+  emptyContainer: { paddingTop: 40, paddingHorizontal: 24, alignItems: "center" },
+  loadMore: { paddingVertical: 16, alignItems: "center" },
+  loadMoreText: { fontSize: 12, marginTop: 4 },
+});

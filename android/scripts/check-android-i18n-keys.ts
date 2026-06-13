@@ -3,17 +3,21 @@
 // 校验 Android i18n namespace 在 zh 与 en 之间 key 平价.
 
 import enBootstrap from "../src/i18n/locales/en/bootstrap";
+import enCategories from "../src/i18n/locales/en/categories";
 import enCommon from "../src/i18n/locales/en/common";
 import enHome from "../src/i18n/locales/en/home";
 import enNav from "../src/i18n/locales/en/nav";
+import enSearch from "../src/i18n/locales/en/search";
 import zhBootstrap from "../src/i18n/locales/zh/bootstrap";
+import zhCategories from "../src/i18n/locales/zh/categories";
 import zhCommon from "../src/i18n/locales/zh/common";
 import zhHome from "../src/i18n/locales/zh/home";
 import zhNav from "../src/i18n/locales/zh/nav";
+import zhSearch from "../src/i18n/locales/zh/search";
 
 const locales = {
-  zh: { common: zhCommon, nav: zhNav, bootstrap: zhBootstrap, home: zhHome },
-  en: { common: enCommon, nav: enNav, bootstrap: enBootstrap, home: enHome },
+  zh: { common: zhCommon, nav: zhNav, bootstrap: zhBootstrap, home: zhHome, categories: zhCategories, search: zhSearch },
+  en: { common: enCommon, nav: enNav, bootstrap: enBootstrap, home: enHome, categories: enCategories, search: enSearch },
 } as const;
 
 function flatten(value: Record<string, unknown>, prefix = ""): string[] {

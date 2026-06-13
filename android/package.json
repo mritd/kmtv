@@ -34,6 +34,7 @@
     "react-native-reanimated": "4.4.0",
     "react-native-safe-area-context": "5.8.0",
     "react-native-screens": "4.25.2",
+    "react-native-sse": "1.2.1",
     "zustand": "5.0.14"
   },
   "devDependencies": {

@@ -6,10 +6,11 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { useTranslation } from "react-i18next";
 
 import { useTheme } from "@/designSystem/useTheme";
-import { CategoriesScreen } from "@/features/Categories/CategoriesScreen";
 import { FavoritesScreen } from "@/features/Favorites/FavoritesScreen";
-import { HomeScreen } from "@/features/Home/HomeScreen";
 import { ProfileScreen } from "@/features/Profile/ProfileScreen";
+
+import { CategoriesStack } from "./CategoriesStack";
+import { HomeStack } from "./HomeStack";
 import type { TabParamList } from "./types";
 
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -32,7 +33,7 @@ export function TabNavigator() {
     >
       <Tab.Screen
         name="HomeTab"
-        component={HomeScreen}
+        component={HomeStack}
         options={{
           tabBarLabel: t("nav:links.home"),
           tabBarIcon: ({ color, size }) => <Ionicons name="home" color={color} size={size} />,
@@ -40,7 +41,7 @@ export function TabNavigator() {
       />
       <Tab.Screen
         name="CategoriesTab"
-        component={CategoriesScreen}
+        component={CategoriesStack}
         options={{
           tabBarLabel: t("nav:links.categories"),
           tabBarIcon: ({ color, size }) => <Ionicons name="grid" color={color} size={size} />,

@@ -6,7 +6,11 @@ import { renderHook, waitFor } from "@testing-library/react-native";
 import React from "react";
 
 import type { DoubanAPI } from "./douban";
-import { useDoubanHomeQuery } from "./viewerHooks";
+import type { SearchAPI } from "./search";
+import {
+  RECOMMEND_PAGE_SIZE, useCategoriesQuery, useDoubanHomeQuery,
+  useDoubanRecommendInfiniteQuery, useSearchQuery,
+} from "./viewerHooks";
 
 function wrapper(client: QueryClient) {
   // eslint-disable-next-line react/display-name
@@ -18,11 +22,100 @@ function wrapper(client: QueryClient) {
 describe("useDoubanHomeQuery", () => {
   it("returns data from the injected DoubanAPI", async () => {
     const payload = { sections: [{ name: "s1", tag: "t", type: "movie", items: [] }] };
-    const api: DoubanAPI = { doubanHome: jest.fn(async () => payload) };
+    const api: DoubanAPI = {
+      doubanHome: jest.fn(async () => payload),
+      doubanCategories: jest.fn(),
+      doubanRecommendFilter: jest.fn(),
+    };
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { result } = renderHook(() => useDoubanHomeQuery(api), { wrapper: wrapper(qc) });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.sections[0]!.name).toBe("s1");
     expect(api.doubanHome).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useCategoriesQuery", () => {
+  it("scopes the cache by server and returns metadata", async () => {
+    const api: DoubanAPI = {
+      doubanHome: jest.fn(),
+      doubanCategories: jest.fn(async () => ({ categories: [
+        { key: "movie", name: "电影", douban_kind: "movie", format: "", subcategories: [], regions: [] },
+      ] })),
+      doubanRecommendFilter: jest.fn(),
+    };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useCategoriesQuery(api, "https://api.test"), { wrapper: wrapper(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.categories[0]!.key).toBe("movie");
+    expect(api.doubanCategories).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useDoubanRecommendInfiniteQuery", () => {
+  it("disables when filter.kind is empty", () => {
+    const api: DoubanAPI = {
+      doubanHome: jest.fn(),
+      doubanCategories: jest.fn(),
+      doubanRecommendFilter: jest.fn(),
+    };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderHook(
+      () => useDoubanRecommendInfiniteQuery(api, "s", { kind: "", tag: "", format: "", region: "" }),
+      { wrapper: wrapper(qc) },
+    );
+    expect(api.doubanRecommendFilter).not.toHaveBeenCalled();
+  });
+
+  it("fetches the first page with start=0 / count=RECOMMEND_PAGE_SIZE", async () => {
+    const api: DoubanAPI = {
+      doubanHome: jest.fn(),
+      doubanCategories: jest.fn(),
+      doubanRecommendFilter: jest.fn(async () => ({ items: [] })),
+    };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(
+      () => useDoubanRecommendInfiniteQuery(api, "s", { kind: "movie", tag: "", format: "", region: "" }),
+      { wrapper: wrapper(qc) },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(api.doubanRecommendFilter).toHaveBeenCalledTimes(1);
+    expect(api.doubanRecommendFilter).toHaveBeenCalledWith({
+      kind: "movie", tag: "", format: "", region: "", start: 0, count: RECOMMEND_PAGE_SIZE,
+    });
+  });
+
+  it("returns hasNextPage=false when last page is short", async () => {
+    const api: DoubanAPI = {
+      doubanHome: jest.fn(),
+      doubanCategories: jest.fn(),
+      doubanRecommendFilter: jest.fn(async () => ({ items: new Array(5).fill({
+        id: "x", title: "x", cover: "", rate: "", year: "",
+      }) })),
+    };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(
+      () => useDoubanRecommendInfiniteQuery(api, "s", { kind: "movie", tag: "", format: "", region: "" }),
+      { wrapper: wrapper(qc) },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.hasNextPage).toBe(false);
+  });
+});
+
+describe("useSearchQuery", () => {
+  it("disabled when query trimmed empty", () => {
+    const api: SearchAPI = { search: jest.fn(), searchStream: jest.fn() };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderHook(() => useSearchQuery(api, "s", "  "), { wrapper: wrapper(qc) });
+    expect(api.search).not.toHaveBeenCalled();
+  });
+
+  it("runs sync search via SearchAPI when query non-empty", async () => {
+    const api: SearchAPI = { search: jest.fn(async () => ({ results: [] })), searchStream: jest.fn() };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useSearchQuery(api, "s", "hello"), { wrapper: wrapper(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(api.search).toHaveBeenCalledWith("hello");
   });
 });

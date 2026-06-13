@@ -16,7 +16,6 @@ module.exports = {
     "!src/**/*.test.{ts,tsx}",
     "!src/**/__mocks__/**",
     "!src/navigation/**",
-    "!src/features/Categories/**",
     "!src/features/Favorites/**",
     "!src/features/Profile/**",
   ],

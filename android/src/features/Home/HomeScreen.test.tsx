@@ -71,6 +71,8 @@ describe("HomeScreen", () => {
     let resolve!: (v: DoubanHomeResponse) => void;
     const api: DoubanAPI = {
       doubanHome: jest.fn(() => new Promise<DoubanHomeResponse>((r) => { resolve = r; })),
+      doubanCategories: jest.fn(),
+      doubanRecommendFilter: jest.fn(),
     };
     const { getByTestId, queryAllByTestId, queryByText } = render(<HomeScreen />, { wrapper: makeWrapper(api) });
     expect(getByTestId("homeLoading")).toBeTruthy();
@@ -91,6 +93,8 @@ describe("HomeScreen", () => {
   it("renders inline error when load fails", async () => {
     const api: DoubanAPI = {
       doubanHome: jest.fn(async () => { throw { kind: "server", message: "boom" }; }),
+      doubanCategories: jest.fn(),
+      doubanRecommendFilter: jest.fn(),
     };
     const { findByText } = render(<HomeScreen />, { wrapper: makeWrapper(api) });
     await findByText(/Could not load home feed/);
