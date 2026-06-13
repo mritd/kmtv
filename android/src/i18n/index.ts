@@ -1,4 +1,3 @@
-// English. 中文.
 // i18next setup — wires locales and exposes initI18n(language).
 // i18next 初始化, 装配 locale 并暴露 initI18n(language).
 
@@ -7,14 +6,16 @@ import { initReactI18next } from "react-i18next";
 
 import enBootstrap from "./locales/en/bootstrap";
 import enCommon from "./locales/en/common";
+import enHome from "./locales/en/home";
 import enNav from "./locales/en/nav";
 import zhBootstrap from "./locales/zh/bootstrap";
 import zhCommon from "./locales/zh/common";
+import zhHome from "./locales/zh/home";
 import zhNav from "./locales/zh/nav";
 
 const resources = {
-  en: { common: enCommon, nav: enNav, bootstrap: enBootstrap },
-  zh: { common: zhCommon, nav: zhNav, bootstrap: zhBootstrap },
+  en: { common: enCommon, nav: enNav, bootstrap: enBootstrap, home: enHome },
+  zh: { common: zhCommon, nav: zhNav, bootstrap: zhBootstrap, home: zhHome },
 } as const;
 
 /**
@@ -33,7 +34,7 @@ export async function initI18n(lang: Lang): Promise<I18nInstance> {
       compatibilityJSON: "v4",
       lng: lang,
       fallbackLng: "en",
-      ns: ["common", "nav", "bootstrap"],
+      ns: ["common", "nav", "bootstrap", "home"],
       defaultNS: "common",
       resources,
       interpolation: { escapeValue: false },

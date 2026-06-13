@@ -1,4 +1,3 @@
-// English. 中文.
 // Single-server mode: persist the currently selected server URL in a global MMKV root.
 // 单服务器模式: 将当前选择的服务器 URL 存入全局 MMKV 根命名空间.
 

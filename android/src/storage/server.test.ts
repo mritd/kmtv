@@ -1,4 +1,3 @@
-// English. 中文.
 // Tests for the persisted current-server URL helpers.
 // 持久化当前服务器 URL helper 的测试.
 

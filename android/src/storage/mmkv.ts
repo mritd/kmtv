@@ -1,4 +1,3 @@
-// English. 中文.
 // Namespaced MMKV wrapper — one instance per serverURL so data isolates across servers.
 // 按 serverURL 命名空间的 MMKV 封装, 不同服务器之间数据彼此隔离.
 

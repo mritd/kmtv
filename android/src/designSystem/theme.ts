@@ -1,4 +1,3 @@
-// English. 中文.
 // Theme tokens mirroring apple/Shared/DesignSystem/Theme.swift.
 // 镜像 apple/Shared/DesignSystem/Theme.swift 的主题 token.
 

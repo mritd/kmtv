@@ -1,4 +1,3 @@
-// English. 中文.
 // Bottom tabs: Home, Categories, Favorites, Me. Tabs host their own stacks from M2+.
 // 底部 Tab: Home, Categories, Favorites, Me. 从 M2 起每个 Tab 拥有独立 stack.
 

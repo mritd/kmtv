@@ -1,4 +1,3 @@
-// English. 中文.
 // Tests for the namespaced MMKV wrapper.
 // MMKV 命名空间封装的测试.
 

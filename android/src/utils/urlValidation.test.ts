@@ -1,4 +1,3 @@
-// English. 中文.
 // Tests for the URL validation helper used by ServerSetup.
 // ServerSetup 使用的 URL 校验 helper 的测试.
 

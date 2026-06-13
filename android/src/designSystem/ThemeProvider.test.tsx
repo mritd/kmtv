@@ -1,4 +1,3 @@
-// English. 中文.
 // ThemeProvider tests cover the system / light / dark override paths.
 // ThemeProvider 测试覆盖 system / light / dark 覆盖路径.
 

@@ -1,4 +1,3 @@
-// English. 中文.
 // authStore tests cover bootstrap, connect, login, logout, and 401 recovery paths.
 // authStore 测试覆盖 bootstrap、connect、login、logout 与 401 恢复路径.
 

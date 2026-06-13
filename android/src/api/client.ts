@@ -1,4 +1,3 @@
-// English. 中文.
 // API client wiring fetch + bearer token + APIError mapping.
 // 装配 fetch、bearer token 与 APIError 映射的 API client.
 

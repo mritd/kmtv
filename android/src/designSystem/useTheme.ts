@@ -1,4 +1,3 @@
-// English. 中文.
 // useTheme hook returns the resolved palette + size tokens for the current theme.
 // useTheme hook 返回当前主题的调色板与尺寸 token.
 

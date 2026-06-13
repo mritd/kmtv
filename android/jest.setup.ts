@@ -61,3 +61,62 @@ jest.mock(
     getLocales: () => [{ languageTag: "en-US", languageCode: "en" }],
   }),
 );
+
+// react-native-reanimated: 4.4.0 ships a broken official mock (`mock.js` → missing `./src/mock`).
+// Hand-rolled stub covers the Skeleton + HeroCarousel use cases (shared values + brightness loop).
+// react-native-reanimated: 4.4.0 的官方 mock 入口缺失依赖路径, 这里用手写 stub 覆盖
+// Skeleton + HeroCarousel 使用到的共享值与亮度循环 API.
+jest.mock(
+  "react-native-reanimated",
+  () => {
+    const React = require("react") as typeof import("react");
+    const RN = jest.requireActual("react-native") as typeof import("react-native");
+    const View = React.forwardRef((props: Record<string, unknown>, ref) =>
+      React.createElement(RN.View, { ...(props as object), ref } as never),
+    );
+    const useSharedValue = <T>(initial: T) => ({ value: initial });
+    const useAnimatedStyle = (worklet: () => Record<string, unknown>) => worklet();
+    const passthrough = <T>(v: T) => v;
+    const Easing = {
+      ease: passthrough,
+      linear: passthrough,
+      inOut: (fn: unknown) => fn,
+      in: (fn: unknown) => fn,
+      out: (fn: unknown) => fn,
+    };
+    return {
+      __esModule: true,
+      default: { View, createAnimatedComponent: passthrough },
+      View,
+      useSharedValue,
+      useAnimatedStyle,
+      withTiming: passthrough,
+      withRepeat: passthrough,
+      withSpring: passthrough,
+      withSequence: passthrough,
+      cancelAnimation: () => undefined,
+      runOnJS: <F extends (...args: unknown[]) => unknown>(fn: F) => fn,
+      runOnUI: <F extends (...args: unknown[]) => unknown>(fn: F) => fn,
+      Easing,
+    };
+  },
+);
+
+// expo-image: render a plain RN <Image> so jest can introspect props.
+// expo-image: 在测试中退化为普通 <Image>, 方便断言 props.
+jest.mock(
+  "expo-image",
+  () => {
+    const React = require("react") as typeof import("react");
+    const RN = jest.requireActual("react-native") as typeof import("react-native");
+    return {
+      Image: (props: Record<string, unknown>) =>
+        React.createElement(RN.Image, {
+          testID: (props.testID as string) ?? "expo-image",
+          source: typeof props.source === "string" ? { uri: props.source } : props.source,
+          style: props.style,
+        } as never),
+      ImageBackground: RN.View,
+    };
+  },
+);

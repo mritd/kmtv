@@ -1,4 +1,3 @@
-// English. 中文.
 // Placeholder Profile screen for M1. Real implementation lands in M5.
 // M1 阶段的 Profile 占位屏, 真实实现见 M5.
 

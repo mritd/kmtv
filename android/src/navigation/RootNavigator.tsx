@@ -1,4 +1,3 @@
-// English. 中文.
 // RootNavigator selects Bootstrap / ServerSetup / MainTabs based on authStore.status.
 // RootNavigator 依据 authStore.status 选择 Bootstrap / ServerSetup / MainTabs.
 

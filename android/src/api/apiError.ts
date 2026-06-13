@@ -1,4 +1,3 @@
-// English. 中文.
 // APIError discriminated union — every network failure surfaces as one of these kinds.
 // APIError 判别式联合类型, 所有网络失败都会映射为其中一种.
 

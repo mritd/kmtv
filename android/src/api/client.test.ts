@@ -1,4 +1,3 @@
-// English. 中文.
 // API client tests cover URL construction, bearer injection, 401 dispatch, and timeout.
 // API client 测试覆盖 URL 构造、bearer 注入、401 派发与超时.
 

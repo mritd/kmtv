@@ -1,4 +1,3 @@
-// English. 中文.
 // APIError discriminated-union tests.
 // APIError 判别式联合类型测试.
 

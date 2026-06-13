@@ -1,4 +1,3 @@
-// English. 中文.
 // Theme token regression tests — guard against accidental palette drift from the iOS source of truth.
 // 主题 token 回归测试, 防止视觉与 iOS 真值漂移.
 

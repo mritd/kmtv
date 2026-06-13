@@ -1,4 +1,3 @@
-// English. 中文.
 // serverStore exposes the currently selected server URL as zustand state.
 // serverStore 将当前选择的服务器 URL 以 zustand 状态形式暴露.
 

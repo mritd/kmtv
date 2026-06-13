@@ -1,4 +1,3 @@
-// English. 中文.
 // BootstrapScreen renders a centred spinner and kicks off authStore.bootstrap.
 // BootstrapScreen 居中显示加载指示并触发 authStore.bootstrap.
 

@@ -1,4 +1,3 @@
-// English. 中文.
 // Bootstrap + server setup copy.
 // Bootstrap 与服务器设置文案.
 

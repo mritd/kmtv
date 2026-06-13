@@ -1,4 +1,3 @@
-// English. 中文.
 // authStore orchestrates server connection, login, logout, and 401 recovery.
 // authStore 协调服务器连接、登录、登出与 401 恢复.
 

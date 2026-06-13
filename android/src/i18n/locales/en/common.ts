@@ -1,4 +1,3 @@
-// English. 中文.
 // English shared phrases reused across modules.
 // 跨模块复用的英文通用文本.
 

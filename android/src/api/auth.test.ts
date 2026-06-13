@@ -1,4 +1,3 @@
-// English. 中文.
 // Auth API tests verify the three M1 endpoints (login, logout, me).
 // Auth API 测试覆盖 M1 三个端点 (login, logout, me).
 

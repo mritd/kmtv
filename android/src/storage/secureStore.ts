@@ -1,4 +1,3 @@
-// English. 中文.
 // SecureStore wrapper for the bearer token. Uses EncryptedSharedPreferences on Android.
 // 用于 bearer token 的 SecureStore 封装, 在 Android 上使用 EncryptedSharedPreferences.
 

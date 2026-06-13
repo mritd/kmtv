@@ -1,18 +1,19 @@
 #!/usr/bin/env tsx
-// English. 中文.
 // Verify Android i18n namespaces have matching keys across zh + en.
 // 校验 Android i18n namespace 在 zh 与 en 之间 key 平价.
 
 import enBootstrap from "../src/i18n/locales/en/bootstrap";
 import enCommon from "../src/i18n/locales/en/common";
+import enHome from "../src/i18n/locales/en/home";
 import enNav from "../src/i18n/locales/en/nav";
 import zhBootstrap from "../src/i18n/locales/zh/bootstrap";
 import zhCommon from "../src/i18n/locales/zh/common";
+import zhHome from "../src/i18n/locales/zh/home";
 import zhNav from "../src/i18n/locales/zh/nav";
 
 const locales = {
-  zh: { common: zhCommon, nav: zhNav, bootstrap: zhBootstrap },
-  en: { common: enCommon, nav: enNav, bootstrap: enBootstrap },
+  zh: { common: zhCommon, nav: zhNav, bootstrap: zhBootstrap, home: zhHome },
+  en: { common: enCommon, nav: enNav, bootstrap: enBootstrap, home: enHome },
 } as const;
 
 function flatten(value: Record<string, unknown>, prefix = ""): string[] {

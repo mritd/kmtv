@@ -1,4 +1,3 @@
-// English. 中文.
 // Placeholder Categories screen for M1. Real implementation lands in M3.
 // M1 阶段的 Categories 占位屏, 真实实现见 M3.
 

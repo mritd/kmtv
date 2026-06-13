@@ -1,4 +1,3 @@
-// English. 中文.
 // Wire-format types shared by every API module. Mirrors apple/Shared/API model files.
 // 所有 API 模块共享的 wire 格式类型, 镜像 apple/Shared/API 的模型文件.
 
@@ -40,4 +39,35 @@ export interface MessageResponse {
  */
 export interface SettingsResponse {
   settings: Record<string, string>;
+}
+
+/**
+ * One Douban discovery item, mirrors apple `DoubanItem`.
+ * Douban 发现条目, 与 apple `DoubanItem` 一致.
+ */
+export interface DoubanItem {
+  id: string;
+  title: string;
+  cover: string;
+  rate: string;
+  year: string;
+}
+
+/**
+ * One section in the home discovery feed.
+ * 首页发现信息流的单个分区.
+ */
+export interface HomeSection {
+  name: string;
+  tag: string;
+  type: string;
+  items: DoubanItem[];
+}
+
+/**
+ * Response shape of GET /api/v1/douban/home.
+ * GET /api/v1/douban/home 的响应形状.
+ */
+export interface DoubanHomeResponse {
+  sections: HomeSection[];
 }

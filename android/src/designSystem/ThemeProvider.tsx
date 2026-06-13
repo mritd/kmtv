@@ -1,4 +1,3 @@
-// English. 中文.
 // ThemeProvider resolves the current colour scheme override into a palette + size pair.
 // ThemeProvider 将当前主题覆盖解析为调色板与尺寸组合.
 

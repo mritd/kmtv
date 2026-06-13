@@ -1,4 +1,3 @@
-// English. 中文.
 // Tests for the SecureStore wrapper used by the auth store.
 // authStore 使用的 SecureStore 封装的测试.
 

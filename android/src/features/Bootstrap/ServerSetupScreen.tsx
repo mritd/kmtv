@@ -1,4 +1,3 @@
-// English. 中文.
 // ServerSetupScreen lets the user enter a server URL + optional credentials.
 // ServerSetupScreen 让用户输入服务器 URL 及可选凭据.
 

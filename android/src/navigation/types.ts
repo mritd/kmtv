@@ -1,4 +1,3 @@
-// English. 中文.
 // Strongly typed navigation parameter lists for root + tab navigators.
 // 根导航与 Tab 导航的强类型参数列表.
 

@@ -1,4 +1,3 @@
-// English. 中文.
 // Tests for the serverStore that mirrors persisted server URL into reactive state.
 // 将持久化服务器 URL 映射为响应式状态的 serverStore 测试.
 

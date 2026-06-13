@@ -1,4 +1,3 @@
-// English. 中文.
 // Auth API surface used by AppViewModel / authStore.
 // AppViewModel / authStore 使用的 Auth API 边界.
 

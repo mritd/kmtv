@@ -1,4 +1,3 @@
-// English. 中文.
 // Chinese bottom tab labels.
 // 中文底部 Tab 标签.
 

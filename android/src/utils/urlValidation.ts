@@ -1,4 +1,3 @@
-// English. 中文.
 // URL validation helper that mirrors apple/Shared/Utils/URLValidation.swift.
 // 镜像 apple/Shared/Utils/URLValidation.swift 的 URL 校验 helper.
 
