@@ -1,5 +1,15 @@
-// ProfileScreen tests — sign-out flow with Alert + anonymous user hiding.
-// ProfileScreen 测试 — 含 Alert 的登出流程 + 匿名用户隐藏.
+// ProfileScreen tests — sign-out flow with Alert + anonymous user hiding + admin entry gating.
+// ProfileScreen 测试 — 含 Alert 的登出流程, 匿名用户隐藏, 管理员入口门控.
+
+// jest hoists jest.mock() factories above all variable declarations, so any reference inside the
+// factory MUST start with the `mock` prefix. mockNavigate is the supported escape hatch.
+// jest 会把 jest.mock() factory 提升至所有变量声明之前. factory 内的引用必须以 mock 开头.
+const mockNavigate = jest.fn();
+jest.mock("@react-navigation/native", () => ({
+  __esModule: true,
+  ...jest.requireActual("@react-navigation/native"),
+  useNavigation: () => ({ navigate: mockNavigate }),
+}));
 
 import { render, fireEvent, waitFor } from "@testing-library/react-native";
 import React from "react";
@@ -121,5 +131,35 @@ describe("ProfileScreen", () => {
     useServerStore.setState({ serverURL: null });
     const { toJSON } = render(<ProfileScreen />);
     expect(toJSON()).toBeNull();
+  });
+
+  it("shows Admin Panel row when user.role === 'admin' and navigates to AdminPanel on tap", () => {
+    useAuthStore.setState({
+      status: "authenticated", token: "tk",
+      user: { id: 1, username: "u", role: "admin" },
+    });
+    mockNavigate.mockClear();
+    const ctx = makeCtx();
+    const { getByTestId } = render(
+      <ProfileScreenContext.Provider value={ctx as never}>
+        <ProfileScreen />
+      </ProfileScreenContext.Provider>,
+    );
+    fireEvent.press(getByTestId("adminEntry"));
+    expect(mockNavigate).toHaveBeenCalledWith("AdminPanel");
+  });
+
+  it("hides Admin Panel row when user.role === 'user'", () => {
+    useAuthStore.setState({
+      status: "authenticated", token: "tk",
+      user: { id: 1, username: "u", role: "user" },
+    });
+    const ctx = makeCtx();
+    const { queryByTestId } = render(
+      <ProfileScreenContext.Provider value={ctx as never}>
+        <ProfileScreen />
+      </ProfileScreenContext.Provider>,
+    );
+    expect(queryByTestId("adminEntry")).toBeNull();
   });
 });

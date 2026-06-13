@@ -1,6 +1,9 @@
 // ProfileScreen — composes all profile sub-sections and wires them to authStore + serverStore.
 // ProfileScreen — 组装 Profile 各子节, 接入 authStore + serverStore.
 
+import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import React, { createContext, useContext, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -8,6 +11,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-nati
 import { createAuthAPI, type AuthAPI } from "@/api/auth";
 import { createAPIClient, type APIClient } from "@/api/client";
 import { useTheme } from "@/designSystem/useTheme";
+import type { ProfileStackParamList } from "@/navigation/types";
 import { useAuthStore } from "@/store/authStore";
 import { useServerStore } from "@/store/serverStore";
 
@@ -53,6 +57,7 @@ function useDefaultContext(): ProfileScreenContextValue | null {
 function ProfileInner({ ctx }: { ctx: ProfileScreenContextValue }) {
   const { colors } = useTheme();
   const { t } = useTranslation("profile");
+  const navigation = useNavigation<NativeStackNavigationProp<ProfileStackParamList>>();
   const user = useAuthStore((s) => s.user);
   const updateUser = useAuthStore((s) => s.updateUser);
   const logout = useAuthStore((s) => s.logout);
@@ -80,6 +85,19 @@ function ProfileInner({ ctx }: { ctx: ProfileScreenContextValue }) {
         serverURL={serverURL}
         profile={profile}
       />
+      {user?.role === "admin" ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => navigation.navigate("AdminPanel")}
+          style={[styles.adminRow, { backgroundColor: colors.bgCard }]}
+          testID="adminEntry"
+        >
+          <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: "500" }}>
+            {t("admin:entry.row")}
+          </Text>
+          <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+        </Pressable>
+      ) : null}
       {!isAnonymous ? <PasswordSection profile={profile} /> : null}
       <LanguageSection />
       <ThemeSection />
@@ -120,4 +138,13 @@ export function ProfileScreen() {
 const styles = StyleSheet.create({
   danger: { paddingHorizontal: 16, paddingVertical: 16, gap: 8 },
   dangerBtn: { paddingVertical: 12 },
+  adminRow: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 16,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
 });

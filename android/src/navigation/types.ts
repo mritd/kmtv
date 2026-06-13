@@ -54,6 +54,19 @@ export type FavoritesStackParamList = {
 };
 
 /**
+ * ProfileStack param list — root profile + admin panel + four admin sub-screens.
+ * ProfileStack 路由表 — 根 profile + 管理面板 + 四个管理子页面.
+ */
+export type ProfileStackParamList = {
+  ProfileRoot: undefined;
+  AdminPanel: undefined;
+  AdminSources: undefined;
+  AdminSubscriptions: undefined;
+  AdminUsers: undefined;
+  AdminSettings: undefined;
+};
+
+/**
  * Bottom tabs. Each tab hosts its own native-stack from M5+.
  * 底部 Tab. M5 起每个 Tab 拥有独立 native-stack.
  */
@@ -61,5 +74,5 @@ export type TabParamList = {
   HomeTab: NavigatorScreenParams<HomeStackParamList>;
   CategoriesTab: NavigatorScreenParams<CategoriesStackParamList>;
   FavoritesTab: NavigatorScreenParams<FavoritesStackParamList>;
-  MeTab: undefined;
+  MeTab: NavigatorScreenParams<ProfileStackParamList>;
 };

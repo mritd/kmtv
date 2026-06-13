@@ -6,11 +6,11 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { useTranslation } from "react-i18next";
 
 import { useTheme } from "@/designSystem/useTheme";
-import { ProfileScreen } from "@/features/Profile/ProfileScreen";
 
 import { CategoriesStack } from "./CategoriesStack";
 import { FavoritesStack } from "./FavoritesStack";
 import { HomeStack } from "./HomeStack";
+import { ProfileStack } from "./ProfileStack";
 import type { TabParamList } from "./types";
 
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -57,7 +57,7 @@ export function TabNavigator() {
       />
       <Tab.Screen
         name="MeTab"
-        component={ProfileScreen}
+        component={ProfileStack}
         options={{
           tabBarLabel: t("nav:links.me"),
           tabBarIcon: ({ color, size }) => <Ionicons name="person" color={color} size={size} />,

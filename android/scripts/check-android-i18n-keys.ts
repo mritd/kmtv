@@ -2,22 +2,32 @@
 // Verify Android i18n namespaces have matching keys across zh + en.
 // 校验 Android i18n namespace 在 zh 与 en 之间 key 平价.
 
+import enAdmin from "../src/i18n/locales/en/admin";
 import enBootstrap from "../src/i18n/locales/en/bootstrap";
 import enCategories from "../src/i18n/locales/en/categories";
 import enCommon from "../src/i18n/locales/en/common";
+import enFavorites from "../src/i18n/locales/en/favorites";
 import enHome from "../src/i18n/locales/en/home";
 import enNav from "../src/i18n/locales/en/nav";
+import enPlayback from "../src/i18n/locales/en/playback";
+import enProfile from "../src/i18n/locales/en/profile";
 import enSearch from "../src/i18n/locales/en/search";
+import zhAdmin from "../src/i18n/locales/zh/admin";
 import zhBootstrap from "../src/i18n/locales/zh/bootstrap";
 import zhCategories from "../src/i18n/locales/zh/categories";
 import zhCommon from "../src/i18n/locales/zh/common";
+import zhFavorites from "../src/i18n/locales/zh/favorites";
 import zhHome from "../src/i18n/locales/zh/home";
 import zhNav from "../src/i18n/locales/zh/nav";
+import zhPlayback from "../src/i18n/locales/zh/playback";
+import zhProfile from "../src/i18n/locales/zh/profile";
 import zhSearch from "../src/i18n/locales/zh/search";
 
 const locales = {
-  zh: { common: zhCommon, nav: zhNav, bootstrap: zhBootstrap, home: zhHome, categories: zhCategories, search: zhSearch },
-  en: { common: enCommon, nav: enNav, bootstrap: enBootstrap, home: enHome, categories: enCategories, search: enSearch },
+  zh: { common: zhCommon, nav: zhNav, bootstrap: zhBootstrap, home: zhHome, categories: zhCategories, search: zhSearch,
+        playback: zhPlayback, favorites: zhFavorites, profile: zhProfile, admin: zhAdmin },
+  en: { common: enCommon, nav: enNav, bootstrap: enBootstrap, home: enHome, categories: enCategories, search: enSearch,
+        playback: enPlayback, favorites: enFavorites, profile: enProfile, admin: enAdmin },
 } as const;
 
 function flatten(value: Record<string, unknown>, prefix = ""): string[] {

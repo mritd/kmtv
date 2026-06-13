@@ -4,6 +4,7 @@
 import i18next, { type i18n as I18nInstance } from "i18next";
 import { initReactI18next } from "react-i18next";
 
+import enAdmin from "./locales/en/admin";
 import enBootstrap from "./locales/en/bootstrap";
 import enCategories from "./locales/en/categories";
 import enCommon from "./locales/en/common";
@@ -13,6 +14,7 @@ import enNav from "./locales/en/nav";
 import enPlayback from "./locales/en/playback";
 import enProfile from "./locales/en/profile";
 import enSearch from "./locales/en/search";
+import zhAdmin from "./locales/zh/admin";
 import zhBootstrap from "./locales/zh/bootstrap";
 import zhCategories from "./locales/zh/categories";
 import zhCommon from "./locales/zh/common";
@@ -25,9 +27,9 @@ import zhSearch from "./locales/zh/search";
 
 const resources = {
   en: { common: enCommon, nav: enNav, bootstrap: enBootstrap, home: enHome, categories: enCategories,
-        search: enSearch, playback: enPlayback, favorites: enFavorites, profile: enProfile },
+        search: enSearch, playback: enPlayback, favorites: enFavorites, profile: enProfile, admin: enAdmin },
   zh: { common: zhCommon, nav: zhNav, bootstrap: zhBootstrap, home: zhHome, categories: zhCategories,
-        search: zhSearch, playback: zhPlayback, favorites: zhFavorites, profile: zhProfile },
+        search: zhSearch, playback: zhPlayback, favorites: zhFavorites, profile: zhProfile, admin: zhAdmin },
 } as const;
 
 /**
@@ -46,7 +48,7 @@ export async function initI18n(lang: Lang): Promise<I18nInstance> {
       compatibilityJSON: "v4",
       lng: lang,
       fallbackLng: "en",
-      ns: ["common", "nav", "bootstrap", "home", "categories", "search", "playback", "favorites", "profile"],
+      ns: ["common", "nav", "bootstrap", "home", "categories", "search", "playback", "favorites", "profile", "admin"],
       defaultNS: "common",
       resources,
       interpolation: { escapeValue: false },

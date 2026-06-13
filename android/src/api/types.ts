@@ -302,3 +302,137 @@ export interface PasswordRequest {
   old_password: string;
   new_password: string;
 }
+
+/**
+ * Source — admin record for a configured video source (mirrors server/internal/model/model.go:Source).
+ * Source — 已配置视频源的管理记录 (镜像 server/internal/model/model.go:Source).
+ */
+export interface Source {
+  id: number;
+  key: string;
+  name: string;
+  api: string;
+  detail: string;
+  enabled: boolean;
+  is_adult: boolean;
+  searchable: boolean;
+  comment: string;
+  health: "healthy" | "unhealthy" | "unknown" | string;
+  last_check: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * SourcesResponse — list-sources wrapper.
+ * SourcesResponse — 列表接口返回值包装.
+ */
+export interface SourcesResponse {
+  sources: Source[];
+}
+
+/**
+ * UpdateSourceRequest — admin update payload, must include the FULL editable surface.
+ * UpdateSourceRequest — 管理更新负载, 必须包含完整可编辑字段以避免被清空.
+ */
+export interface UpdateSourceRequest {
+  name: string;
+  api: string;
+  detail: string;
+  comment: string;
+  enabled: boolean;
+  is_adult?: boolean;
+}
+
+/**
+ * BulkSetSourcesEnabledRequest — bulk enable/disable selected sources.
+ * BulkSetSourcesEnabledRequest — 批量启用/禁用所选源.
+ */
+export interface BulkSetSourcesEnabledRequest {
+  ids: number[];
+  enabled: boolean;
+}
+
+/**
+ * ImportSourcesResponse — count of sources imported from the bundled JSON config.
+ * ImportSourcesResponse — 从 JSON 配置导入的源数量.
+ */
+export interface ImportSourcesResponse {
+  imported: number;
+}
+
+/**
+ * HealthCheckResponse — single-source health probe response.
+ * HealthCheckResponse — 单源健康探测返回值.
+ */
+export interface HealthCheckResponse {
+  health: string;
+}
+
+/**
+ * Subscription — admin record for a subscription URL.
+ * Subscription — 订阅 URL 的管理记录.
+ */
+export interface Subscription {
+  id: number;
+  url: string;
+  auto_update: boolean;
+  interval: number;
+  last_sync: string;
+  updated_at: string;
+}
+
+/**
+ * SubscriptionsResponse — list-subscriptions wrapper.
+ * SubscriptionsResponse — 列表接口返回值包装.
+ */
+export interface SubscriptionsResponse {
+  subscriptions: Subscription[];
+}
+
+/**
+ * CreateSubscriptionRequest — admin create payload.
+ * CreateSubscriptionRequest — 管理创建订阅负载.
+ */
+export interface CreateSubscriptionRequest {
+  url: string;
+  auto_update: boolean;
+  interval: number;
+}
+
+/**
+ * AdminUser — user record returned by admin list/create. Timestamps are optional because
+ * `POST /admin/users` returns a truncated payload without `created_at` / `updated_at`,
+ * while `GET /admin/users` includes them.
+ * AdminUser — 管理列表/创建接口返回的用户记录. 时间戳为可选: POST /admin/users 返回精简体不含时间戳,
+ * GET /admin/users 包含时间戳.
+ */
+export interface AdminUser {
+  id: number;
+  username: string;
+  role: "admin" | "user";
+  allow_adult_content: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/**
+ * UsersResponse — list-users wrapper.
+ * UsersResponse — 列表接口返回值包装.
+ */
+export interface UsersResponse {
+  users: AdminUser[];
+}
+
+/**
+ * CreateUserRequest — admin create payload. allow_adult_content is optional on the wire
+ * (server defaults to false when absent); the RN admin form always sends an explicit value.
+ * CreateUserRequest — 管理创建用户负载. allow_adult_content 在协议层可选, 缺失时服务端默认 false;
+ * RN 管理表单始终显式发送.
+ */
+export interface CreateUserRequest {
+  username: string;
+  password: string;
+  role: "admin" | "user";
+  allow_adult_content?: boolean;
+}
