@@ -9,6 +9,7 @@ import { createAdminAPI, type AdminAPI } from "@/api/admin";
 import { type APIError, localizedMessage } from "@/api/apiError";
 import { createAPIClient } from "@/api/client";
 import type { CreateSubscriptionRequest, Subscription } from "@/api/types";
+import { LIST_PERF_DEFAULT } from "@/designSystem/listPerf";
 import { useTheme } from "@/designSystem/useTheme";
 import { useAuthStore } from "@/store/authStore";
 import { useServerStore } from "@/store/serverStore";
@@ -161,6 +162,7 @@ export function AdminSubscriptionsScreen(){
       <FlatList
         data={items}
         keyExtractor={(s) => String(s.id)}
+        {...LIST_PERF_DEFAULT}
         ListEmptyComponent={<Text style={{ padding: 24, color: colors.textSecondary }}>{t("subscriptions.empty")}</Text>}
         renderItem={({ item }) => (
           <View style={{ marginHorizontal: 16, marginTop: 8, padding: 12, backgroundColor: colors.bgCard, borderRadius: 12 }}>

@@ -9,6 +9,7 @@ import { createAdminAPI, type AdminAPI } from "@/api/admin";
 import { type APIError, localizedMessage } from "@/api/apiError";
 import { createAPIClient } from "@/api/client";
 import type { Source, UpdateSourceRequest } from "@/api/types";
+import { LIST_PERF_DEFAULT } from "@/designSystem/listPerf";
 import { useTheme } from "@/designSystem/useTheme";
 import { useAuthStore } from "@/store/authStore";
 import { useServerStore } from "@/store/serverStore";
@@ -134,6 +135,7 @@ export function AdminSourcesScreen(){
       <FlatList
         data={sources}
         keyExtractor={(s) => String(s.id)}
+        {...LIST_PERF_DEFAULT}
         ListEmptyComponent={<Text style={{ padding: 24, color: colors.textSecondary }}>{t("sources.empty")}</Text>}
         renderItem={({ item }) => (
           <View style={{

@@ -36,4 +36,21 @@ describe("SectionRow", () => {
     const { getByText } = render(wrap(<SectionRow baseURL="https://x" section={empty} />));
     expect(getByText("热门")).toBeTruthy();
   });
+
+  it("virtualises with FlatList (large lists mount at least the initial window)", () => {
+    const big: HomeSection = {
+      ...section,
+      items: Array.from({ length: 30 }, (_, i) => ({
+        id: String(i),
+        title: `T${i}`,
+        cover: `/c${i}.jpg`,
+        rate: "7.0",
+        year: "2024",
+      })),
+    };
+    const { getAllByTestId } = render(wrap(<SectionRow baseURL="https://x" section={big} />));
+    // initialNumToRender = 6 lower bound; the test renderer may mount more.
+    // initialNumToRender = 6 是下界, 测试 renderer 可能挂载更多.
+    expect(getAllByTestId("sectionCard").length).toBeGreaterThanOrEqual(6);
+  });
 });

@@ -12,6 +12,8 @@ import {
 import { createAPIClient } from "@/api/client";
 import { createSearchAPI, type SearchAPI } from "@/api/search";
 import type { PlayDestination, SearchProgress, SearchResult } from "@/api/types";
+import { useLayoutWidth } from "@/designSystem/breakpoints";
+import { LIST_PERF_DEFAULT } from "@/designSystem/listPerf";
 import { PosterImage } from "@/designSystem/PosterImage";
 import { sizes } from "@/designSystem/theme";
 import { useTheme } from "@/designSystem/useTheme";
@@ -112,6 +114,8 @@ interface InnerProps { api: SearchAPI; serverURL: string; initialQuery: string }
 function Inner({ api, serverURL, initialQuery }: InnerProps) {
   const { colors } = useTheme();
   const { t } = useTranslation("search");
+  const layout = useLayoutWidth();
+  const isTablet = layout !== "phone";
   // HomeStackParamList and CategoriesStackParamList both define "Detail" with PlayDestination,
   // so typing as HomeStackParamList here works whether SearchScreen is mounted under either tab.
   // HomeStackParamList 与 CategoriesStackParamList 的 Detail 都指向 PlayDestination, 在此用 HomeStackParamList
@@ -239,16 +243,20 @@ function Inner({ api, serverURL, initialQuery }: InnerProps) {
         data={state.results}
         keyExtractor={(item, index) => resultKey(item, index)}
         contentContainerStyle={styles.resultsContent}
+        {...LIST_PERF_DEFAULT}
         renderItem={({ item }) => (
           <Pressable
             onPress={() => onResultPress(item)}
             accessibilityRole="button"
-            style={[styles.row, { backgroundColor: colors.bgCard }]}
+            style={[
+              styles.row,
+              { backgroundColor: colors.bgCard, paddingHorizontal: isTablet ? 24 : 16 },
+            ]}
           >
             <View style={styles.cover}>
               <PosterImage baseURL={serverURL} cover={item.cover} style={styles.coverImg} />
             </View>
-            <View style={styles.body}>
+            <View style={[styles.body, { paddingLeft: isTablet ? 16 : 12 }]}>
               <Text style={[styles.titleText, { color: colors.textPrimary }]} numberOfLines={1}>{item.title}</Text>
               {item.year || item.type ? (
                 <Text style={[styles.metaText, { color: colors.textSecondary }]} numberOfLines={1}>

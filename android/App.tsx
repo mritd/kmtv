@@ -9,6 +9,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ThemeProvider } from "@/designSystem/ThemeProvider";
+import { installGlobalErrorHandler } from "@/diagnostics/installGlobalErrorHandler";
 import { initI18n } from "@/i18n";
 import { RootNavigator } from "@/navigation/RootNavigator";
 import { useI18nStore } from "@/store/i18nStore";
@@ -28,6 +29,10 @@ export default function App() {
   const lang = useI18nStore((s) => s.lang);
 
   useEffect(() => {
+    // Install diagnostics first so any errors during hydrate / initI18n are captured.
+    // Never let a diagnostics failure block boot.
+    // 先装配诊断, 让 hydrate / initI18n 阶段的错误也能被捕获. 诊断失败不得阻塞启动.
+    try { installGlobalErrorHandler(); } catch { /* swallow */ }
     useThemeStore.getState().hydrate();
     useI18nStore.getState().hydrate();
     const hydratedLang = useI18nStore.getState().lang;

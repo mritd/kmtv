@@ -10,6 +10,7 @@ import { AdminSettingsScreen } from "@/features/Admin/AdminSettingsScreen";
 import { AdminSourcesScreen } from "@/features/Admin/AdminSourcesScreen";
 import { AdminSubscriptionsScreen } from "@/features/Admin/AdminSubscriptionsScreen";
 import { AdminUsersScreen } from "@/features/Admin/AdminUsersScreen";
+import { DiagnosticsScreen } from "@/features/Diagnostics/DiagnosticsScreen";
 import { ProfileScreen } from "@/features/Profile/ProfileScreen";
 
 import type { ProfileStackParamList } from "./types";
@@ -30,6 +31,7 @@ export function ProfileStack(){
       <Stack.Screen name="AdminSubscriptions" component={AdminSubscriptionsScreen} options={{ title: t("panel.subscriptions") }} />
       <Stack.Screen name="AdminUsers" component={AdminUsersScreen} options={{ title: t("panel.users") }} />
       <Stack.Screen name="AdminSettings" component={AdminSettingsScreen} options={{ title: t("panel.settings") }} />
+      <Stack.Screen name="Diagnostics" component={DiagnosticsScreen} options={{ title: t("diagnostics:title") }} />
     </Stack.Navigator>
   );
 }

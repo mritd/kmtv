@@ -1,13 +1,15 @@
 // HomeScreen composes HeroCarousel + ContinueWatchingRow + SectionRow, driven by useDoubanHomeQuery.
 // HomeScreen 由 useDoubanHomeQuery 驱动, 组合 HeroCarousel + ContinueWatchingRow + SectionRow.
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { Image } from "expo-image";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 
 import { createAPIClient } from "@/api/client";
 import { createDoubanAPI, type DoubanAPI } from "@/api/douban";
 import { useDoubanHomeQuery } from "@/api/viewerHooks";
+import { resolvePosterURL } from "@/designSystem/PosterImage";
 import { Skeleton } from "@/designSystem/Skeleton";
 import { sizes } from "@/designSystem/theme";
 import { useTheme } from "@/designSystem/useTheme";
@@ -108,6 +110,30 @@ function HomeScreenInner({ api }: { api: DoubanAPI }) {
     if (!first) return [];
     return first.items.slice(0, 5);
   }, [sections]);
+
+  // Prefetch hero + first 8 above-the-fold poster URLs. Fire-and-forget; expo-image
+  // surfaces no rejection signal we can act on. Ref guards re-prefetching across rerenders.
+  // 预取 hero 与首屏分区前 8 张海报 URL. 触发即丢; ref 防止重渲染时重复预取.
+  const prefetchedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!serverURL) return;
+    const targets: string[] = [];
+    for (const h of heroItems) {
+      const url = resolvePosterURL(serverURL, h.cover);
+      if (url && !prefetchedRef.current.has(url)) targets.push(url);
+    }
+    const firstNonHero = sections.find((_s, i) => i > 0);
+    if (firstNonHero) {
+      for (const it of firstNonHero.items.slice(0, 8)) {
+        const url = resolvePosterURL(serverURL, it.cover);
+        if (url && !prefetchedRef.current.has(url)) targets.push(url);
+      }
+    }
+    if (targets.length === 0) return;
+    targets.forEach((u) => prefetchedRef.current.add(u));
+    void Image.prefetch(targets);
+  }, [serverURL, heroItems, sections]);
+
   // Inline error mirrors HomeViewModel.swift / HomeView.swift line 79-82: only surface when
   // we have NO stale content to show. Background refetch failures behind valid data stay quiet.
   // 内联错误与 HomeView.swift line 79-82 对齐: 仅当无任何旧数据时才显示, 后台 refetch 失败

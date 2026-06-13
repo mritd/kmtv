@@ -1,13 +1,14 @@
-// SectionRow renders a section title and a horizontal FlatList of VideoCards.
-// SectionRow 渲染分区标题以及水平 FlatList 形式的 VideoCard 列表.
+// SectionRow renders a section title and a horizontal virtualised FlatList of VideoCards.
+// SectionRow 渲染分区标题以及水平虚拟化 FlatList 形式的 VideoCard 列表.
 
-import React from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useCallback } from "react";
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { DoubanItem, HomeSection } from "@/api/types";
-import { VideoCard } from "@/designSystem/VideoCard";
+import { LIST_PERF_HORIZONTAL } from "@/designSystem/listPerf";
 import { sizes } from "@/designSystem/theme";
 import { useTheme } from "@/designSystem/useTheme";
+import { VideoCard } from "@/designSystem/VideoCard";
 
 interface Props {
   baseURL: string;
@@ -15,41 +16,56 @@ interface Props {
   onSelect?: (item: DoubanItem) => void;
 }
 
+const CARD_GAP = 12;
+const CARD_STRIDE = sizes.cardWidth + CARD_GAP;
+
 /**
- * SectionRow — section title + horizontal poster row of VideoCards.
- * SectionRow — 分区标题加 VideoCard 的水平海报行.
+ * SectionRow — section title + horizontal virtualised FlatList of VideoCards.
+ * SectionRow — 分区标题加 VideoCard 的水平虚拟化 FlatList.
  */
 export function SectionRow({ baseURL, section, onSelect }: Props) {
   const { colors } = useTheme();
+  const keyExtractor = useCallback((it: DoubanItem) => it.id, []);
+  const getItemLayout = useCallback(
+    (_d: ArrayLike<DoubanItem> | null | undefined, i: number) => ({
+      length: CARD_STRIDE,
+      offset: CARD_STRIDE * i,
+      index: i,
+    }),
+    [],
+  );
+  const renderItem = useCallback(({ item }: { item: DoubanItem }) => (
+    <Pressable
+      onPress={() => onSelect?.(item)}
+      style={{ marginRight: CARD_GAP }}
+      testID="sectionCard"
+    >
+      <VideoCard
+        baseURL={baseURL}
+        title={item.title}
+        cover={item.cover}
+        subtitle={item.year}
+        rating={item.rate}
+        width={sizes.cardWidth}
+      />
+    </Pressable>
+  ), [baseURL, onSelect]);
+
   return (
     <View>
       <View style={styles.header}>
         <Text style={{ color: colors.textPrimary, fontSize: 17, fontWeight: "600" }}>{section.name}</Text>
       </View>
-      {/* ScrollView + map renders every poster up-front, matching iOS LazyHStack's eager layout
-          and keeping integration tests deterministic. Virtualisation can be reintroduced later
-          if a section ever exceeds 50+ posters; current home feed sections are ~20.
-          ScrollView + map 一次性渲染全部海报, 与 iOS LazyHStack 渲染节奏一致, 同时让集成
-          测试保持确定性. 若未来某分区超过 50+ 项再考虑重新引入虚拟化, 当前首页分区约 20 项. */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.list}>
-        {section.items.map((item) => (
-          <Pressable
-            key={item.id}
-            onPress={() => onSelect?.(item)}
-            style={{ marginRight: 12 }}
-            testID="sectionCard"
-          >
-            <VideoCard
-              baseURL={baseURL}
-              title={item.title}
-              cover={item.cover}
-              subtitle={item.year}
-              rating={item.rate}
-              width={sizes.cardWidth}
-            />
-          </Pressable>
-        ))}
-      </ScrollView>
+      <FlatList
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        data={section.items}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        getItemLayout={getItemLayout}
+        contentContainerStyle={styles.list}
+        {...LIST_PERF_HORIZONTAL}
+      />
     </View>
   );
 }

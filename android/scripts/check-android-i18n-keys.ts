@@ -6,6 +6,7 @@ import enAdmin from "../src/i18n/locales/en/admin";
 import enBootstrap from "../src/i18n/locales/en/bootstrap";
 import enCategories from "../src/i18n/locales/en/categories";
 import enCommon from "../src/i18n/locales/en/common";
+import enDiagnostics from "../src/i18n/locales/en/diagnostics";
 import enFavorites from "../src/i18n/locales/en/favorites";
 import enHome from "../src/i18n/locales/en/home";
 import enNav from "../src/i18n/locales/en/nav";
@@ -16,6 +17,7 @@ import zhAdmin from "../src/i18n/locales/zh/admin";
 import zhBootstrap from "../src/i18n/locales/zh/bootstrap";
 import zhCategories from "../src/i18n/locales/zh/categories";
 import zhCommon from "../src/i18n/locales/zh/common";
+import zhDiagnostics from "../src/i18n/locales/zh/diagnostics";
 import zhFavorites from "../src/i18n/locales/zh/favorites";
 import zhHome from "../src/i18n/locales/zh/home";
 import zhNav from "../src/i18n/locales/zh/nav";
@@ -25,9 +27,9 @@ import zhSearch from "../src/i18n/locales/zh/search";
 
 const locales = {
   zh: { common: zhCommon, nav: zhNav, bootstrap: zhBootstrap, home: zhHome, categories: zhCategories, search: zhSearch,
-        playback: zhPlayback, favorites: zhFavorites, profile: zhProfile, admin: zhAdmin },
+        playback: zhPlayback, favorites: zhFavorites, profile: zhProfile, admin: zhAdmin, diagnostics: zhDiagnostics },
   en: { common: enCommon, nav: enNav, bootstrap: enBootstrap, home: enHome, categories: enCategories, search: enSearch,
-        playback: enPlayback, favorites: enFavorites, profile: enProfile, admin: enAdmin },
+        playback: enPlayback, favorites: enFavorites, profile: enProfile, admin: enAdmin, diagnostics: enDiagnostics },
 } as const;
 
 function flatten(value: Record<string, unknown>, prefix = ""): string[] {

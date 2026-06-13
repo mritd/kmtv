@@ -14,6 +14,8 @@ import { createAPIClient } from "@/api/client";
 import { createDoubanAPI, type DoubanAPI } from "@/api/douban";
 import type { DoubanItem } from "@/api/types";
 import { useCategoriesQuery, useDoubanRecommendInfiniteQuery } from "@/api/viewerHooks";
+import { pickNumColumns as pickNumColumnsFromBreakpoints } from "@/designSystem/breakpoints";
+import { LIST_PERF_GRID } from "@/designSystem/listPerf";
 import { PosterImage } from "@/designSystem/PosterImage";
 import { Skeleton } from "@/designSystem/Skeleton";
 import { sizes } from "@/designSystem/theme";
@@ -56,19 +58,11 @@ function useDefaultDoubanAPI(): { api: DoubanAPI | null; serverURL: string } {
 }
 
 /**
- * Compute responsive column count for the poster grid.
- * 海报网格自适应列数 (与 spec 表 4 一致).
- *
- * <600 dp → 3, [600, 840) → 4, ≥840 → 5. Matches design spec section 4 breakpoints.
- * Exported so it can be unit-tested without rendering the whole screen.
- * <600 dp → 3, [600, 840) → 4, ≥840 → 5, 与设计规范第 4 节断点一致.
- * 导出以便不渲染整个屏幕也可单测.
+ * Re-export pickNumColumns from the shared breakpoints module so existing tests + callers
+ * keep their `import { pickNumColumns } from "./CategoriesScreen"` paths working.
+ * 从共享断点模块再导出 pickNumColumns, 保持现有测试与调用方的导入路径不变.
  */
-export function pickNumColumns(width: number): number {
-  if (width >= 840) return 5;
-  if (width >= 600) return 4;
-  return 3;
-}
+export const pickNumColumns = pickNumColumnsFromBreakpoints;
 
 function formatGridRating(rate?: string): string {
   const value = rate?.trim();
@@ -228,6 +222,7 @@ function CategoriesScreenInner({ api, serverURL, onSearchTitle }: InnerProps) {
         columnWrapperStyle={styles.gridRow}
         onEndReached={handleEndReached}
         onEndReachedThreshold={0.6}
+        {...LIST_PERF_GRID}
         renderItem={({ item }) => (
           <PosterTile
             item={item}

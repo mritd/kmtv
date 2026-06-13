@@ -64,6 +64,7 @@ export type ProfileStackParamList = {
   AdminSubscriptions: undefined;
   AdminUsers: undefined;
   AdminSettings: undefined;
+  Diagnostics: undefined;
 };
 
 /**

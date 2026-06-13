@@ -162,4 +162,16 @@ describe("ProfileScreen", () => {
     );
     expect(queryByTestId("adminEntry")).toBeNull();
   });
+
+  it("shows Diagnostics row for all users and navigates to Diagnostics on tap", () => {
+    mockNavigate.mockClear();
+    const ctx = makeCtx();
+    const { getByTestId } = render(
+      <ProfileScreenContext.Provider value={ctx as never}>
+        <ProfileScreen />
+      </ProfileScreenContext.Provider>,
+    );
+    fireEvent.press(getByTestId("diagnosticsEntry"));
+    expect(mockNavigate).toHaveBeenCalledWith("Diagnostics");
+  });
 });

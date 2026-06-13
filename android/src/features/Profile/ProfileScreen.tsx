@@ -98,6 +98,17 @@ function ProfileInner({ ctx }: { ctx: ProfileScreenContextValue }) {
           <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
         </Pressable>
       ) : null}
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => navigation.navigate("Diagnostics")}
+        style={[styles.adminRow, { backgroundColor: colors.bgCard }]}
+        testID="diagnosticsEntry"
+      >
+        <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: "500" }}>
+          {t("diagnostics:entryRow")}
+        </Text>
+        <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+      </Pressable>
       {!isAnonymous ? <PasswordSection profile={profile} /> : null}
       <LanguageSection />
       <ThemeSection />

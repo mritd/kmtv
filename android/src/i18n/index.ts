@@ -8,6 +8,7 @@ import enAdmin from "./locales/en/admin";
 import enBootstrap from "./locales/en/bootstrap";
 import enCategories from "./locales/en/categories";
 import enCommon from "./locales/en/common";
+import enDiagnostics from "./locales/en/diagnostics";
 import enFavorites from "./locales/en/favorites";
 import enHome from "./locales/en/home";
 import enNav from "./locales/en/nav";
@@ -18,6 +19,7 @@ import zhAdmin from "./locales/zh/admin";
 import zhBootstrap from "./locales/zh/bootstrap";
 import zhCategories from "./locales/zh/categories";
 import zhCommon from "./locales/zh/common";
+import zhDiagnostics from "./locales/zh/diagnostics";
 import zhFavorites from "./locales/zh/favorites";
 import zhHome from "./locales/zh/home";
 import zhNav from "./locales/zh/nav";
@@ -27,9 +29,11 @@ import zhSearch from "./locales/zh/search";
 
 const resources = {
   en: { common: enCommon, nav: enNav, bootstrap: enBootstrap, home: enHome, categories: enCategories,
-        search: enSearch, playback: enPlayback, favorites: enFavorites, profile: enProfile, admin: enAdmin },
+        search: enSearch, playback: enPlayback, favorites: enFavorites, profile: enProfile, admin: enAdmin,
+        diagnostics: enDiagnostics },
   zh: { common: zhCommon, nav: zhNav, bootstrap: zhBootstrap, home: zhHome, categories: zhCategories,
-        search: zhSearch, playback: zhPlayback, favorites: zhFavorites, profile: zhProfile, admin: zhAdmin },
+        search: zhSearch, playback: zhPlayback, favorites: zhFavorites, profile: zhProfile, admin: zhAdmin,
+        diagnostics: zhDiagnostics },
 } as const;
 
 /**
@@ -48,7 +52,7 @@ export async function initI18n(lang: Lang): Promise<I18nInstance> {
       compatibilityJSON: "v4",
       lng: lang,
       fallbackLng: "en",
-      ns: ["common", "nav", "bootstrap", "home", "categories", "search", "playback", "favorites", "profile", "admin"],
+      ns: ["common", "nav", "bootstrap", "home", "categories", "search", "playback", "favorites", "profile", "admin", "diagnostics"],
       defaultNS: "common",
       resources,
       interpolation: { escapeValue: false },

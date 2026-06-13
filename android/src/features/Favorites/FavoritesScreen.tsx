@@ -9,6 +9,7 @@ import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 
 import type { PlayDestination } from "@/api/types";
+import { LIST_PERF_DEFAULT } from "@/designSystem/listPerf";
 import { useTheme } from "@/designSystem/useTheme";
 import { listFavorites, removeFavorite, type FavoriteItem } from "@/storage/favorites";
 import { useServerStore } from "@/store/serverStore";
@@ -70,6 +71,7 @@ export function FavoritesScreen({ navigation }: FavoritesScreenProps) {
       style={{ backgroundColor: colors.bgPrimary }}
       data={items}
       keyExtractor={(it) => `${it.sourceKey}:${it.videoId}`}
+      {...LIST_PERF_DEFAULT}
       renderItem={({ item }) => (
         <Swipeable
           renderRightActions={() => (

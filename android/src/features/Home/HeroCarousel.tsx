@@ -14,12 +14,12 @@ import {
 } from "react-native";
 
 import type { DoubanItem } from "@/api/types";
+import { useLayoutWidth } from "@/designSystem/breakpoints";
 import { PosterImage } from "@/designSystem/PosterImage";
 import { sizes } from "@/designSystem/theme";
 import { useTheme } from "@/designSystem/useTheme";
 
 const AUTO_ADVANCE_MS = 5000;
-const TABLET_BREAKPOINT_DP = 600;
 
 interface Props {
   baseURL: string;
@@ -34,7 +34,8 @@ interface Props {
 export function HeroCarousel({ baseURL, items, onSelect }: Props) {
   const { colors } = useTheme();
   const { width: viewportWidth } = useWindowDimensions();
-  const isTablet = viewportWidth >= TABLET_BREAKPOINT_DP;
+  const layout = useLayoutWidth();
+  const isTablet = layout !== "phone";
   const height = isTablet ? sizes.heroHeightTablet : sizes.heroHeight;
   const listRef = useRef<FlatList<DoubanItem>>(null);
   const [index, setIndex] = useState(0);

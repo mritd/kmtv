@@ -1,15 +1,21 @@
-// DetailScreen tests — loading skeleton + post-load render + Play CTA propagation.
-// DetailScreen 测试 — 加载骨架、加载后渲染、Play 按钮回调.
+// DetailScreen tests — loading skeleton + post-load render + Play CTA propagation + responsive layout.
+// DetailScreen 测试 — 加载骨架、加载后渲染、Play 按钮回调、响应式布局.
 
 import { fireEvent, render, waitFor } from "@testing-library/react-native";
 import React from "react";
 import { I18nextProvider } from "react-i18next";
 import i18next from "i18next";
+import { StyleSheet, useWindowDimensions } from "react-native";
 
 import { ThemeProvider } from "@/designSystem/ThemeProvider";
 import { DetailScreen, DetailScreenContext, type DetailScreenContextValue } from "./DetailScreen";
 import type { DetailAPI } from "@/api/detail";
 import type { PlayDestination, SourceResult, VideoDetail } from "@/api/types";
+
+jest.mock("react-native/Libraries/Utilities/useWindowDimensions", () => ({
+  default: jest.fn(() => ({ width: 400, height: 800, scale: 2, fontScale: 1 })),
+}));
+const mockedDims = useWindowDimensions as unknown as jest.Mock;
 
 const src: SourceResult = { source_key: "a", source_name: "A", is_adult: false, video_id: "v-a", duration_ms: 0, episodes: [] };
 const detail: VideoDetail = {
@@ -102,6 +108,35 @@ test("favorite toggle persists with active source's video_id", async () => {
   expect(isFavorited("http://s", "a", "v-a")).toBe(true);
   fireEvent.press(getByTestId("detailFavorite"));
   expect(isFavorited("http://s", "a", "v-a")).toBe(false);
+});
+
+describe("DetailScreen responsive layout", () => {
+  afterEach(() => mockedDims.mockReturnValue({ width: 400, height: 800, scale: 2, fontScale: 1 }));
+
+  test("phone (width 400) stacks poster on top with compact size", async () => {
+    mockedDims.mockReturnValue({ width: 400, height: 800, scale: 2, fontScale: 1 });
+    const api: DetailAPI = { detail: jest.fn().mockResolvedValue(detail) };
+    const { findByTestId } = wrap(
+      { detailAPI: api, serverURL: "http://s", onPlay: jest.fn() },
+      { params: dest },
+    );
+    const poster = await findByTestId("detailPoster");
+    const flat = StyleSheet.flatten(poster.props.style);
+    expect(flat).toEqual(expect.objectContaining({ width: 110, height: 165 }));
+    expect(await findByTestId("detailHero")).toBeTruthy();
+  });
+
+  test("tablet (width 800) places poster + info side by side with taller poster", async () => {
+    mockedDims.mockReturnValue({ width: 800, height: 1280, scale: 2, fontScale: 1 });
+    const api: DetailAPI = { detail: jest.fn().mockResolvedValue(detail) };
+    const { findByTestId } = wrap(
+      { detailAPI: api, serverURL: "http://s", onPlay: jest.fn() },
+      { params: dest },
+    );
+    const poster = await findByTestId("detailPoster");
+    const flat = StyleSheet.flatten(poster.props.style);
+    expect(flat).toEqual(expect.objectContaining({ width: 200, height: 300 }));
+  });
 });
 
 test("switching source then tapping favorite uses the new source's video_id", async () => {

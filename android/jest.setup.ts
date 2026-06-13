@@ -102,19 +102,26 @@ jest.mock(
 );
 
 // expo-image: render a plain RN <Image> so jest can introspect props.
-// expo-image: 在测试中退化为普通 <Image>, 方便断言 props.
+// `Image.prefetch` is attached via Object.assign so HomeScreen's prefetch call resolves
+// in tests without exercising the real native module.
+// expo-image: 测试时退化为普通 <Image>, 同时通过 Object.assign 挂载 prefetch,
+// 让 HomeScreen 的预取调用在不触发原生模块的情况下也能通过测试.
 jest.mock(
   "expo-image",
   () => {
     const React = require("react") as typeof import("react");
     const RN = jest.requireActual("react-native") as typeof import("react-native");
-    return {
-      Image: (props: Record<string, unknown>) =>
+    const ImageMock = Object.assign(
+      (props: Record<string, unknown>) =>
         React.createElement(RN.Image, {
           testID: (props.testID as string) ?? "expo-image",
           source: typeof props.source === "string" ? { uri: props.source } : props.source,
           style: props.style,
         } as never),
+      { prefetch: jest.fn(async () => true) },
+    );
+    return {
+      Image: ImageMock,
       ImageBackground: RN.View,
     };
   },

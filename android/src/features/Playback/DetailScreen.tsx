@@ -11,6 +11,7 @@ import {
 import { createAPIClient } from "@/api/client";
 import { createDetailAPI, type DetailAPI } from "@/api/detail";
 import type { PlayDestination, VideoDetail } from "@/api/types";
+import { useLayoutWidth } from "@/designSystem/breakpoints";
 import { IconButton } from "@/designSystem/IconButton";
 import { PosterImage } from "@/designSystem/PosterImage";
 import { Skeleton } from "@/designSystem/Skeleton";
@@ -84,6 +85,8 @@ export function DetailScreen({ route, navigation }: DetailScreenProps) {
 function DetailInner({ ctx, destination }: { ctx: DetailScreenContextValue; destination: PlayDestination }) {
   const { colors } = useTheme();
   const { t } = useTranslation("playback");
+  const layout = useLayoutWidth();
+  const isTablet = layout !== "phone";
   const [detail, setDetail] = useState<VideoDetail | null>(null);
   const [sources, setSources] = useState(destination.sources);
   const [currentSourceKey, setCurrentSourceKey] = useState(destination.sourceKey);
@@ -168,11 +171,14 @@ function DetailInner({ ctx, destination }: { ctx: DetailScreenContextValue; dest
         <PosterImage baseURL={ctx.serverURL} cover={detail.cover} style={styles.bgImage} />
         <BlurView intensity={50} tint="dark" style={StyleSheet.absoluteFill} />
       </View>
-      <View style={styles.hero}>
-        <View style={styles.poster}>
+      <View
+        style={[styles.heroBase, isTablet ? styles.heroRow : styles.heroStack]}
+        testID="detailHero"
+      >
+        <View testID="detailPoster" style={isTablet ? styles.posterTablet : styles.posterPhone}>
           <PosterImage baseURL={ctx.serverURL} cover={detail.cover} style={{ width: "100%", height: "100%" }} />
         </View>
-        <View style={styles.info}>
+        <View style={isTablet ? styles.infoTablet : styles.infoPhone}>
           <View style={styles.titleRow}>
             <Text style={[styles.title, { color: colors.textPrimary, flex: 1 }]} numberOfLines={2}>{detail.title}</Text>
             <IconButton
@@ -203,9 +209,14 @@ function DetailInner({ ctx, destination }: { ctx: DetailScreenContextValue; dest
           >
             <Text style={{ color: "white", fontSize: 15, fontWeight: "700" }}>{t("play")}</Text>
           </Pressable>
+          {isTablet && detail.desc ? (
+            <Text style={[styles.descInline, { color: colors.textSecondary }]} numberOfLines={6}>
+              {detail.desc}
+            </Text>
+          ) : null}
         </View>
       </View>
-      {detail.desc ? (
+      {!isTablet && detail.desc ? (
         <Text style={[styles.desc, { color: colors.textSecondary }]} numberOfLines={6}>
           {detail.desc}
         </Text>
@@ -238,12 +249,17 @@ const styles = StyleSheet.create({
   scrollContent: { paddingBottom: 32 },
   heroBg: { position: "absolute", left: 0, right: 0, top: 0, height: 360, opacity: 0.5 },
   bgImage: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 },
-  hero: { flexDirection: "row", padding: 16 },
+  heroBase: { padding: 16 },
+  heroStack: { flexDirection: "column", alignItems: "center" },
+  heroRow: { flexDirection: "row", alignItems: "flex-start" },
   titleRow: { flexDirection: "row", alignItems: "flex-start", gap: 4 },
-  poster: { width: 110, height: 165, borderRadius: sizes.radius.md, overflow: "hidden", marginRight: 12 },
-  info: { flex: 1 },
+  posterPhone: { width: 110, height: 165, borderRadius: sizes.radius.md, overflow: "hidden", marginBottom: 12 },
+  posterTablet: { width: 200, height: 300, borderRadius: sizes.radius.md, overflow: "hidden", marginRight: 16 },
+  infoPhone: { width: "100%", alignItems: "stretch" },
+  infoTablet: { flex: 1 },
   title: { fontSize: 19, fontWeight: "800" },
   desc: { paddingHorizontal: 16, fontSize: 12, lineHeight: 18, marginTop: 8 },
+  descInline: { fontSize: 12, lineHeight: 18, marginTop: 12 },
   section: { fontSize: 15, fontWeight: "700", marginBottom: 8 },
   playBtn: { marginTop: 12, paddingHorizontal: 18, paddingVertical: 8, borderRadius: sizes.radius.md, alignSelf: "flex-start" },
 });
