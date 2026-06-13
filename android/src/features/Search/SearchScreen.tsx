@@ -1,6 +1,8 @@
 // SearchScreen — input + SSE-driven streaming search + sync fallback + server-scoped history chips.
 // SearchScreen — 输入框 + SSE 流式搜索 + 同步回退 + 按服务器隔离的历史胶囊.
 
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -9,11 +11,11 @@ import {
 
 import { createAPIClient } from "@/api/client";
 import { createSearchAPI, type SearchAPI } from "@/api/search";
-import type { SearchProgress, SearchResult } from "@/api/types";
+import type { PlayDestination, SearchProgress, SearchResult } from "@/api/types";
 import { PosterImage } from "@/designSystem/PosterImage";
 import { sizes } from "@/designSystem/theme";
 import { useTheme } from "@/designSystem/useTheme";
-import type { SearchRouteParams } from "@/navigation/types";
+import type { HomeStackParamList, SearchRouteParams } from "@/navigation/types";
 import { useAuthStore } from "@/store/authStore";
 import { useServerStore } from "@/store/serverStore";
 import {
@@ -110,6 +112,11 @@ interface InnerProps { api: SearchAPI; serverURL: string; initialQuery: string }
 function Inner({ api, serverURL, initialQuery }: InnerProps) {
   const { colors } = useTheme();
   const { t } = useTranslation("search");
+  // HomeStackParamList and CategoriesStackParamList both define "Detail" with PlayDestination,
+  // so typing as HomeStackParamList here works whether SearchScreen is mounted under either tab.
+  // HomeStackParamList 与 CategoriesStackParamList 的 Detail 都指向 PlayDestination, 在此用 HomeStackParamList
+  // 类型化即可同时覆盖两个 Tab 的导航类型.
+  const navigation = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
   const [state, dispatch] = useReducer(reducer, {
     query: initialQuery,
     submitted: "",
@@ -175,6 +182,19 @@ function Inner({ api, serverURL, initialQuery }: InnerProps) {
     void runSearch(q);
   }, [runSearch]);
 
+  const onResultPress = useCallback((result: SearchResult) => {
+    const first = result.sources[0];
+    if (!first) return;
+    const dest: PlayDestination = {
+      title: result.title,
+      sources: result.sources,
+      sourceKey: first.source_key,
+      videoId: first.video_id,
+      coverHint: result.cover,
+    };
+    navigation.navigate("Detail", dest);
+  }, [navigation]);
+
   const progressText = computeProgressText(state.progress, t);
 
   return (
@@ -221,7 +241,7 @@ function Inner({ api, serverURL, initialQuery }: InnerProps) {
         contentContainerStyle={styles.resultsContent}
         renderItem={({ item }) => (
           <Pressable
-            onPress={() => onResultPress(item, t)}
+            onPress={() => onResultPress(item)}
             accessibilityRole="button"
             style={[styles.row, { backgroundColor: colors.bgCard }]}
           >
@@ -247,12 +267,6 @@ function Inner({ api, serverURL, initialQuery }: InnerProps) {
       />
     </View>
   );
-}
-
-function onResultPress(_result: SearchResult, t: (k: string) => string): void {
-  // M4 wires real Detail navigation. For M3 we surface the user-facing "coming in M4" message.
-  // 真正的 Detail 导航在 M4 落地, M3 仅向用户提示 "M4 上线".
-  console.warn("[search] result tap pending Detail screen:", t("resultPending"));
 }
 
 /**

@@ -216,3 +216,71 @@ export type SearchStreamEvent =
   | { type: "progress"; progress: SearchProgress }
   | { type: "result"; response: SearchResponse }
   | { type: "error"; message: string };
+
+/**
+ * Full detail of one video from one source, mirrors server `model.VideoDetail`.
+ * 单个源返回的视频完整详情, 镜像 server `model.VideoDetail`.
+ *
+ * `episodes` is a 2-D array: outer index selects the CDN line, inner index selects the episode
+ * inside that line. Lines whose inner array is empty are "dead" — render with strike-through and
+ * disable selection. The PlayerScreen line picker mirrors this exact shape.
+ * episodes 为二维数组: 外层选择 CDN 线路, 内层为该线路下的剧集. 内层为空表示死线路, 渲染为划线且禁用.
+ * PlayerScreen 线路选择器结构与此严格对应.
+ */
+export interface VideoDetail {
+  id: string;
+  title: string;
+  type: string;
+  year: string;
+  cover: string;
+  desc: string;
+  director: string;
+  actor: string;
+  area: string;
+  episodes: Episode[][];
+}
+
+/**
+ * Response from POST /api/v1/playback/url — playable URL plus the resolution mode.
+ * POST /api/v1/playback/url 的响应, 包含可播放 URL 与解析模式.
+ *
+ * `mode` is "proxy" when the server wraps the URL in `/api/v1/proxy/m3u8?...&mt=<token>` and
+ * "direct" when the URL is returned as-is. Clients treat both identically for playback.
+ * mode 为 "proxy" 时服务端用 `/api/v1/proxy/m3u8?...&mt=<token>` 包装 URL; "direct" 时原样返回. 客户端播放时一视同仁.
+ */
+export interface PlaybackURLResponse {
+  mode: "direct" | "proxy" | string;
+  url: string;
+}
+
+/**
+ * Episode resume intent passed across navigation so a fresh DetailScreen lands on the right episode.
+ * 跨导航传递的分集恢复意图, 让新打开的 DetailScreen 直接定位到对应剧集.
+ *
+ * Both fields are required — `episodeIndex` is the primary key, `episodeName` is used by
+ * usePlayer's source-switch matcher to re-pick the episode after a source switch reshuffles the list.
+ * 两个字段都必填: episodeIndex 是主键, episodeName 用于切源重排后由 usePlayer 重新定位.
+ */
+export interface EpisodeResumeIntent {
+  episodeIndex: number;
+  episodeName: string;
+}
+
+/**
+ * Navigation params for the Detail route — carries everything DetailScreen needs to load and play.
+ * Detail 路由的导航参数, 包含 DetailScreen 加载与播放所需的全部信息.
+ *
+ * `sources` is the list of candidate sources from search/continue-watching; `sourceKey` selects
+ * the initial one. When invoked from continue-watching `sources` may be empty, in which case
+ * usePlayer seeds a placeholder source from `sourceKey + videoId` and replaces it on detailLoaded.
+ * sources 是搜索/继续观看带来的候选源列表; sourceKey 选定初始源. 从继续观看进入时 sources 可能为空,
+ * 由 usePlayer 用 sourceKey + videoId 构造占位 source, detailLoaded 后替换为真实数据.
+ */
+export interface PlayDestination {
+  title: string;
+  sources: SourceResult[];
+  sourceKey: string;
+  videoId: string;
+  coverHint: string;
+  resumeIntent?: EpisodeResumeIntent;
+}

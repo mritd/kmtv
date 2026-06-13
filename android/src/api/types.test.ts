@@ -3,8 +3,9 @@
 
 import type {
   CategoryGroup, DoubanCategoriesResponse, DoubanHomeResponse, DoubanItem, DoubanListResponse,
-  DoubanRecommendFilter, HomeSection, Region, SearchProgress, SearchResponse, SearchResult,
-  SearchStreamEvent, SourceResult, SubCategory,
+  DoubanRecommendFilter, Episode, EpisodeResumeIntent, HomeSection, PlaybackURLResponse,
+  PlayDestination, Region, SearchProgress, SearchResponse, SearchResult, SearchStreamEvent,
+  SourceResult, SubCategory, VideoDetail,
 } from "./types";
 
 describe("DoubanHomeResponse types", () => {
@@ -86,5 +87,45 @@ describe("M3 wire types", () => {
     expect(done.type).toBe("result");
     const err: SearchStreamEvent = { type: "error", message: "oops" };
     expect(err.type).toBe("error");
+  });
+});
+
+describe("M4 wire types", () => {
+  it("VideoDetail episodes is 2-D (lines × episodes)", () => {
+    const ep: Episode = { name: "01", url: "https://x/y.m3u8" };
+    const detail: VideoDetail = {
+      id: "1", title: "T", type: "Movie", year: "2024", cover: "", desc: "",
+      director: "", actor: "", area: "", episodes: [[ep]],
+    };
+    expect(detail.episodes[0]?.[0]?.url).toContain("m3u8");
+  });
+
+  it("PlaybackURLResponse carries mode + url", () => {
+    const playback: PlaybackURLResponse = { mode: "proxy", url: "https://x/m3u8?mt=t" };
+    expect(playback.mode).toBe("proxy");
+    expect(playback.url).toContain("mt=");
+  });
+
+  it("EpisodeResumeIntent requires both fields", () => {
+    const resume: EpisodeResumeIntent = { episodeIndex: 2, episodeName: "03" };
+    expect(resume.episodeIndex).toBe(2);
+    expect(resume.episodeName).toBe("03");
+  });
+
+  it("PlayDestination ties title + sources + selection + optional resume", () => {
+    const source: SourceResult = {
+      source_key: "k", source_name: "K", is_adult: false,
+      video_id: "v", duration_ms: 100, episodes: [],
+    };
+    const dest: PlayDestination = {
+      title: "T", sources: [source], sourceKey: "k", videoId: "v",
+      coverHint: "/cover.jpg",
+      resumeIntent: { episodeIndex: 1, episodeName: "02" },
+    };
+    expect(dest.resumeIntent?.episodeName).toBe("02");
+    const destNoResume: PlayDestination = {
+      title: "T", sources: [], sourceKey: "k", videoId: "v", coverHint: "",
+    };
+    expect(destNoResume.resumeIntent).toBeUndefined();
   });
 });

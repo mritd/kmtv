@@ -17,7 +17,6 @@ const search = {
     generic: "搜索失败",
     retry: "重试",
   },
-  resultPending: "播放将于 M4 实装",
 } as const;
 
 export default search;

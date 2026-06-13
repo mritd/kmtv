@@ -9,17 +9,19 @@ import enCategories from "./locales/en/categories";
 import enCommon from "./locales/en/common";
 import enHome from "./locales/en/home";
 import enNav from "./locales/en/nav";
+import enPlayback from "./locales/en/playback";
 import enSearch from "./locales/en/search";
 import zhBootstrap from "./locales/zh/bootstrap";
 import zhCategories from "./locales/zh/categories";
 import zhCommon from "./locales/zh/common";
 import zhHome from "./locales/zh/home";
 import zhNav from "./locales/zh/nav";
+import zhPlayback from "./locales/zh/playback";
 import zhSearch from "./locales/zh/search";
 
 const resources = {
-  en: { common: enCommon, nav: enNav, bootstrap: enBootstrap, home: enHome, categories: enCategories, search: enSearch },
-  zh: { common: zhCommon, nav: zhNav, bootstrap: zhBootstrap, home: zhHome, categories: zhCategories, search: zhSearch },
+  en: { common: enCommon, nav: enNav, bootstrap: enBootstrap, home: enHome, categories: enCategories, search: enSearch, playback: enPlayback },
+  zh: { common: zhCommon, nav: zhNav, bootstrap: zhBootstrap, home: zhHome, categories: zhCategories, search: zhSearch, playback: zhPlayback },
 } as const;
 
 /**
@@ -38,7 +40,7 @@ export async function initI18n(lang: Lang): Promise<I18nInstance> {
       compatibilityJSON: "v4",
       lng: lang,
       fallbackLng: "en",
-      ns: ["common", "nav", "bootstrap", "home", "categories", "search"],
+      ns: ["common", "nav", "bootstrap", "home", "categories", "search", "playback"],
       defaultNS: "common",
       resources,
       interpolation: { escapeValue: false },

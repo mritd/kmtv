@@ -160,3 +160,63 @@ jest.mock(
     return { __esModule: true, default: MockEventSource };
   },
 );
+
+// react-native-video: testable <Video /> stand-in. Tests see a <View testID="video" /> with an
+// imperative ref exposing seek/presentFullscreenPlayer/dismissFullscreenPlayer. Lifecycle callback
+// props (onLoad/onProgress/onError/onBuffer/onEnd) are forwarded so tests can drive them via
+// `fireEvent(video, "onLoad", { duration: 30 })`.
+// react-native-video: 可测试的 <Video /> 占位. 测试拿到 <View testID="video" /> 与暴露
+// seek / presentFullscreenPlayer / dismissFullscreenPlayer 的 imperative ref. 透传
+// onLoad/onProgress/onError/onBuffer/onEnd 到 View props, 让测试通过
+// `fireEvent(video, "onLoad", { duration: 30 })` 驱动真实回调连线.
+jest.mock(
+  "react-native-video",
+  () => {
+    const React = require("react") as typeof import("react");
+    const RN = jest.requireActual("react-native") as typeof import("react-native");
+    const Video = React.forwardRef((props: Record<string, unknown>, ref) => {
+      React.useImperativeHandle(ref, () => ({
+        seek: jest.fn(),
+        presentFullscreenPlayer: jest.fn(),
+        dismissFullscreenPlayer: jest.fn(),
+      }), []);
+      return React.createElement(RN.View, {
+        testID: (props.testID as string) ?? "video",
+        accessibilityLabel: "mock-video",
+        onLoad: props.onLoad,
+        onProgress: props.onProgress,
+        onError: props.onError,
+        onBuffer: props.onBuffer,
+        onEnd: props.onEnd,
+      } as never);
+    });
+    return { __esModule: true, default: Video };
+  },
+);
+
+// BackHandler is intentionally NOT mocked here — a deep-path mock at
+// `react-native/Libraries/Utilities/BackHandler` breaks `@react-navigation/native`'s
+// `useBackButton` (it imports BackHandler from the top-level `react-native` which expects the
+// default-export shape). PlayerScreen tests spy on `BackHandler.addEventListener` per-test instead.
+// BackHandler 不在此全局 mock — 深路径 mock 会破坏 @react-navigation/native 的 useBackButton
+// (它从顶层 react-native 取 BackHandler, 期望 default export 形状). PlayerScreen 测试改用
+// 单测内 jest.spyOn(BackHandler, "addEventListener").
+
+// expo-blur: degrade to a styled <View /> so layout tests can introspect props.
+// expo-blur: 退化为带样式的 <View />, 让布局测试能够断言 props.
+jest.mock(
+  "expo-blur",
+  () => {
+    const React = require("react") as typeof import("react");
+    const RN = jest.requireActual("react-native") as typeof import("react-native");
+    return {
+      __esModule: true,
+      BlurView: (props: Record<string, unknown>) =>
+        React.createElement(RN.View, {
+          testID: (props.testID as string) ?? "expo-blur",
+          style: props.style,
+          children: props.children,
+        } as never),
+    };
+  },
+);

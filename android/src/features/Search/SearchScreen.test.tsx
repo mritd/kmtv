@@ -1,6 +1,16 @@
 // SearchScreen tests: input/submit/SSE → results, progress display, sync fallback, history.
 // SearchScreen 测试: 输入提交/SSE → 结果、进度、同步回退、历史.
 
+// jest hoists jest.mock() factories above all variable declarations, so any reference inside the
+// factory MUST start with the `mock` prefix. mockNavigate is the supported escape hatch.
+// jest 会把 jest.mock() factory 提升至所有变量声明之前. factory 内的引用必须以 mock 开头.
+const mockNavigate = jest.fn();
+jest.mock("@react-navigation/native", () => ({
+  __esModule: true,
+  ...jest.requireActual("@react-navigation/native"),
+  useNavigation: () => ({ navigate: mockNavigate }),
+}));
+
 import { NavigationContainer } from "@react-navigation/native";
 import { fireEvent, render, screen, waitFor, act } from "@testing-library/react-native";
 import { I18nextProvider } from "react-i18next";
@@ -123,5 +133,25 @@ describe("SearchScreen", () => {
     await renderScreen(api, "preset");
     await waitFor(() => expect(api.searchStream).toHaveBeenCalled());
     expect((api.searchStream as jest.Mock).mock.calls[0]![0]).toBe("preset");
+  });
+
+  it("tapping a result navigates to Detail with the destination payload", async () => {
+    mockNavigate.mockClear();
+    const api = buildAPI({
+      searchStream: jest.fn(async () => ({ results: [
+        { title: "Some Movie", type: "Movie", year: "2024", cover: "/c.jpg", desc: "", sources: [wireSource] },
+      ] })),
+    });
+    await renderScreen(api);
+    fireEvent.changeText(screen.getByPlaceholderText("Search videos..."), "kungfu");
+    fireEvent(screen.getByPlaceholderText("Search videos..."), "submitEditing");
+    await waitFor(() => expect(screen.getByText("Some Movie")).toBeTruthy());
+    fireEvent.press(screen.getByText("Some Movie"));
+    expect(mockNavigate).toHaveBeenCalledWith("Detail", expect.objectContaining({
+      title: "Some Movie",
+      sourceKey: "s1",
+      videoId: "v1",
+      coverHint: "/c.jpg",
+    }));
   });
 });

@@ -4,6 +4,8 @@
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { HomeScreen } from "@/features/Home/HomeScreen";
+import { DetailScreen } from "@/features/Playback/DetailScreen";
+import { PlayerScreen } from "@/features/Playback/PlayerScreen";
 import { SearchScreen } from "@/features/Search/SearchScreen";
 
 import type { HomeStackParamList } from "./types";
@@ -19,6 +21,8 @@ export function HomeStack() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="HomeRoot" component={HomeScreen} />
       <Stack.Screen name="Search" component={SearchScreen} />
+      <Stack.Screen name="Detail" component={DetailScreen} />
+      <Stack.Screen name="Player" component={PlayerScreen} />
     </Stack.Navigator>
   );
 }

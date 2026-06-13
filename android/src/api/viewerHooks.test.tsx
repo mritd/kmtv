@@ -5,11 +5,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react-native";
 import React from "react";
 
+import type { DetailAPI } from "./detail";
 import type { DoubanAPI } from "./douban";
 import type { SearchAPI } from "./search";
+import type { VideoDetail } from "./types";
 import {
   RECOMMEND_PAGE_SIZE, useCategoriesQuery, useDoubanHomeQuery,
-  useDoubanRecommendInfiniteQuery, useSearchQuery,
+  useDoubanRecommendInfiniteQuery, useSearchQuery, useVideoDetailQuery,
 } from "./viewerHooks";
 
 function wrapper(client: QueryClient) {
@@ -117,5 +119,35 @@ describe("useSearchQuery", () => {
     const { result } = renderHook(() => useSearchQuery(api, "s", "hello"), { wrapper: wrapper(qc) });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(api.search).toHaveBeenCalledWith("hello");
+  });
+});
+
+describe("useVideoDetailQuery", () => {
+  const detail: VideoDetail = {
+    id: "1", title: "T", type: "Movie", year: "2024", cover: "c", desc: "",
+    director: "", actor: "", area: "", episodes: [[{ name: "01", url: "u" }]],
+  };
+
+  it("fetches when both source key and video id are non-empty", async () => {
+    const api: DetailAPI = { detail: jest.fn(async () => detail) };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(
+      () => useVideoDetailQuery(api, "srv", "k1", "v1"),
+      { wrapper: wrapper(qc) },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(api.detail).toHaveBeenCalledWith("k1", "v1");
+    expect(result.current.data?.title).toBe("T");
+  });
+
+  it("stays disabled while sourceKey is empty", () => {
+    const api: DetailAPI = { detail: jest.fn() };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(
+      () => useVideoDetailQuery(api, "srv", "", "v1"),
+      { wrapper: wrapper(qc) },
+    );
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(api.detail).not.toHaveBeenCalled();
   });
 });

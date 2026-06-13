@@ -3,6 +3,8 @@
 
 import type { NavigatorScreenParams } from "@react-navigation/native";
 
+import type { PlayDestination } from "@/api/types";
+
 /**
  * Root stack: bootstrap → serverSetup → mainTabs. No params at M1.
  * 根 stack: bootstrap → serverSetup → mainTabs. M1 阶段无参数.
@@ -20,21 +22,25 @@ export type RootStackParamList = {
 export type SearchRouteParams = { initialQuery?: string } | undefined;
 
 /**
- * HomeTab's nested native-stack: HomeRoot + Search.
- * HomeTab 内的 native-stack: HomeRoot + Search.
+ * HomeTab's nested native-stack: HomeRoot + Search + Detail + Player.
+ * HomeTab 内的 native-stack: HomeRoot + Search + Detail + Player.
  */
 export type HomeStackParamList = {
   HomeRoot: undefined;
   Search: SearchRouteParams;
+  Detail: PlayDestination;
+  Player: PlayDestination;
 };
 
 /**
- * CategoriesTab's nested native-stack: CategoriesRoot + Search.
- * CategoriesTab 内的 native-stack: CategoriesRoot + Search.
+ * CategoriesTab's nested native-stack: CategoriesRoot + Search + Detail + Player.
+ * CategoriesTab 内的 native-stack: CategoriesRoot + Search + Detail + Player.
  */
 export type CategoriesStackParamList = {
   CategoriesRoot: undefined;
   Search: SearchRouteParams;
+  Detail: PlayDestination;
+  Player: PlayDestination;
 };
 
 /**

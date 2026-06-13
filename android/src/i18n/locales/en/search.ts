@@ -17,7 +17,6 @@ const search = {
     generic: "Search failed",
     retry: "Retry",
   },
-  resultPending: "Playback coming in M4",
 } as const;
 
 export default search;

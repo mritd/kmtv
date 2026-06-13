@@ -6,15 +6,17 @@ import {
   type UseInfiniteQueryResult, type UseQueryResult,
 } from "@tanstack/react-query";
 
+import type { DetailAPI } from "./detail";
 import type { DoubanAPI } from "./douban";
 import type { SearchAPI } from "./search";
 import type {
   DoubanCategoriesResponse, DoubanHomeResponse, DoubanListResponse,
-  DoubanRecommendFilter, SearchResponse,
+  DoubanRecommendFilter, SearchResponse, VideoDetail,
 } from "./types";
 
 const HOME_STALE_MS = 2 * 60 * 1000;
 const CATEGORIES_STALE_MS = 5 * 60 * 1000;
+const DETAIL_STALE_MS = 60 * 1000;
 
 /**
  * Items per /douban/recommend/filter page (mirrors web RECOMMEND_PAGE_SIZE).
@@ -118,6 +120,31 @@ export function useSearchQuery(
     queryKey: ["search", scope, trimmed],
     queryFn: () => api.search(trimmed),
     enabled: trimmed.length > 0,
+    retry: 1,
+  });
+}
+
+/**
+ * useVideoDetailQuery — fetches /detail for one (sourceKey, videoId) pair, scoped by server.
+ * useVideoDetailQuery — 拉取一对 (sourceKey, videoId) 的 /detail, 按服务器隔离.
+ *
+ * Disabled until both ids are non-empty. 1-minute staleTime mirrors the spec — detail rarely
+ * changes within a single playback session, but a fresh entry from player back-navigation should
+ * still see updated episodes if the source published more.
+ * 在两个 id 均非空前禁用. 1 分钟 staleTime 与 spec 一致, 单次会话内详情几乎不变, 但回到详情页时
+ * 若源端新增剧集仍可拿到刷新数据.
+ */
+export function useVideoDetailQuery(
+  api: DetailAPI,
+  scope: string,
+  sourceKey: string,
+  videoId: string,
+): UseQueryResult<VideoDetail> {
+  return useQuery({
+    queryKey: ["video-detail", scope, sourceKey, videoId],
+    queryFn: () => api.detail(sourceKey, videoId),
+    enabled: sourceKey.length > 0 && videoId.length > 0,
+    staleTime: DETAIL_STALE_MS,
     retry: 1,
   });
 }
