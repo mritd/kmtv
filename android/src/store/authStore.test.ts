@@ -52,6 +52,30 @@ describe("authStore.bootstrap", () => {
     await useAuthStore.getState().bootstrap(() => auth);
     expect(useAuthStore.getState().status).toBe("serverSetup");
   });
+
+  it("recovers to serverSetup AND surfaces the error via console.error when the auth factory throws", async () => {
+    // Simulates a programmer-level bug (TypeError-style) in the factory pipeline; the outer
+    // try/catch must NOT swallow it silently — it has to land in console.error so it is
+    // visible during development and reaches the diagnostics ring buffer in production.
+    // 模拟 factory 链上的编程级错误 (TypeError 等); 外层 try/catch 不得静默吞掉, 必须打到 console.error,
+    // 开发期可见, 生产期亦能进入诊断环形缓冲.
+    useServerStore.getState().setServerURL("https://k.example.com");
+    await saveToken("tok");
+    const consoleError = jest.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      await useAuthStore.getState().bootstrap(() => {
+        throw new TypeError("simulated factory bug");
+      });
+      expect(useAuthStore.getState().status).toBe("serverSetup");
+      expect(useAuthStore.getState().user).toBeNull();
+      expect(consoleError).toHaveBeenCalledTimes(1);
+      const [msg, err] = consoleError.mock.calls[0]!;
+      expect(String(msg)).toMatch(/authStore\.bootstrap/);
+      expect(err).toBeInstanceOf(TypeError);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
 });
 
 describe("authStore.connectServer", () => {

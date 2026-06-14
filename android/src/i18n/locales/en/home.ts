@@ -3,6 +3,7 @@
 
 const home = {
   title: "KMTV",
+  searchAria: "Search",
   continueWatching: "Continue Watching",
   clear: "Clear",
   error: { generic: "Could not load home feed", retry: "Retry" },

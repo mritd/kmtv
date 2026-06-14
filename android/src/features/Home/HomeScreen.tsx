@@ -1,10 +1,13 @@
 // HomeScreen composes HeroCarousel + ContinueWatchingRow + SectionRow, driven by useDoubanHomeQuery.
 // HomeScreen 由 useDoubanHomeQuery 驱动, 组合 HeroCarousel + ContinueWatchingRow + SectionRow.
 
+import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Image } from "expo-image";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 
 import { createAPIClient } from "@/api/client";
 import { createDoubanAPI, type DoubanAPI } from "@/api/douban";
@@ -13,6 +16,7 @@ import { resolvePosterURL } from "@/designSystem/PosterImage";
 import { Skeleton } from "@/designSystem/Skeleton";
 import { sizes } from "@/designSystem/theme";
 import { useTheme } from "@/designSystem/useTheme";
+import type { HomeStackParamList } from "@/navigation/types";
 import { useAuthStore } from "@/store/authStore";
 import { useServerStore } from "@/store/serverStore";
 import {
@@ -25,7 +29,24 @@ import { ContinueWatchingRow } from "./ContinueWatchingRow";
 import { HeroCarousel } from "./HeroCarousel";
 import { SectionRow } from "./SectionRow";
 
-interface HomeScreenContextValue { api: DoubanAPI; }
+interface HomeScreenContextValue {
+  api: DoubanAPI;
+  /**
+   * Optional callback so tests can stub the search button navigation without wrapping in
+   * a NavigationContainer just to satisfy useNavigation. Production path supplies a navigate
+   * call that pushes the Search screen with an empty initial query.
+   * 可选回调, 测试可桩化搜索按钮导航而无需用 NavigationContainer 包裹. 生产路径提供 push Search 屏的 navigate 调用.
+   */
+  onSearch?: () => void;
+  /**
+   * Mirrors iOS HomeView.navigateToSearch(SearchQuery(query: item.title, ...)). All card taps
+   * (hero / continue / section) push the Search screen with the tapped title pre-filled.
+   * Tests may override; production path navigates via useNavigation.
+   * 与 iOS HomeView.navigateToSearch(SearchQuery(query: item.title, ...)) 一致. 所有卡片点击
+   * (hero / continue / section) 都把对应标题预填到 Search. 测试可覆盖, 生产走 useNavigation.
+   */
+  onSelectTitle?: (title: string) => void;
+}
 
 /**
  * Optional context lets integration tests inject a stubbed DoubanAPI without standing up
@@ -54,16 +75,36 @@ function useDefaultDoubanAPI(): DoubanAPI | null {
 
 /**
  * HomeScreen — Hero carousel + Continue Watching + Section rows, driven by useDoubanHomeQuery.
+ * Two render paths: context-driven (tests/embedded) and production. Splitting them keeps the
+ * useNavigation call off the test path so tests don't need a NavigationContainer just for the
+ * search button.
  * HomeScreen — 由 useDoubanHomeQuery 驱动的 Hero 轮播 + 继续观看 + 分区行.
+ * 两条渲染路径: context 驱动 (测试 / 嵌入) 与生产. 拆分让 useNavigation 只在生产路径调用, 测试无需为搜索按钮包 NavigationContainer.
  */
 export function HomeScreen() {
+  const ctx = useContext(HomeScreenContext);
+  return ctx ? <ContextDrivenHomeScreen ctx={ctx} /> : <DefaultHomeScreen />;
+}
+
+function ContextDrivenHomeScreen({ ctx }: { ctx: HomeScreenContextValue }) {
+  return <HomeScreenInner api={ctx.api} onSearch={ctx.onSearch} onSelectTitle={ctx.onSelectTitle} />;
+}
+
+function DefaultHomeScreen() {
   const { colors } = useTheme();
   const { t } = useTranslation("home");
-  const ctx = useContext(HomeScreenContext);
   const defaultAPI = useDefaultDoubanAPI();
-  const api = ctx?.api ?? defaultAPI;
+  const navigation = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
+  const onSearch = useCallback(
+    () => navigation.navigate("Search", { initialQuery: "" }),
+    [navigation],
+  );
+  const onSelectTitle = useCallback(
+    (title: string) => navigation.navigate("Search", { initialQuery: title }),
+    [navigation],
+  );
 
-  if (!api) {
+  if (!defaultAPI) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bgPrimary }}>
         <Text style={{ color: colors.textSecondary }}>{t("error.generic")}</Text>
@@ -71,10 +112,18 @@ export function HomeScreen() {
     );
   }
 
-  return <HomeScreenInner api={api} />;
+  return <HomeScreenInner api={defaultAPI} onSearch={onSearch} onSelectTitle={onSelectTitle} />;
 }
 
-function HomeScreenInner({ api }: { api: DoubanAPI }) {
+function HomeScreenInner({
+  api,
+  onSearch,
+  onSelectTitle,
+}: {
+  api: DoubanAPI;
+  onSearch?: () => void;
+  onSelectTitle?: (title: string) => void;
+}) {
   const { colors } = useTheme();
   const { t } = useTranslation("home");
   const serverURL = useServerStore((s) => s.serverURL) ?? "";
@@ -98,11 +147,23 @@ function HomeScreenInner({ api }: { api: DoubanAPI }) {
     setHistory([]);
   }, [serverURL]);
 
-  // Detail navigation lands in M3/M4. For M2 the hero / continue / section taps are no-ops
-  // so the layout is identical to iOS even before Search/Detail screens exist.
-  // Detail 导航在 M3/M4 接入; M2 阶段 hero / continue / section 点击保持 no-op,
-  // 使布局与 iOS 完全一致, 即便 Search/Detail 屏尚未实现.
-  const noopSelect = useCallback(() => undefined, []);
+  // Mirrors iOS HomeView.navigateToSearch(SearchQuery(query: item.title, ...)). All cards
+  // route through onSelectTitle (Hero, ContinueWatching, Section). When the callback is
+  // missing (tests without nav), the tap becomes a no-op so renders stay deterministic.
+  // 与 iOS HomeView.navigateToSearch(...) 一致, 所有卡片走 onSelectTitle (Hero, ContinueWatching, Section).
+  // 无 callback 时 (无导航的测试) 点击 no-op, 保持渲染确定.
+  const selectByTitle = useCallback(
+    (title: string) => onSelectTitle?.(title),
+    [onSelectTitle],
+  );
+  const selectDoubanItem = useCallback(
+    (item: { title: string }) => selectByTitle(item.title),
+    [selectByTitle],
+  );
+  const selectHistoryItem = useCallback(
+    (entry: WatchHistoryItem) => selectByTitle(entry.title),
+    [selectByTitle],
+  );
 
   const sections = query.data?.sections ?? [];
   const heroItems = useMemo(() => {
@@ -140,24 +201,64 @@ function HomeScreenInner({ api }: { api: DoubanAPI }) {
   // 不会覆盖已有有效数据.
   const showInlineError = query.isError && sections.length === 0 && heroItems.length === 0;
 
+  // Top bar mirrors iOS HomeView.topBar: KMTV title + magnifying-glass search button.
+  // 顶栏与 iOS HomeView.topBar 一致: KMTV 标题 + 放大镜搜索按钮.
+  const searchLabel = t("searchAria");
+  const topBar = (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 16,
+        paddingTop: 12,
+        paddingBottom: 8,
+        backgroundColor: colors.bgPrimary,
+      }}
+    >
+      <Text style={{ color: colors.textPrimary, fontSize: 22, fontWeight: "700", flex: 1 }}>
+        {t("title")}
+      </Text>
+      {onSearch ? (
+        <Pressable
+          testID="homeSearchButton"
+          accessibilityRole="button"
+          accessibilityLabel={searchLabel}
+          onPress={onSearch}
+          style={({ pressed }) => ({
+            opacity: pressed ? 0.6 : 1,
+            padding: 8,
+            borderRadius: 999,
+            backgroundColor: colors.bgSecondary,
+          })}
+        >
+          <Ionicons name="search" size={20} color={colors.textPrimary} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+
   if (query.isLoading) {
     return (
-      <View testID="homeLoading" style={{ flex: 1, paddingTop: 16, backgroundColor: colors.bgPrimary }}>
-        <Skeleton width={400} height={sizes.heroHeight} radius={0} />
-        <View style={{ height: 16 }} />
-        <Skeleton width={120} height={20} />
-        <View style={{ flexDirection: "row", marginTop: 12 }}>
-          <Skeleton width={sizes.cardWidth} height={sizes.cardWidth * 1.5} />
-          <View style={{ width: 12 }} />
-          <Skeleton width={sizes.cardWidth} height={sizes.cardWidth * 1.5} />
+      <View testID="homeLoading" style={{ flex: 1, backgroundColor: colors.bgPrimary }}>
+        {topBar}
+        <View style={{ paddingTop: 8 }}>
+          <Skeleton width={400} height={sizes.heroHeight} radius={0} />
+          <View style={{ height: 16 }} />
+          <Skeleton width={120} height={20} />
+          <View style={{ flexDirection: "row", marginTop: 12 }}>
+            <Skeleton width={sizes.cardWidth} height={sizes.cardWidth * 1.5} />
+            <View style={{ width: 12 }} />
+            <Skeleton width={sizes.cardWidth} height={sizes.cardWidth * 1.5} />
+          </View>
+          <ActivityIndicator style={{ marginTop: 12 }} color={colors.accent} />
         </View>
-        <ActivityIndicator style={{ marginTop: 12 }} color={colors.accent} />
       </View>
     );
   }
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: colors.bgPrimary }} contentContainerStyle={{ paddingBottom: 32 }}>
+      {topBar}
       {showInlineError ? (
         <Text style={{ color: colors.textSecondary, paddingHorizontal: 16, paddingVertical: 12 }}>
           {t("error.generic")}
@@ -165,18 +266,18 @@ function HomeScreenInner({ api }: { api: DoubanAPI }) {
       ) : null}
 
       {heroItems.length > 0 ? (
-        <HeroCarousel baseURL={serverURL} items={heroItems} onSelect={noopSelect} />
+        <HeroCarousel baseURL={serverURL} items={heroItems} onSelect={selectDoubanItem} />
       ) : null}
 
       <ContinueWatchingRow
         baseURL={serverURL}
         watchHistory={history}
         onClear={handleClearHistory}
-        onSelect={noopSelect}
+        onSelect={selectHistoryItem}
       />
 
       {sections.map((s) => (
-        <SectionRow key={s.name} baseURL={serverURL} section={s} onSelect={noopSelect} />
+        <SectionRow key={s.name} baseURL={serverURL} section={s} onSelect={selectDoubanItem} />
       ))}
     </ScrollView>
   );

@@ -16,6 +16,7 @@
     "brand:generate": "bunx tsx scripts/generate-brand-assets.ts"
   },
   "dependencies": {
+    "@expo/metro-runtime": "56.0.13",
     "@expo/vector-icons": "15.1.1",
     "@react-navigation/bottom-tabs": "7.16.2",
     "@react-navigation/native": "7.2.5",
@@ -32,6 +33,7 @@
     "expo-status-bar": "56.0.4",
     "i18next": "26.3.0",
     "react": "19.2.6",
+    "react-dom": "19.2.6",
     "react-i18next": "17.0.8",
     "react-native": "0.85.3",
     "react-native-gesture-handler": "2.31.2",
@@ -41,6 +43,7 @@
     "react-native-screens": "4.25.2",
     "react-native-sse": "1.2.1",
     "react-native-video": "6.19.2",
+    "react-native-web": "0.21.2",
     "zustand": "5.0.14"
   },
   "devDependencies": {

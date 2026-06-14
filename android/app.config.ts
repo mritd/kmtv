@@ -12,7 +12,8 @@ const config: ExpoConfig = {
   scheme: "kmtv",
   userInterfaceStyle: "automatic",
   assetBundlePatterns: ["**/*"],
-  platforms: ["android"],
+  platforms: ["android", "web"],
+  web: { bundler: "metro" },
   android: {
     package: "com.mritd.kmtv",
     versionCode: 1,

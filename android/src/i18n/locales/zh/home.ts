@@ -3,6 +3,7 @@
 
 const home = {
   title: "KMTV",
+  searchAria: "搜索",
   continueWatching: "继续观看",
   clear: "清空",
   error: { generic: "首页加载失败", retry: "重试" },

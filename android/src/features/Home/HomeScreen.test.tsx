@@ -2,7 +2,7 @@
 // HomeScreen 集成测试: loading、success、错误内联显示.
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, waitFor } from "@testing-library/react-native";
+import { fireEvent, render, waitFor } from "@testing-library/react-native";
 import React from "react";
 
 import type { DoubanAPI } from "@/api/douban";
@@ -42,14 +42,17 @@ const payload: DoubanHomeResponse = {
   ],
 };
 
-function makeWrapper(api: DoubanAPI) {
+function makeWrapper(
+  api: DoubanAPI,
+  callbacks: { onSearch?: () => void; onSelectTitle?: (title: string) => void } = {},
+) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // eslint-disable-next-line react/display-name
   return ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={qc}>
       <ThemeProvider override="system">
         <ToastProvider>
-          <HomeScreenContext.Provider value={{ api }}>
+          <HomeScreenContext.Provider value={{ api, ...callbacks }}>
             {children}
           </HomeScreenContext.Provider>
         </ToastProvider>
@@ -98,5 +101,31 @@ describe("HomeScreen", () => {
     };
     const { findByText } = render(<HomeScreen />, { wrapper: makeWrapper(api) });
     await findByText(/Could not load home feed/);
+  });
+
+  it("invokes onSearch when the top-bar search button is tapped", async () => {
+    const onSearch = jest.fn();
+    const api: DoubanAPI = {
+      doubanHome: jest.fn(async () => payload),
+      doubanCategories: jest.fn(),
+      doubanRecommendFilter: jest.fn(),
+    };
+    const { findByTestId } = render(<HomeScreen />, { wrapper: makeWrapper(api, { onSearch }) });
+    const btn = await findByTestId("homeSearchButton");
+    fireEvent.press(btn);
+    expect(onSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it("invokes onSelectTitle with the tapped card's title", async () => {
+    const onSelectTitle = jest.fn();
+    const api: DoubanAPI = {
+      doubanHome: jest.fn(async () => payload),
+      doubanCategories: jest.fn(),
+      doubanRecommendFilter: jest.fn(),
+    };
+    const { findByText } = render(<HomeScreen />, { wrapper: makeWrapper(api, { onSelectTitle }) });
+    const card = await findByText("OnlyInNewSection");
+    fireEvent.press(card);
+    expect(onSelectTitle).toHaveBeenCalledWith("OnlyInNewSection");
   });
 });

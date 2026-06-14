@@ -69,25 +69,40 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   serverVersion: "",
 
   bootstrap: async (factory = (c) => createAuthAPI(c)) => {
-    useServerStore.getState().hydrate();
-    const serverURL = useServerStore.getState().serverURL;
-    if (!serverURL) {
-      set({ status: "serverSetup" });
-      return;
-    }
-    const token = await loadToken();
-    set({ token });
-    const client = makeClient(serverURL, () => get().token);
-    const auth = factory(client);
+    // Outer try wraps everything BEFORE the me() call so any throw in storage hydrate /
+    // loadToken / makeClient / factory invocation still hands control back to ServerSetup
+    // instead of leaving status pinned at "loading" (a forever-spinner). Programmer-level
+    // failures (TypeError from a typo, ...) are surfaced via console.error so they remain
+    // visible during development and via the diagnostics ring buffer in production.
+    // 外层 try 包住 me() 之前的所有代码, 任何异常都把控制权交回 ServerSetup, 而不是把 status 卡在 "loading".
+    // 编程级错误 (typo 触发的 TypeError 等) 通过 console.error 暴露, 开发期可见, 生产期也会进入诊断环形缓冲.
     try {
-      const me = await auth.me();
-      set({ user: me, status: "authenticated" });
-    } catch (e) {
-      const err = e as APIError;
-      if (err.kind === "unauthorized") {
-        await clearToken();
-        useServerStore.getState().clearServerURL();
+      useServerStore.getState().hydrate();
+      const serverURL = useServerStore.getState().serverURL;
+      if (!serverURL) {
+        set({ status: "serverSetup" });
+        return;
       }
+      const token = await loadToken();
+      set({ token });
+      const client = makeClient(serverURL, () => get().token);
+      const auth = factory(client);
+      try {
+        const me = await auth.me();
+        set({ user: me, status: "authenticated" });
+      } catch (e) {
+        const err = e as APIError;
+        if (err.kind === "unauthorized") {
+          await clearToken().catch(() => undefined);
+          useServerStore.getState().clearServerURL();
+        }
+        set({ status: "serverSetup", token: null, user: null });
+      }
+    } catch (e) {
+      // Programmer / native-module errors land here. Log so they don't disappear
+      // silently, then recover to ServerSetup so the UI is never stuck.
+      // 编程错误或原生模块异常落到这里, 先打日志避免静默, 再恢复到 ServerSetup, 防止 UI 卡死.
+      console.error("authStore.bootstrap unexpected error", e);
       set({ status: "serverSetup", token: null, user: null });
     }
   },
