@@ -135,6 +135,67 @@ describe("SearchScreen", () => {
     expect((api.searchStream as jest.Mock).mock.calls[0]![0]).toBe("preset");
   });
 
+  it("resets to a clean state when re-navigated with empty initialQuery (Home search button)", async () => {
+    // Regression: the Search instance is reused by native-stack when Home re-navigates to it.
+    // Tapping the home search button passes initialQuery="" — the previous query / results / "No
+    // results found" must clear, not stay frozen on whatever was last searched.
+    // 回归测试: native-stack 在 Home 重新导航到 Search 时会复用同一实例. 点 Home 搜索按钮传入
+    // initialQuery="", 之前的 query / 结果 / "No results found" 必须清掉, 不能停留在上次搜索.
+    const api = buildAPI({
+      searchStream: jest.fn(async () => ({
+        results: [{ title: "StaleResult", type: "Movie", year: "2024", cover: "/c.jpg", desc: "", sources: [wireSource] }],
+      })),
+    });
+    resetMMKV();
+    const i18n = await initI18n("en");
+    const ui = (params: { initialQuery: string } | undefined) => (
+      <NavigationContainer>
+        <I18nextProvider i18n={i18n}>
+          <ThemeProvider override="light">
+            <SearchScreenContext.Provider value={{ api, serverURL: "https://api.test" }}>
+              <SearchScreen route={{ key: "k", name: "Search", params }} />
+            </SearchScreenContext.Provider>
+          </ThemeProvider>
+        </I18nextProvider>
+      </NavigationContainer>
+    );
+    const { rerender } = render(ui({ initialQuery: "kungfu" }));
+    await waitFor(() => expect(screen.getByText("StaleResult")).toBeTruthy());
+
+    await act(async () => {
+      rerender(ui({ initialQuery: "" }));
+    });
+    await waitFor(() => expect(screen.queryByText("StaleResult")).toBeNull());
+    expect(screen.queryByText("No results found")).toBeNull();
+    expect((screen.getByPlaceholderText("Search videos...").props as { value?: string }).value).toBe("");
+  });
+
+  it("rerendering with the same initialQuery does NOT re-fire the search (effect is value-stable)", async () => {
+    // Safety net: useEffect deps = [initialQuery]; React Object.is equality should skip re-runs when
+    // the navigation param string is unchanged. If anyone later flips the dep array or wraps the
+    // string in a fresh object, this test catches the silent regression.
+    // 安全网测试: useEffect deps 是 [initialQuery], React 用 Object.is 在字符串相同时跳过重跑.
+    // 如果有人改了依赖数组或包了一层 fresh 对象, 这条测试会接住静默 regression.
+    const api = buildAPI({ searchStream: jest.fn(async () => ({ results: [] })) });
+    resetMMKV();
+    const i18n = await initI18n("en");
+    const ui = (params: { initialQuery: string }) => (
+      <NavigationContainer>
+        <I18nextProvider i18n={i18n}>
+          <ThemeProvider override="light">
+            <SearchScreenContext.Provider value={{ api, serverURL: "https://api.test" }}>
+              <SearchScreen route={{ key: "k", name: "Search", params }} />
+            </SearchScreenContext.Provider>
+          </ThemeProvider>
+        </I18nextProvider>
+      </NavigationContainer>
+    );
+    const { rerender } = render(ui({ initialQuery: "preset" }));
+    await waitFor(() => expect(api.searchStream).toHaveBeenCalledTimes(1));
+    await act(async () => { rerender(ui({ initialQuery: "preset" })); });
+    expect(api.searchStream).toHaveBeenCalledTimes(1);
+  });
+
   it("tapping a result navigates to Detail with the destination payload", async () => {
     mockNavigate.mockClear();
     const api = buildAPI({

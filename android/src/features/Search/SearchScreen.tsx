@@ -65,11 +65,16 @@ type Action =
   | { type: "progress"; payload: SearchProgress }
   | { type: "success"; results: SearchResult[] }
   | { type: "error"; message: string }
-  | { type: "setHistory"; items: SearchHistoryItem[] };
+  | { type: "setHistory"; items: SearchHistoryItem[] }
+  | { type: "reset"; query: string };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "setQuery": return { ...state, query: action.value };
+    case "reset": return {
+      ...state, query: action.query, submitted: "", status: "idle",
+      results: [], progress: {}, errorMessage: "",
+    };
     case "submit": return { ...state, submitted: action.query, status: "loading", results: [], progress: {}, errorMessage: "" };
     case "progress": {
       const phase = action.payload.phase;
@@ -170,11 +175,22 @@ function Inner({ api, serverURL, initialQuery }: InnerProps) {
   }, [api, serverURL, t]);
 
   useEffect(() => {
-    if (initialQuery.trim().length > 0) void runSearch(initialQuery);
+    // Re-fire whenever the navigation param changes. native-stack reuses the SAME Search instance
+    // when Home re-navigates to it (search button: initialQuery="", card tap: initialQuery=title),
+    // so without this dep the input field + results stay frozen on whatever was searched first.
+    // 每次 navigation 参数变化都重跑. native-stack 在 Home 重新 navigate 到 Search 时会复用同一实例
+    // (搜索按钮传 initialQuery="", 卡片点击传 title), 没有这条依赖输入框和结果会卡在首次搜索那一刻.
+    if (initialQuery.trim().length > 0) {
+      dispatch({ type: "setQuery", value: initialQuery });
+      void runSearch(initialQuery);
+    } else {
+      dispatch({ type: "reset", query: "" });
+    }
     return () => { controllerRef.current?.abort(); };
-    // Run only on mount; initialQuery is a route param and stable for the screen's lifetime.
+    // runSearch is stable for the screen's lifetime (deps are api, serverURL, t); intentionally omitted.
+    // runSearch 在该屏幕生命期内稳定 (deps 是 api, serverURL, t), 故意不放进依赖.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [initialQuery]);
 
   const onClearHistory = useCallback(() => {
     clearSearchHistory(serverURL);
