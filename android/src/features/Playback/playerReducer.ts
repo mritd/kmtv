@@ -9,6 +9,7 @@ import { episodes as selectEpisodes } from "./episodeSelection";
 const MAX_SKIP_SECONDS = 300;
 const MIN_RATE = 0.5;
 const MAX_RATE = 4;
+const PENDING_SEEK_TOLERANCE_SECONDS = 2;
 
 /**
  * Player state machine state — owned by usePlayer + driven through playerReducer.
@@ -35,6 +36,7 @@ export interface PlayerState {
   isPlaying: boolean;
   isBuffering: boolean;
   isSeeking: boolean;
+  pendingSeekTime: number | null;
   playbackRate: number;
   skipIntroSeconds: number;
   skipOutroSeconds: number;
@@ -73,6 +75,7 @@ export function initialPlayerState(
     isPlaying: false,
     isBuffering: false,
     isSeeking: false,
+    pendingSeekTime: null,
     playbackRate: 1,
     skipIntroSeconds: 0,
     skipOutroSeconds: 0,
@@ -93,6 +96,7 @@ export type PlayerAction =
   | { type: "switchSource"; sourceKey: string }
   | { type: "removeSource"; sourceKey: string }
   | { type: "timeUpdate"; currentTime: number; duration: number }
+  | { type: "commitSeek"; currentTime: number; duration: number }
   | { type: "setBuffering"; value: boolean }
   | { type: "setSeeking"; value: boolean }
   | { type: "playState"; value: boolean }
@@ -112,6 +116,16 @@ function clampEpisodeIndex(state: PlayerState, detail: VideoDetail): number {
   return Math.min(Math.max(0, state.currentEpisodeIndex), list.length - 1);
 }
 
+function clampPlaybackTime(currentTime: number, duration: number): number {
+  const nonNegative = Math.max(0, currentTime);
+  return duration > 0 ? Math.min(nonNegative, duration) : nonNegative;
+}
+
+export function shouldIgnoreProgressDuringPendingSeek(state: PlayerState, currentTime: number): boolean {
+  return state.pendingSeekTime !== null
+    && Math.abs(currentTime - state.pendingSeekTime) > PENDING_SEEK_TOLERANCE_SECONDS;
+}
+
 /**
  * Pure state transition — never throws, never mutates the input state.
  * 纯状态迁移, 不抛错, 不修改输入 state.
@@ -121,18 +135,30 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
     case "detailLoaded":
       return { ...state, detail: action.detail, currentEpisodeIndex: clampEpisodeIndex(state, action.detail) };
     case "switchEpisode":
-      return { ...state, currentEpisodeIndex: Math.max(0, action.index) };
+      return { ...state, currentEpisodeIndex: Math.max(0, action.index), pendingSeekTime: null };
     case "switchLine":
-      return { ...state, currentLineIndex: Math.max(0, action.index), currentEpisodeIndex: 0 };
+      return { ...state, currentLineIndex: Math.max(0, action.index), currentEpisodeIndex: 0, pendingSeekTime: null };
     case "switchSource":
-      return { ...state, currentSourceKey: action.sourceKey, currentLineIndex: 0 };
+      return { ...state, currentSourceKey: action.sourceKey, currentLineIndex: 0, pendingSeekTime: null };
     case "removeSource":
       return { ...state, sources: state.sources.filter((s) => s.source_key !== action.sourceKey) };
     case "timeUpdate":
+      if (shouldIgnoreProgressDuringPendingSeek(state, action.currentTime)) {
+        return { ...state, duration: action.duration };
+      }
       return {
         ...state,
-        currentTime: state.isSeeking ? state.currentTime : action.currentTime,
+        currentTime: state.isSeeking ? state.currentTime : clampPlaybackTime(action.currentTime, action.duration),
         duration: action.duration,
+        pendingSeekTime: null,
+      };
+    case "commitSeek":
+      return {
+        ...state,
+        currentTime: clampPlaybackTime(action.currentTime, action.duration),
+        duration: action.duration,
+        isSeeking: false,
+        pendingSeekTime: clampPlaybackTime(action.currentTime, action.duration),
       };
     case "setBuffering":
       return { ...state, isBuffering: action.value };
@@ -144,7 +170,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
       // Clear playbackURL on error so the failover loop's early-return guard (`next.playbackURL`)
       // doesn't short-circuit on a stale URL when the same source is retried.
       // 错误时清空 playbackURL, 避免 failover 提前返回卡在已坏的 URL.
-      return { ...state, errorMessage: action.message, isBuffering: false, playbackURL: null };
+      return { ...state, errorMessage: action.message, isBuffering: false, playbackURL: null, pendingSeekTime: null };
     case "clearError":
       return { ...state, errorMessage: "" };
     case "loadSkipSettings":
@@ -161,9 +187,9 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
     case "setRate":
       return { ...state, playbackRate: Math.max(MIN_RATE, Math.min(MAX_RATE, action.rate)) };
     case "urlResolved":
-      return { ...state, playbackURL: action.url, urlGeneration: state.urlGeneration + 1, errorMessage: "" };
+      return { ...state, playbackURL: action.url, urlGeneration: state.urlGeneration + 1, errorMessage: "", pendingSeekTime: null };
     case "urlCleared":
-      return { ...state, playbackURL: null };
+      return { ...state, playbackURL: null, pendingSeekTime: null };
     default:
       return state;
   }

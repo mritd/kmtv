@@ -108,6 +108,24 @@ test("persistProgressNow writes the full WatchHistoryItem to MMKV", async () => 
   });
 });
 
+test("commitSeek keeps the target time stable while stale native progress arrives", async () => {
+  const apis = mkAPIs();
+  const { result } = renderHook(() =>
+    usePlayer({ serverURL: "http://srv-seek", destination: dest, detailAPI: apis.detail, playbackAPI: apis.playback }),
+  );
+  await waitFor(() => expect(result.current.state.detail).not.toBeNull());
+  act(() => { result.current.actions.timeUpdate(10, 100); });
+  act(() => { result.current.actions.setSeeking(true); });
+  act(() => { result.current.actions.commitSeek(80, 100); });
+  expect(result.current.state.currentTime).toBe(80);
+
+  act(() => { result.current.actions.timeUpdate(11, 100); });
+  expect(result.current.state.currentTime).toBe(80);
+
+  act(() => { result.current.actions.timeUpdate(80.4, 100); });
+  expect(result.current.state.currentTime).toBe(80.4);
+});
+
 test("switchSource loads new detail and starts playback on the new source", async () => {
   const multiSrcDest: PlayDestination = {
     title: "T2", sources: [src("a"), src("b")], sourceKey: "a", videoId: "v-a", coverHint: "",

@@ -2,12 +2,14 @@
 // SearchScreen — 输入框 + SSE 流式搜索 + 同步回退 + 按服务器隔离的历史胶囊.
 
 import { useNavigation } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { createAPIClient } from "@/api/client";
 import { createSearchAPI, type SearchAPI } from "@/api/search";
@@ -15,9 +17,10 @@ import type { PlayDestination, SearchProgress, SearchResult } from "@/api/types"
 import { useLayoutWidth } from "@/designSystem/breakpoints";
 import { LIST_PERF_DEFAULT } from "@/designSystem/listPerf";
 import { PosterImage } from "@/designSystem/PosterImage";
+import { Skeleton } from "@/designSystem/Skeleton";
 import { sizes } from "@/designSystem/theme";
 import { useTheme } from "@/designSystem/useTheme";
-import type { HomeStackParamList, SearchRouteParams } from "@/navigation/types";
+import type { HomeStackParamList, SearchResumeHint, SearchRouteParams } from "@/navigation/types";
 import { useAuthStore } from "@/store/authStore";
 import { useServerStore } from "@/store/serverStore";
 import {
@@ -88,6 +91,17 @@ function reducer(state: State, action: Action): State {
   }
 }
 
+function normalizeTitle(title: string): string {
+  return title.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function selectSourceForResult(result: SearchResult, resumeHint?: SearchResumeHint): SearchResult["sources"][number] | undefined {
+  if (!resumeHint) return result.sources[0];
+  return result.sources.find((s) => s.source_key === resumeHint.sourceKey && s.video_id === resumeHint.videoId)
+    ?? result.sources.find((s) => s.source_key === resumeHint.sourceKey)
+    ?? result.sources[0];
+}
+
 export interface SearchScreenProps {
   route?: { key?: string; name?: string; params?: SearchRouteParams };
 }
@@ -111,21 +125,35 @@ export function SearchScreen({ route }: SearchScreenProps) {
       </View>
     );
   }
-  return <Inner api={api} serverURL={serverURL} initialQuery={route?.params?.initialQuery ?? ""} />;
+  return (
+    <Inner
+      api={api}
+      serverURL={serverURL}
+      initialQuery={route?.params?.initialQuery ?? ""}
+      resumeHint={route?.params?.resumeHint}
+    />
+  );
 }
 
-interface InnerProps { api: SearchAPI; serverURL: string; initialQuery: string }
+interface InnerProps {
+  api: SearchAPI;
+  serverURL: string;
+  initialQuery: string;
+  resumeHint?: SearchResumeHint;
+}
 
-function Inner({ api, serverURL, initialQuery }: InnerProps) {
+function Inner({ api, serverURL, initialQuery, resumeHint }: InnerProps) {
   const { colors } = useTheme();
   const { t } = useTranslation("search");
   const layout = useLayoutWidth();
+  const insets = useSafeAreaInsets();
   const isTablet = layout !== "phone";
-  // HomeStackParamList and CategoriesStackParamList both define "Detail" with PlayDestination,
+  // HomeStackParamList and CategoriesStackParamList both define "Player" with PlayDestination,
   // so typing as HomeStackParamList here works whether SearchScreen is mounted under either tab.
-  // HomeStackParamList 与 CategoriesStackParamList 的 Detail 都指向 PlayDestination, 在此用 HomeStackParamList
+  // HomeStackParamList 与 CategoriesStackParamList 的 Player 都指向 PlayDestination, 在此用 HomeStackParamList
   // 类型化即可同时覆盖两个 Tab 的导航类型.
   const navigation = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
+  const canGoBack = typeof navigation.canGoBack === "function" ? navigation.canGoBack() : false;
   const [state, dispatch] = useReducer(reducer, {
     query: initialQuery,
     submitted: "",
@@ -136,6 +164,9 @@ function Inner({ api, serverURL, initialQuery }: InnerProps) {
     history: loadSearchHistory(serverURL),
   });
   const controllerRef = useRef<AbortController | null>(null);
+  const resumeKey = resumeHint
+    ? `${resumeHint.title}:${resumeHint.sourceKey}:${resumeHint.videoId}:${resumeHint.episodeIndex}:${resumeHint.episodeName}`
+    : "";
 
   const runSearch = useCallback(async (raw: string) => {
     const trimmed = raw.trim();
@@ -175,11 +206,11 @@ function Inner({ api, serverURL, initialQuery }: InnerProps) {
   }, [api, serverURL, t]);
 
   useEffect(() => {
-    // Re-fire whenever the navigation param changes. native-stack reuses the SAME Search instance
-    // when Home re-navigates to it (search button: initialQuery="", card tap: initialQuery=title),
-    // so without this dep the input field + results stay frozen on whatever was searched first.
-    // 每次 navigation 参数变化都重跑. native-stack 在 Home 重新 navigate 到 Search 时会复用同一实例
-    // (搜索按钮传 initialQuery="", 卡片点击传 title), 没有这条依赖输入框和结果会卡在首次搜索那一刻.
+    // Re-fire whenever the navigation search context changes. native-stack reuses the SAME Search
+    // instance when Home re-navigates to it, so both initialQuery and continue-watching resumeHint
+    // must participate in the key.
+    // 每次 navigation 搜索上下文变化都重跑. native-stack 会复用同一 Search 实例, 因此 initialQuery
+    // 和继续观看传入的 resumeHint 都必须参与 key.
     if (initialQuery.trim().length > 0) {
       dispatch({ type: "setQuery", value: initialQuery });
       void runSearch(initialQuery);
@@ -190,20 +221,32 @@ function Inner({ api, serverURL, initialQuery }: InnerProps) {
     // runSearch is stable for the screen's lifetime (deps are api, serverURL, t); intentionally omitted.
     // runSearch 在该屏幕生命期内稳定 (deps 是 api, serverURL, t), 故意不放进依赖.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialQuery]);
+  }, [initialQuery, resumeKey]);
 
   const onClearHistory = useCallback(() => {
     clearSearchHistory(serverURL);
     dispatch({ type: "setHistory", items: [] });
   }, [serverURL]);
 
+  const clearQuery = useCallback(() => {
+    controllerRef.current?.abort();
+    dispatch({ type: "reset", query: "" });
+  }, []);
+
   const onSelectHistory = useCallback((q: string) => {
     dispatch({ type: "setQuery", value: q });
     void runSearch(q);
   }, [runSearch]);
 
+  const submitCurrentQuery = useCallback(() => {
+    void runSearch(state.query);
+  }, [runSearch, state.query]);
+
   const onResultPress = useCallback((result: SearchResult) => {
-    const first = result.sources[0];
+    const matchingResume = resumeHint && normalizeTitle(result.title) === normalizeTitle(resumeHint.title)
+      ? resumeHint
+      : undefined;
+    const first = selectSourceForResult(result, matchingResume);
     if (!first) return;
     const dest: PlayDestination = {
       title: result.title,
@@ -211,31 +254,72 @@ function Inner({ api, serverURL, initialQuery }: InnerProps) {
       sourceKey: first.source_key,
       videoId: first.video_id,
       coverHint: result.cover,
+      resumeIntent: matchingResume
+        ? { episodeIndex: matchingResume.episodeIndex, episodeName: matchingResume.episodeName }
+        : undefined,
     };
-    navigation.navigate("Detail", dest);
-  }, [navigation]);
+    navigation.navigate("Player", dest);
+  }, [navigation, resumeHint]);
 
   const progressText = computeProgressText(state.progress, t);
+  const canSubmit = state.query.trim().length > 0 && state.status !== "loading";
+  const showHistory = state.status === "idle";
+  const showResults = state.status === "success" && state.results.length > 0;
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.bgPrimary }]}>
-      <View style={[styles.searchBar, { backgroundColor: colors.bgSecondary }]}>
-        <TextInput
-          style={[styles.input, { color: colors.textPrimary }]}
-          value={state.query}
-          onChangeText={(v) => dispatch({ type: "setQuery", value: v })}
-          onSubmitEditing={() => void runSearch(state.query)}
-          placeholder={t("placeholder")}
-          placeholderTextColor={colors.textSecondary}
-          returnKeyType="search"
-          accessibilityLabel={t("placeholder")}
-        />
-      </View>
-      {state.status === "loading" && progressText ? (
-        <View style={styles.progressRow} testID="searchProgress">
-          <ActivityIndicator color={colors.accent} />
-          <Text style={[styles.progressText, { color: colors.textSecondary }]}>{progressText}</Text>
+    <View style={[styles.root, { backgroundColor: colors.bgPrimary, paddingTop: insets.top }]}>
+      <View style={styles.searchHeader}>
+        {canGoBack ? (
+          <Pressable
+            testID="searchBackButton"
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            onPress={() => navigation.goBack()}
+            style={({ pressed }) => [styles.backButton, { opacity: pressed ? 0.65 : 1 }]}
+          >
+            <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
+          </Pressable>
+        ) : null}
+        <View style={[styles.searchBar, { backgroundColor: colors.bgSecondary }]}>
+          <Ionicons name="search" size={18} color={colors.textSecondary} style={styles.leadingIcon} />
+          <TextInput
+            style={[styles.input, { color: colors.textPrimary }]}
+            value={state.query}
+            onChangeText={(v) => dispatch({ type: "setQuery", value: v })}
+            onSubmitEditing={submitCurrentQuery}
+            placeholder={t("placeholder")}
+            placeholderTextColor={colors.textSecondary}
+            returnKeyType="search"
+            accessibilityLabel={t("placeholder")}
+          />
+          {state.query.length > 0 ? (
+            <Pressable
+              testID="searchClearButton"
+              accessibilityRole="button"
+              accessibilityLabel={t("history.clear")}
+              onPress={clearQuery}
+              style={({ pressed }) => [styles.clearButton, { opacity: pressed ? 0.65 : 1 }]}
+            >
+              <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
+            </Pressable>
+          ) : null}
+          <Pressable
+            testID="searchSubmitButton"
+            accessibilityRole="button"
+            accessibilityLabel={t("title")}
+            disabled={!canSubmit}
+            onPress={submitCurrentQuery}
+            style={({ pressed }) => [
+              styles.submitButton,
+              { opacity: !canSubmit ? 0.35 : pressed ? 0.65 : 1 },
+            ]}
+          >
+            <Ionicons name="arrow-forward-circle" size={22} color={colors.textPrimary} />
+          </Pressable>
         </View>
+      </View>
+      {state.status === "loading" ? (
+        <SearchLoadingState progressText={progressText} accent={colors.accent} textColor={colors.textSecondary} />
       ) : null}
       {state.status === "success" && state.results.length === 0 ? (
         <View style={styles.center}>
@@ -255,40 +339,65 @@ function Inner({ api, serverURL, initialQuery }: InnerProps) {
           </Pressable>
         </View>
       ) : null}
-      <FlatList
-        data={state.results}
-        keyExtractor={(item, index) => resultKey(item, index)}
-        contentContainerStyle={styles.resultsContent}
-        {...LIST_PERF_DEFAULT}
-        renderItem={({ item }) => (
-          <Pressable
-            onPress={() => onResultPress(item)}
-            accessibilityRole="button"
-            style={[
-              styles.row,
-              { backgroundColor: colors.bgCard, paddingHorizontal: isTablet ? 24 : 16 },
-            ]}
-          >
-            <View style={styles.cover}>
-              <PosterImage baseURL={serverURL} cover={item.cover} style={styles.coverImg} />
-            </View>
-            <View style={[styles.body, { paddingLeft: isTablet ? 16 : 12 }]}>
-              <Text style={[styles.titleText, { color: colors.textPrimary }]} numberOfLines={1}>{item.title}</Text>
-              {item.year || item.type ? (
-                <Text style={[styles.metaText, { color: colors.textSecondary }]} numberOfLines={1}>
-                  {[item.type, item.year].filter(Boolean).join(" · ")}
-                </Text>
-              ) : null}
-              {item.desc ? (
-                <Text style={[styles.descText, { color: colors.textSecondary }]} numberOfLines={2}>{item.desc}</Text>
-              ) : null}
-            </View>
-          </Pressable>
-        )}
-        ListFooterComponent={
-          <SearchHistoryFlow history={state.history} onSelect={onSelectHistory} onClear={onClearHistory} />
-        }
-      />
+      {showHistory ? (
+        <SearchHistoryFlow history={state.history} onSelect={onSelectHistory} onClear={onClearHistory} />
+      ) : null}
+      {showResults ? (
+        <FlatList
+          data={state.results}
+          keyExtractor={(item, index) => resultKey(item, index)}
+          contentContainerStyle={styles.resultsContent}
+          {...LIST_PERF_DEFAULT}
+          renderItem={({ item }) => (
+            <Pressable
+              onPress={() => onResultPress(item)}
+              accessibilityRole="button"
+              style={[
+                styles.row,
+                { backgroundColor: colors.bgCard, paddingHorizontal: isTablet ? 24 : 16 },
+              ]}
+            >
+              <View style={styles.cover}>
+                <PosterImage baseURL={serverURL} cover={item.cover} style={styles.coverImg} />
+              </View>
+              <View style={[styles.body, { paddingLeft: isTablet ? 16 : 12 }]}>
+                <Text style={[styles.titleText, { color: colors.textPrimary }]} numberOfLines={1}>{item.title}</Text>
+                {item.year || item.type ? (
+                  <Text style={[styles.metaText, { color: colors.textSecondary }]} numberOfLines={1}>
+                    {[item.type, item.year].filter(Boolean).join(" · ")}
+                  </Text>
+                ) : null}
+                {item.desc ? (
+                  <Text style={[styles.descText, { color: colors.textSecondary }]} numberOfLines={2}>{item.desc}</Text>
+                ) : null}
+              </View>
+            </Pressable>
+          )}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+function SearchLoadingState(
+  { progressText, accent, textColor }: { progressText: string; accent: string; textColor: string },
+) {
+  return (
+    <View style={styles.loadingContainer}>
+      <View style={styles.progressRow} testID="searchProgress">
+        <ActivityIndicator color={accent} />
+        <Text style={[styles.progressText, { color: textColor }]}>{progressText}</Text>
+      </View>
+      {Array.from({ length: 5 }).map((_, index) => (
+        <View key={index} style={styles.skeletonRow}>
+          <Skeleton width={80} height={120} radius={sizes.radius.sm} testID="searchSkeletonCover" />
+          <View style={styles.skeletonBody}>
+            <Skeleton width={180} height={18} />
+            <Skeleton width={96} height={12} />
+            <Skeleton width={220} height={12} />
+          </View>
+        </View>
+      ))}
     </View>
   );
 }
@@ -319,10 +428,25 @@ function computeProgressText(
 const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  searchBar: { marginHorizontal: 16, marginVertical: 12, paddingHorizontal: 12, borderRadius: sizes.radius.md },
-  input: { paddingVertical: 10, fontSize: 15 },
+  searchHeader: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, gap: 8 },
+  searchBar: {
+    flex: 1,
+    paddingLeft: 12,
+    paddingRight: 6,
+    borderRadius: sizes.radius.md,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  backButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  input: { flex: 1, paddingVertical: 10, fontSize: 15 },
+  leadingIcon: { marginRight: 8 },
+  clearButton: { width: 32, height: 40, alignItems: "center", justifyContent: "center" },
+  submitButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   progressRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 8 },
   progressText: { marginLeft: 8, fontSize: 12 },
+  loadingContainer: { paddingHorizontal: 16, paddingBottom: 24 },
+  skeletonRow: { flexDirection: "row", paddingVertical: 8, marginBottom: 10 },
+  skeletonBody: { justifyContent: "center", gap: 10, marginLeft: 12 },
   resultsContent: { paddingHorizontal: 16, paddingBottom: 24 },
   row: { flexDirection: "row", padding: 8, borderRadius: sizes.radius.md, marginBottom: 10 },
   cover: { width: 80, height: 120, borderRadius: sizes.radius.sm, overflow: "hidden", marginRight: 12 },

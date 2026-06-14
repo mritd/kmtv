@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -240,6 +241,57 @@ func TestProbeLines_FiltersUnavailableLines(t *testing.T) {
 	}
 	if got[0][0].Name != "ok" {
 		t.Fatalf("unexpected surviving line: %+v", got)
+	}
+}
+
+func TestProbeLines_CacheIsScopedToConcreteURL(t *testing.T) {
+	probeCache.Lock()
+	probeCache.m = make(map[string]probeCacheEntry)
+	probeCache.Unlock()
+	t.Cleanup(func() {
+		probeCache.Lock()
+		probeCache.m = make(map[string]probeCacheEntry)
+		probeCache.Unlock()
+	})
+
+	var okRequests atomic.Int32
+	var missingRequests atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ok.m3u8":
+			okRequests.Add(1)
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			w.WriteHeader(http.StatusPartialContent)
+		case "/missing.m3u8":
+			missingRequests.Add(1)
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer upstream.Close()
+
+	ps := NewProxyService()
+	ps.client = upstream.Client()
+
+	alive := ps.ProbeLines(context.Background(), [][]model.Episode{{
+		{Name: "ok", URL: upstream.URL + "/ok.m3u8"},
+	}})
+	if len(alive) != 1 {
+		t.Fatalf("len(ProbeLines(ok)) = %d, want 1", len(alive))
+	}
+
+	dead := ps.ProbeLines(context.Background(), [][]model.Episode{{
+		{Name: "missing", URL: upstream.URL + "/missing.m3u8"},
+	}})
+	if len(dead) != 0 {
+		t.Fatalf("len(ProbeLines(missing)) = %d, want 0", len(dead))
+	}
+	if okRequests.Load() != 1 {
+		t.Fatalf("ok requests = %d, want 1", okRequests.Load())
+	}
+	if missingRequests.Load() != 1 {
+		t.Fatalf("missing requests = %d, want 1", missingRequests.Load())
 	}
 }
 

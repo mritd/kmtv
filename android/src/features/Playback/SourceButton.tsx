@@ -16,34 +16,46 @@ export interface SourceButtonProps {
   source: SourceResult;
   isSelected: boolean;
   onPress: (sourceKey: string) => void;
+  compact?: boolean;
 }
 
 /**
  * SourceButton — renders the source name; selected version uses accent background.
  * SourceButton — 渲染源名称, 选中时使用 accent 背景.
  */
-export function SourceButton({ source, isSelected, onPress }: SourceButtonProps) {
+export function SourceButton({ source, isSelected, onPress, compact = false }: SourceButtonProps) {
   const { colors } = useTheme();
+  const name = cleanSourceName(source.source_name);
   return (
     <Pressable
+      testID={`sourceButton-${source.source_key}`}
       onPress={() => onPress(source.source_key)}
       accessibilityRole="button"
+      accessibilityLabel={name}
       accessibilityState={{ selected: isSelected }}
       style={[
         styles.root,
+        compact ? styles.compact : styles.bordered,
         { backgroundColor: isSelected ? colors.accent : colors.bgCard },
       ]}
     >
       <Text
         numberOfLines={1}
+        ellipsizeMode="tail"
         style={{ color: isSelected ? "white" : colors.textPrimary, fontSize: 12, fontWeight: "600" }}
       >
-        {source.source_name}
+        {name}
       </Text>
     </Pressable>
   );
 }
 
+function cleanSourceName(name: string): string {
+  return name.replace(/^(🎬|🔞)\s?/u, "");
+}
+
 const styles = StyleSheet.create({
   root: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: sizes.radius.sm, alignItems: "center" },
+  bordered: { minWidth: 88, maxWidth: 140 },
+  compact: { width: "100%" },
 });

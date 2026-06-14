@@ -182,14 +182,24 @@ jest.mock(
     const React = require("react") as typeof import("react");
     const RN = jest.requireActual("react-native") as typeof import("react-native");
     const Video = React.forwardRef((props: Record<string, unknown>, ref) => {
+      const seek = jest.fn();
+      (globalThis as { __lastMockVideoSeek?: jest.Mock }).__lastMockVideoSeek = seek;
       React.useImperativeHandle(ref, () => ({
-        seek: jest.fn(),
+        seek,
         presentFullscreenPlayer: jest.fn(),
         dismissFullscreenPlayer: jest.fn(),
-      }), []);
+      }), [seek]);
       return React.createElement(RN.View, {
         testID: (props.testID as string) ?? "video",
         accessibilityLabel: "mock-video",
+        source: props.source,
+        viewType: props.viewType,
+        useTextureView: props.useTextureView,
+        pointerEvents: props.pointerEvents,
+        paused: props.paused,
+        rate: props.rate,
+        style: props.style,
+        seek,
         onLoad: props.onLoad,
         onProgress: props.onProgress,
         onError: props.onError,
@@ -197,7 +207,11 @@ jest.mock(
         onEnd: props.onEnd,
       } as never);
     });
-    return { __esModule: true, default: Video };
+    return {
+      __esModule: true,
+      default: Video,
+      ViewType: { TEXTURE: 0, SURFACE: 1, SURFACE_SECURE: 2 },
+    };
   },
 );
 

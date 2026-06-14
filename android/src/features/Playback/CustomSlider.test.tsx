@@ -3,6 +3,7 @@
 
 import { render } from "@testing-library/react-native";
 import React from "react";
+import { StyleSheet } from "react-native";
 
 import { CustomSlider } from "./CustomSlider";
 
@@ -40,4 +41,10 @@ test("CustomSlider clamps drag ratio to [0, 1]", () => {
 test("CustomSlider renders with testID", () => {
   const { getByTestId } = render(<CustomSlider value={0.5} testID="slider" />);
   expect(getByTestId("slider")).toBeTruthy();
+});
+
+test("CustomSlider centers the thumb inside the slider height", () => {
+  const { getByTestId } = render(<CustomSlider value={0.5} testID="slider" />);
+  const thumbStyle = StyleSheet.flatten(getByTestId("slider-thumb").props.style);
+  expect(thumbStyle.top).toBeGreaterThanOrEqual(0);
 });

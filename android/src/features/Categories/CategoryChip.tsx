@@ -16,14 +16,16 @@ export interface CategoryChipProps {
   active: boolean;
   onPress: () => void;
   testID?: string;
+  variant?: "filled" | "outline";
 }
 
 /**
  * CategoryChip renders one tappable filter chip with theme-aware active styling.
  * CategoryChip 渲染一个可点击的筛选胶囊, 选中态遵循当前主题.
  */
-export function CategoryChip({ label, active, onPress, testID }: CategoryChipProps) {
+export function CategoryChip({ label, active, onPress, testID, variant = "filled" }: CategoryChipProps) {
   const { colors } = useTheme();
+  const isOutline = variant === "outline";
   return (
     <Pressable
       onPress={onPress}
@@ -32,15 +34,22 @@ export function CategoryChip({ label, active, onPress, testID }: CategoryChipPro
       testID={testID}
       style={[
         styles.base,
+        styles[isOutline ? "outlineBase" : "filledBase"],
         {
-          backgroundColor: active ? colors.accent : colors.bgSecondary,
-          borderColor: active ? colors.accent : "transparent",
+          backgroundColor: isOutline ? "transparent" : active ? colors.accent : colors.bgCard,
+          borderColor: isOutline ? (active ? colors.accent : colors.textSecondary) : "transparent",
+          opacity: isOutline && !active ? 0.72 : 1,
         },
       ]}
     >
       <Text
+        allowFontScaling={false}
         numberOfLines={1}
-        style={[styles.label, { color: active ? "white" : colors.textPrimary }]}
+        style={[
+          styles.label,
+          styles[isOutline ? "outlineLabel" : "filledLabel"],
+          { color: active ? (isOutline ? colors.accent : "white") : (isOutline ? colors.textSecondary : colors.textPrimary) },
+        ]}
       >
         {label}
       </Text>
@@ -50,12 +59,16 @@ export function CategoryChip({ label, active, onPress, testID }: CategoryChipPro
 
 const styles = StyleSheet.create({
   base: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
     borderRadius: sizes.radius.xl,
     borderWidth: 1,
     marginRight: 8,
     marginBottom: 8,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  label: { fontSize: 12 },
+  filledBase: { height: 32, paddingHorizontal: 14 },
+  outlineBase: { height: 28, paddingHorizontal: 10 },
+  label: { fontSize: 12, lineHeight: 16, includeFontPadding: false },
+  filledLabel: { fontWeight: "400" },
+  outlineLabel: { fontSize: 11, lineHeight: 14 },
 });

@@ -8,17 +8,19 @@ const mockNavigate = jest.fn();
 jest.mock("@react-navigation/native", () => ({
   __esModule: true,
   ...jest.requireActual("@react-navigation/native"),
-  useNavigation: () => ({ navigate: mockNavigate }),
+  useNavigation: () => ({ navigate: mockNavigate, goBack: jest.fn(), canGoBack: () => false }),
 }));
 
 import { NavigationContainer } from "@react-navigation/native";
 import { fireEvent, render, screen, waitFor, act } from "@testing-library/react-native";
 import { I18nextProvider } from "react-i18next";
 import React from "react";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import type { SearchAPI } from "@/api/search";
 import { ThemeProvider } from "@/designSystem/ThemeProvider";
 import { initI18n } from "@/i18n";
+import type { SearchRouteParams } from "@/navigation/types";
 import { _resetForTests as resetMMKV } from "@/storage/mmkv";
 
 import { SearchScreen, SearchScreenContext } from "./SearchScreen";
@@ -36,19 +38,32 @@ const wireSource = {
   video_id: "v1", duration_ms: 0, episodes: [],
 };
 
-async function renderScreen(api: SearchAPI, initialQuery?: string) {
+const freshSource = {
+  source_key: "fresh", source_name: "Fresh", is_adult: false,
+  video_id: "fresh-v1", duration_ms: 0, episodes: [],
+};
+
+const safeAreaMetrics = {
+  frame: { x: 0, y: 0, width: 390, height: 844 },
+  insets: { top: 0, left: 0, right: 0, bottom: 0 },
+};
+
+async function renderScreen(api: SearchAPI, params?: string | SearchRouteParams) {
   resetMMKV();
   const i18n = await initI18n("en");
+  const routeParams = typeof params === "string" ? { initialQuery: params } : params;
   return render(
-    <NavigationContainer>
-      <I18nextProvider i18n={i18n}>
-        <ThemeProvider override="light">
-          <SearchScreenContext.Provider value={{ api, serverURL: "https://api.test" }}>
-            <SearchScreen route={{ key: "k", name: "Search", params: initialQuery ? { initialQuery } : undefined }} />
-          </SearchScreenContext.Provider>
-        </ThemeProvider>
-      </I18nextProvider>
-    </NavigationContainer>,
+    <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+      <NavigationContainer>
+        <I18nextProvider i18n={i18n}>
+          <ThemeProvider override="light">
+            <SearchScreenContext.Provider value={{ api, serverURL: "https://api.test" }}>
+              <SearchScreen route={{ key: "k", name: "Search", params: routeParams }} />
+            </SearchScreenContext.Provider>
+          </ThemeProvider>
+        </I18nextProvider>
+      </NavigationContainer>
+    </SafeAreaProvider>,
   );
 }
 
@@ -74,7 +89,24 @@ describe("SearchScreen", () => {
     expect(query).toBe("kungfu");
     expect(opts.signal).toBeInstanceOf(AbortSignal);
     await waitFor(() => expect(screen.getByText("Result 1")).toBeTruthy());
-    expect(screen.getByText("Search history")).toBeTruthy();
+    expect(screen.queryByText("Search history")).toBeNull();
+  });
+
+  it("tapping the explicit submit button starts a search", async () => {
+    const api = buildAPI({
+      searchStream: jest.fn(async () => ({ results: [
+        { title: "Button Result", type: "movie", year: "2025", cover: "", desc: "", sources: [wireSource] },
+      ] })),
+    });
+    await renderScreen(api);
+    fireEvent.changeText(screen.getByPlaceholderText("Search videos..."), "button");
+    fireEvent.press(screen.getByTestId("searchSubmitButton"));
+    await waitFor(() => expect(api.searchStream).toHaveBeenCalledWith(
+      "button",
+      expect.any(Function),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ));
+    await waitFor(() => expect(screen.getByText("Button Result")).toBeTruthy());
   });
 
   it("renders the progress line while streaming", async () => {
@@ -90,6 +122,9 @@ describe("SearchScreen", () => {
     await waitFor(() => expect(api.searchStream).toHaveBeenCalled());
     act(() => progressFn({ phase: "searching", completed: 2, total: 5 }));
     await waitFor(() => expect(screen.getByText(/Searching available sources 2 \/ 5/)).toBeTruthy());
+    act(() => progressFn({ phase: "probing", completed: 1, total: 3 }));
+    await waitFor(() => expect(screen.getByText(/Probing CDN availability 1 \/ 3/)).toBeTruthy());
+    expect(screen.getAllByTestId("searchSkeletonCover").length).toBeGreaterThan(0);
   });
 
   it("falls back to sync search on SSE failure", async () => {
@@ -112,6 +147,7 @@ describe("SearchScreen", () => {
     fireEvent.changeText(screen.getByPlaceholderText("Search videos..."), "none");
     fireEvent(screen.getByPlaceholderText("Search videos..."), "submitEditing");
     await waitFor(() => expect(screen.getByText("No results found")).toBeTruthy());
+    expect(screen.queryByText("Search history")).toBeNull();
   });
 
   it("clicking a history chip re-submits the query", async () => {
@@ -123,6 +159,9 @@ describe("SearchScreen", () => {
     await renderScreen(api);
     fireEvent.changeText(screen.getByPlaceholderText("Search videos..."), "kungfu");
     fireEvent(screen.getByPlaceholderText("Search videos..."), "submitEditing");
+    await waitFor(() => expect(screen.getByText("Result 1")).toBeTruthy());
+    expect(screen.queryByText("Search history")).toBeNull();
+    fireEvent.press(screen.getByTestId("searchClearButton"));
     await waitFor(() => expect(screen.getByText("Search history")).toBeTruthy());
     fireEvent.press(screen.getByText("kungfu"));
     expect((api.searchStream as jest.Mock).mock.calls.filter((c) => c[0] === "kungfu").length).toBeGreaterThanOrEqual(2);
@@ -149,15 +188,17 @@ describe("SearchScreen", () => {
     resetMMKV();
     const i18n = await initI18n("en");
     const ui = (params: { initialQuery: string } | undefined) => (
-      <NavigationContainer>
-        <I18nextProvider i18n={i18n}>
-          <ThemeProvider override="light">
-            <SearchScreenContext.Provider value={{ api, serverURL: "https://api.test" }}>
-              <SearchScreen route={{ key: "k", name: "Search", params }} />
-            </SearchScreenContext.Provider>
-          </ThemeProvider>
-        </I18nextProvider>
-      </NavigationContainer>
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <NavigationContainer>
+          <I18nextProvider i18n={i18n}>
+            <ThemeProvider override="light">
+              <SearchScreenContext.Provider value={{ api, serverURL: "https://api.test" }}>
+                <SearchScreen route={{ key: "k", name: "Search", params }} />
+              </SearchScreenContext.Provider>
+            </ThemeProvider>
+          </I18nextProvider>
+        </NavigationContainer>
+      </SafeAreaProvider>
     );
     const { rerender } = render(ui({ initialQuery: "kungfu" }));
     await waitFor(() => expect(screen.getByText("StaleResult")).toBeTruthy());
@@ -180,15 +221,17 @@ describe("SearchScreen", () => {
     resetMMKV();
     const i18n = await initI18n("en");
     const ui = (params: { initialQuery: string }) => (
-      <NavigationContainer>
-        <I18nextProvider i18n={i18n}>
-          <ThemeProvider override="light">
-            <SearchScreenContext.Provider value={{ api, serverURL: "https://api.test" }}>
-              <SearchScreen route={{ key: "k", name: "Search", params }} />
-            </SearchScreenContext.Provider>
-          </ThemeProvider>
-        </I18nextProvider>
-      </NavigationContainer>
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <NavigationContainer>
+          <I18nextProvider i18n={i18n}>
+            <ThemeProvider override="light">
+              <SearchScreenContext.Provider value={{ api, serverURL: "https://api.test" }}>
+                <SearchScreen route={{ key: "k", name: "Search", params }} />
+              </SearchScreenContext.Provider>
+            </ThemeProvider>
+          </I18nextProvider>
+        </NavigationContainer>
+      </SafeAreaProvider>
     );
     const { rerender } = render(ui({ initialQuery: "preset" }));
     await waitFor(() => expect(api.searchStream).toHaveBeenCalledTimes(1));
@@ -196,7 +239,7 @@ describe("SearchScreen", () => {
     expect(api.searchStream).toHaveBeenCalledTimes(1);
   });
 
-  it("tapping a result navigates to Detail with the destination payload", async () => {
+  it("tapping a result navigates to Player with the destination payload", async () => {
     mockNavigate.mockClear();
     const api = buildAPI({
       searchStream: jest.fn(async () => ({ results: [
@@ -208,11 +251,83 @@ describe("SearchScreen", () => {
     fireEvent(screen.getByPlaceholderText("Search videos..."), "submitEditing");
     await waitFor(() => expect(screen.getByText("Some Movie")).toBeTruthy());
     fireEvent.press(screen.getByText("Some Movie"));
-    expect(mockNavigate).toHaveBeenCalledWith("Detail", expect.objectContaining({
+    expect(mockNavigate).toHaveBeenCalledWith("Player", expect.objectContaining({
       title: "Some Movie",
       sourceKey: "s1",
       videoId: "v1",
       coverHint: "/c.jpg",
+    }));
+  });
+
+  it("continue-watching search prefers the previous source when the refreshed result still has it", async () => {
+    mockNavigate.mockClear();
+    const api = buildAPI({
+      searchStream: jest.fn(async () => ({ results: [
+        {
+          title: "Continue Title",
+          type: "TV",
+          year: "2024",
+          cover: "/fresh.jpg",
+          desc: "",
+          sources: [freshSource, wireSource],
+        },
+      ] })),
+    });
+    await renderScreen(api, {
+      initialQuery: "Continue Title",
+      resumeHint: {
+        title: "Continue Title",
+        sourceKey: "s1",
+        videoId: "v1",
+        coverHint: "/old.jpg",
+        episodeIndex: 3,
+        episodeName: "E4",
+      },
+    });
+    await waitFor(() => expect(screen.getByText("Continue Title")).toBeTruthy());
+    fireEvent.press(screen.getByText("Continue Title"));
+    expect(mockNavigate).toHaveBeenCalledWith("Player", expect.objectContaining({
+      title: "Continue Title",
+      sourceKey: "s1",
+      videoId: "v1",
+      coverHint: "/fresh.jpg",
+      resumeIntent: { episodeIndex: 3, episodeName: "E4" },
+    }));
+  });
+
+  it("continue-watching search falls back to a fresh source when the old source disappeared", async () => {
+    mockNavigate.mockClear();
+    const api = buildAPI({
+      searchStream: jest.fn(async () => ({ results: [
+        {
+          title: "Continue Title",
+          type: "TV",
+          year: "2024",
+          cover: "/fresh.jpg",
+          desc: "",
+          sources: [freshSource],
+        },
+      ] })),
+    });
+    await renderScreen(api, {
+      initialQuery: "Continue Title",
+      resumeHint: {
+        title: "Continue Title",
+        sourceKey: "stale",
+        videoId: "stale-v1",
+        coverHint: "/old.jpg",
+        episodeIndex: 3,
+        episodeName: "E4",
+      },
+    });
+    await waitFor(() => expect(screen.getByText("Continue Title")).toBeTruthy());
+    fireEvent.press(screen.getByText("Continue Title"));
+    expect(mockNavigate).toHaveBeenCalledWith("Player", expect.objectContaining({
+      title: "Continue Title",
+      sourceKey: "fresh",
+      videoId: "fresh-v1",
+      coverHint: "/fresh.jpg",
+      resumeIntent: { episodeIndex: 3, episodeName: "E4" },
     }));
   });
 });

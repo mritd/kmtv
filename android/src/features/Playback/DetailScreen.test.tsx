@@ -6,6 +6,7 @@ import React from "react";
 import { I18nextProvider } from "react-i18next";
 import i18next from "i18next";
 import { StyleSheet, useWindowDimensions } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ThemeProvider } from "@/designSystem/ThemeProvider";
 import { DetailScreen, DetailScreenContext, type DetailScreenContextValue } from "./DetailScreen";
@@ -25,6 +26,11 @@ const detail: VideoDetail = {
 };
 const dest: PlayDestination = { title: "Inception", sources: [src], sourceKey: "a", videoId: "v-a", coverHint: "" };
 
+const safeAreaMetrics = {
+  frame: { x: 0, y: 0, width: 390, height: 844 },
+  insets: { top: 0, left: 0, right: 0, bottom: 0 },
+};
+
 void i18next.init({
   lng: "en",
   resources: {
@@ -40,13 +46,15 @@ void i18next.init({
 
 function wrap(ctx: DetailScreenContextValue, route: { params: PlayDestination }) {
   return render(
-    <I18nextProvider i18n={i18next}>
-      <ThemeProvider override="light">
-        <DetailScreenContext.Provider value={ctx}>
-          <DetailScreen route={route} />
-        </DetailScreenContext.Provider>
-      </ThemeProvider>
-    </I18nextProvider>,
+    <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+      <I18nextProvider i18n={i18next}>
+        <ThemeProvider override="light">
+          <DetailScreenContext.Provider value={ctx}>
+            <DetailScreen route={route} />
+          </DetailScreenContext.Provider>
+        </ThemeProvider>
+      </I18nextProvider>
+    </SafeAreaProvider>,
   );
 }
 
@@ -66,18 +74,36 @@ test("DetailScreen shows skeleton until detail loads, then shows title", async (
 test("Multi-source SourceSwitcher click reloads detail from chosen source", async () => {
   const srcA: SourceResult = { source_key: "a", source_name: "A", is_adult: false, video_id: "v-a", duration_ms: 0, episodes: [] };
   const srcB: SourceResult = { source_key: "b", source_name: "B", is_adult: false, video_id: "v-b", duration_ms: 0, episodes: [] };
-  const multiDest: PlayDestination = { title: "Inception", sources: [srcA, srcB], sourceKey: "a", videoId: "v-a", coverHint: "" };
+  const extraSources = ["c", "d", "e", "f", "g", "h"].map((key) => ({
+    source_key: key,
+    source_name: key.toUpperCase(),
+    is_adult: false,
+    video_id: `v-${key}`,
+    duration_ms: 0,
+    episodes: [],
+  }));
+  const multiDest: PlayDestination = {
+    title: "Inception",
+    sources: [srcA, srcB, ...extraSources],
+    sourceKey: "a",
+    videoId: "v-a",
+    coverHint: "",
+  };
   const detailB: VideoDetail = { ...detail, title: "Inception-B" };
   const api: DetailAPI = {
     detail: jest.fn()
       .mockResolvedValueOnce(detail)
       .mockResolvedValueOnce(detailB),
   };
-  const { findByText, getByText } = wrap(
+  const { findByText, getByText, queryByText } = wrap(
     { detailAPI: api, serverURL: "http://s", onPlay: jest.fn() },
     { params: multiDest },
   );
   await findByText("Inception");
+  expect(queryByText("H")).toBeNull();
+  expect(getByText("Show all 8 sources")).toBeTruthy();
+  fireEvent.press(getByText("Show all 8 sources"));
+  expect(getByText("H")).toBeTruthy();
   fireEvent.press(getByText("B"));
   await waitFor(() => expect(api.detail).toHaveBeenCalledWith("b", "v-b"));
 });

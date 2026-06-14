@@ -19,9 +19,17 @@ function wrap(node: React.ReactElement) {
 
 test("renders sourceName, fires onPress with key", () => {
   const onPress = jest.fn();
-  const { getByText } = wrap(<SourceButton source={src} isSelected={false} onPress={onPress} />);
+  const { getByTestId, getByText } = wrap(<SourceButton source={src} isSelected={false} onPress={onPress} />);
+  expect(getByTestId("sourceButton-k1")).toBeTruthy();
   fireEvent.press(getByText("Cool Source"));
   expect(onPress).toHaveBeenCalledWith("k1");
+});
+
+test("cleans source decoration prefixes like iOS", () => {
+  const decorated = { ...src, source_name: "🎬Cool Source" };
+  const { getByText, queryByText } = wrap(<SourceButton source={decorated} isSelected={false} onPress={() => {}} />);
+  expect(getByText("Cool Source")).toBeTruthy();
+  expect(queryByText("🎬Cool Source")).toBeNull();
 });
 
 test("selected style differs from unselected (accessibilityState reflects it)", () => {

@@ -2,11 +2,13 @@
 // DetailScreen — 信息头图 + 源选择器 + 剧集网格 + 播放按钮. M4 中 Detail 导航的根组件.
 
 import { BlurView } from "expo-blur";
+import { Ionicons } from "@expo/vector-icons";
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { createAPIClient } from "@/api/client";
 import { createDetailAPI, type DetailAPI } from "@/api/detail";
@@ -32,6 +34,7 @@ export interface DetailScreenContextValue {
   detailAPI: DetailAPI;
   serverURL: string;
   onPlay: (destination: PlayDestination) => void;
+  onBack?: () => void;
 }
 
 /**
@@ -41,7 +44,7 @@ export interface DetailScreenContextValue {
 export const DetailScreenContext = createContext<DetailScreenContextValue | null>(null);
 
 function useDefaultContext(
-  navigation: { navigate: (route: "Player", params: PlayDestination) => void } | undefined,
+  navigation: { navigate: (route: "Player", params: PlayDestination) => void; goBack?: () => void } | undefined,
 ): DetailScreenContextValue | null {
   const serverURL = useServerStore((s) => s.serverURL) ?? "";
   const api = useMemo(() => {
@@ -58,6 +61,7 @@ function useDefaultContext(
     detailAPI: api,
     serverURL,
     onPlay: (dest) => navigation?.navigate("Player", dest),
+    onBack: navigation?.goBack,
   };
 }
 
@@ -67,7 +71,7 @@ function useDefaultContext(
  */
 export interface DetailScreenProps {
   route: { params: PlayDestination };
-  navigation?: { navigate: (route: "Player", params: PlayDestination) => void };
+  navigation?: { navigate: (route: "Player", params: PlayDestination) => void; goBack?: () => void };
 }
 
 /**
@@ -86,6 +90,7 @@ function DetailInner({ ctx, destination }: { ctx: DetailScreenContextValue; dest
   const { colors } = useTheme();
   const { t } = useTranslation("playback");
   const layout = useLayoutWidth();
+  const insets = useSafeAreaInsets();
   const isTablet = layout !== "phone";
   const [detail, setDetail] = useState<VideoDetail | null>(null);
   const [sources, setSources] = useState(destination.sources);
@@ -171,8 +176,26 @@ function DetailInner({ ctx, destination }: { ctx: DetailScreenContextValue; dest
         <PosterImage baseURL={ctx.serverURL} cover={detail.cover} style={styles.bgImage} />
         <BlurView intensity={50} tint="dark" style={StyleSheet.absoluteFill} />
       </View>
+      {ctx.onBack ? (
+        <Pressable
+          testID="detailBackButton"
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          onPress={ctx.onBack}
+          style={({ pressed }) => [
+            styles.backButton,
+            { top: insets.top + 8, backgroundColor: "rgba(0, 0, 0, 0.38)", opacity: pressed ? 0.7 : 1 },
+          ]}
+        >
+          <Ionicons name="chevron-back" size={24} color="white" />
+        </Pressable>
+      ) : null}
       <View
-        style={[styles.heroBase, isTablet ? styles.heroRow : styles.heroStack]}
+        style={[
+          styles.heroBase,
+          { paddingTop: insets.top + 48 },
+          isTablet ? styles.heroRow : styles.heroStack,
+        ]}
         testID="detailHero"
       >
         <View testID="detailPoster" style={isTablet ? styles.posterTablet : styles.posterPhone}>
@@ -249,6 +272,16 @@ const styles = StyleSheet.create({
   scrollContent: { paddingBottom: 32 },
   heroBg: { position: "absolute", left: 0, right: 0, top: 0, height: 360, opacity: 0.5 },
   bgImage: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 },
+  backButton: {
+    position: "absolute",
+    left: 16,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   heroBase: { padding: 16 },
   heroStack: { flexDirection: "column", alignItems: "center" },
   heroRow: { flexDirection: "row", alignItems: "flex-start" },

@@ -16,40 +16,53 @@ export type RootStackParamList = {
 };
 
 /**
+ * Search resume hint comes from continue-watching. Search still refreshes sources from the server,
+ * then uses this hint only to prefer the previous source when it remains available and to carry the
+ * last watched episode into Player.
+ * Search 续播提示来自继续观看. Search 仍会从 server 刷新源, 然后仅用该 hint 优先选择仍可用的旧源,
+ * 并把上次观看集数带入 Player.
+ */
+export interface SearchResumeHint {
+  title: string;
+  sourceKey: string;
+  videoId: string;
+  coverHint: string;
+  episodeIndex: number;
+  episodeName: string;
+}
+
+/**
  * Search route params shared by HomeStack and CategoriesStack.
  * Search 路由参数, HomeStack 与 CategoriesStack 共用.
  */
-export type SearchRouteParams = { initialQuery?: string } | undefined;
+export type SearchRouteParams = { initialQuery?: string; resumeHint?: SearchResumeHint } | undefined;
 
 /**
- * HomeTab's nested native-stack: HomeRoot + Search + Detail + Player.
- * HomeTab 内的 native-stack: HomeRoot + Search + Detail + Player.
+ * HomeTab's nested native-stack: HomeRoot + Search + Player.
+ * HomeTab 内的 native-stack: HomeRoot + Search + Player.
  */
 export type HomeStackParamList = {
   HomeRoot: undefined;
   Search: SearchRouteParams;
-  Detail: PlayDestination;
   Player: PlayDestination;
 };
 
 /**
- * CategoriesTab's nested native-stack: CategoriesRoot + Search + Detail + Player.
- * CategoriesTab 内的 native-stack: CategoriesRoot + Search + Detail + Player.
+ * CategoriesTab's nested native-stack: CategoriesRoot + Search + Player.
+ * CategoriesTab 内的 native-stack: CategoriesRoot + Search + Player.
  */
 export type CategoriesStackParamList = {
   CategoriesRoot: undefined;
   Search: SearchRouteParams;
-  Detail: PlayDestination;
   Player: PlayDestination;
 };
 
 /**
- * FavoritesTab's nested native-stack: FavoritesRoot + Detail + Player.
- * FavoritesTab 内的 native-stack: FavoritesRoot + Detail + Player.
+ * FavoritesTab's nested native-stack: FavoritesRoot + Player.
+ * FavoritesTab 内的 native-stack: FavoritesRoot + Player.
  */
 export type FavoritesStackParamList = {
   FavoritesRoot: undefined;
-  Detail: PlayDestination;
   Player: PlayDestination;
 };
 

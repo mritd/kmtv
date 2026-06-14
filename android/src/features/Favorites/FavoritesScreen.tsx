@@ -17,11 +17,11 @@ import { useServerStore } from "@/store/serverStore";
 import { FavoriteRow } from "./FavoriteRow";
 
 /**
- * Props injected by FavoritesStack. `navigation.navigate` lands on Detail.
- * 由 FavoritesStack 注入的 props. navigation.navigate 跳转到 Detail.
+ * Props injected by FavoritesStack. `navigation.navigate` lands on Player.
+ * 由 FavoritesStack 注入的 props. navigation.navigate 跳转到 Player.
  */
 export interface FavoritesScreenProps {
-  navigation: { navigate: (route: "Detail", params: PlayDestination) => void };
+  navigation: { navigate: (route: "Player", params: PlayDestination) => void };
 }
 
 /**
@@ -48,7 +48,7 @@ export function FavoritesScreen({ navigation }: FavoritesScreenProps) {
       videoId: it.videoId,
       coverHint: it.cover,
     };
-    navigation.navigate("Detail", destination);
+    navigation.navigate("Player", destination);
   }, [navigation]);
 
   const onDelete = useCallback((it: FavoriteItem) => {

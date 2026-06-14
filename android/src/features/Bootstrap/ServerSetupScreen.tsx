@@ -10,6 +10,8 @@ import { useTheme } from "@/designSystem/useTheme";
 import { useAuthStore } from "@/store/authStore";
 import { isValidHTTPURL } from "@/utils/urlValidation";
 
+const DEV_DEFAULT_SERVER_URL = __DEV__ && process.env.NODE_ENV !== "test" ? "http://localhost:9001" : "";
+
 /**
  * Screen where the user supplies the backend URL and optional credentials.
  * 用户输入后端 URL 与可选凭据的屏幕.
@@ -18,7 +20,7 @@ export function ServerSetupScreen() {
   const { colors, sizes } = useTheme();
   const { t } = useTranslation(["bootstrap"]);
   const connectServer = useAuthStore((s) => s.connectServer);
-  const [url, setUrl] = useState("");
+  const [url, setUrl] = useState(DEV_DEFAULT_SERVER_URL);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [connecting, setConnecting] = useState(false);

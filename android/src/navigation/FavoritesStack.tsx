@@ -1,5 +1,5 @@
-// FavoritesStack — nested native-stack hosted by FavoritesTab: list -> Detail -> Player.
-// FavoritesStack — FavoritesTab 内的 native-stack: 列表 -> Detail -> Player.
+// FavoritesStack — nested native-stack hosted by FavoritesTab: list -> Player.
+// FavoritesStack — FavoritesTab 内的 native-stack: 列表 -> Player.
 
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import React from "react";
@@ -7,7 +7,6 @@ import { useTranslation } from "react-i18next";
 
 import { useTheme } from "@/designSystem/useTheme";
 import { FavoritesScreen } from "@/features/Favorites/FavoritesScreen";
-import { DetailScreen } from "@/features/Playback/DetailScreen";
 import { PlayerScreen } from "@/features/Playback/PlayerScreen";
 
 import type { FavoritesStackParamList } from "./types";
@@ -29,7 +28,6 @@ export function FavoritesStack() {
       }}
     >
       <Stack.Screen name="FavoritesRoot" component={FavoritesScreen} options={{ title: t("title") }} />
-      <Stack.Screen name="Detail" component={DetailScreen} options={{ title: "" }} />
       <Stack.Screen name="Player" component={PlayerScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );

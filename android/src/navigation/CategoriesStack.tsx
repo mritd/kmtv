@@ -4,7 +4,6 @@
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { CategoriesScreen } from "@/features/Categories/CategoriesScreen";
-import { DetailScreen } from "@/features/Playback/DetailScreen";
 import { PlayerScreen } from "@/features/Playback/PlayerScreen";
 import { SearchScreen } from "@/features/Search/SearchScreen";
 
@@ -21,7 +20,6 @@ export function CategoriesStack() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="CategoriesRoot" component={CategoriesScreen} />
       <Stack.Screen name="Search" component={SearchScreen} />
-      <Stack.Screen name="Detail" component={DetailScreen} />
       <Stack.Screen name="Player" component={PlayerScreen} />
     </Stack.Navigator>
   );

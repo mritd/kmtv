@@ -8,6 +8,7 @@ import { Image } from "expo-image";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { createAPIClient } from "@/api/client";
 import { createDoubanAPI, type DoubanAPI } from "@/api/douban";
@@ -46,6 +47,7 @@ interface HomeScreenContextValue {
    * (hero / continue / section) 都把对应标题预填到 Search. 测试可覆盖, 生产走 useNavigation.
    */
   onSelectTitle?: (title: string) => void;
+  onSelectHistory?: (entry: WatchHistoryItem) => void;
 }
 
 /**
@@ -87,7 +89,14 @@ export function HomeScreen() {
 }
 
 function ContextDrivenHomeScreen({ ctx }: { ctx: HomeScreenContextValue }) {
-  return <HomeScreenInner api={ctx.api} onSearch={ctx.onSearch} onSelectTitle={ctx.onSelectTitle} />;
+  return (
+    <HomeScreenInner
+      api={ctx.api}
+      onSearch={ctx.onSearch}
+      onSelectTitle={ctx.onSelectTitle}
+      onSelectHistory={ctx.onSelectHistory}
+    />
+  );
 }
 
 function DefaultHomeScreen() {
@@ -103,6 +112,22 @@ function DefaultHomeScreen() {
     (title: string) => navigation.navigate("Search", { initialQuery: title }),
     [navigation],
   );
+  const onSelectHistory = useCallback(
+    (entry: WatchHistoryItem) => {
+      navigation.navigate("Search", {
+        initialQuery: entry.title,
+        resumeHint: {
+          title: entry.title,
+          sourceKey: entry.sourceKey,
+          videoId: entry.videoId,
+          coverHint: entry.cover,
+          episodeIndex: entry.episodeIndex,
+          episodeName: entry.episode,
+        },
+      });
+    },
+    [navigation],
+  );
 
   if (!defaultAPI) {
     return (
@@ -112,21 +137,31 @@ function DefaultHomeScreen() {
     );
   }
 
-  return <HomeScreenInner api={defaultAPI} onSearch={onSearch} onSelectTitle={onSelectTitle} />;
+  return (
+    <HomeScreenInner
+      api={defaultAPI}
+      onSearch={onSearch}
+      onSelectTitle={onSelectTitle}
+      onSelectHistory={onSelectHistory}
+    />
+  );
 }
 
 function HomeScreenInner({
   api,
   onSearch,
   onSelectTitle,
+  onSelectHistory,
 }: {
   api: DoubanAPI;
   onSearch?: () => void;
   onSelectTitle?: (title: string) => void;
+  onSelectHistory?: (entry: WatchHistoryItem) => void;
 }) {
   const { colors } = useTheme();
   const { t } = useTranslation("home");
   const serverURL = useServerStore((s) => s.serverURL) ?? "";
+  const insets = useSafeAreaInsets();
 
   // Local-first ordering mirrors HomeViewModel.load(): seed history from MMKV synchronously,
   // then fire the remote query. The useState initializer runs before useDoubanHomeQuery
@@ -147,11 +182,10 @@ function HomeScreenInner({
     setHistory([]);
   }, [serverURL]);
 
-  // Mirrors iOS HomeView.navigateToSearch(SearchQuery(query: item.title, ...)). All cards
-  // route through onSelectTitle (Hero, ContinueWatching, Section). When the callback is
-  // missing (tests without nav), the tap becomes a no-op so renders stay deterministic.
-  // 与 iOS HomeView.navigateToSearch(...) 一致, 所有卡片走 onSelectTitle (Hero, ContinueWatching, Section).
-  // 无 callback 时 (无导航的测试) 点击 no-op, 保持渲染确定.
+  // Hero and section cards mirror iOS HomeView.navigateToSearch(SearchQuery(query: item.title, ...)).
+  // Continue-watching cards also go through Search so stale sources are refreshed before Player opens.
+  // Hero 与 section 卡片对齐 iOS HomeView.navigateToSearch(SearchQuery(query: item.title, ...)).
+  // 继续观看卡片也先进入 Search, 确保进 Player 前刷新过可用源.
   const selectByTitle = useCallback(
     (title: string) => onSelectTitle?.(title),
     [onSelectTitle],
@@ -161,8 +195,14 @@ function HomeScreenInner({
     [selectByTitle],
   );
   const selectHistoryItem = useCallback(
-    (entry: WatchHistoryItem) => selectByTitle(entry.title),
-    [selectByTitle],
+    (entry: WatchHistoryItem) => {
+      if (onSelectHistory) {
+        onSelectHistory(entry);
+        return;
+      }
+      selectByTitle(entry.title);
+    },
+    [onSelectHistory, selectByTitle],
   );
 
   const sections = query.data?.sections ?? [];
@@ -210,7 +250,7 @@ function HomeScreenInner({
         flexDirection: "row",
         alignItems: "center",
         paddingHorizontal: 16,
-        paddingTop: 12,
+        paddingTop: insets.top + 12,
         paddingBottom: 8,
         backgroundColor: colors.bgPrimary,
       }}

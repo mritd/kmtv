@@ -15,7 +15,7 @@ import { loadWatchHistory, recordPlayProgress } from "@/storage/watchHistory";
 
 import { currentEpisode, episodes as selectEpisodes, sourceVideoID } from "./episodeSelection";
 import {
-  initialPlayerState, playerReducer, type PlayerAction, type PlayerState,
+  initialPlayerState, playerReducer, shouldIgnoreProgressDuringPendingSeek, type PlayerAction, type PlayerState,
 } from "./playerReducer";
 
 const PROGRESS_SAVE_INTERVAL_S = 5;
@@ -79,6 +79,7 @@ export interface UsePlayerResult {
     setSkipIntro: (seconds: number) => void;
     setSkipOutro: (seconds: number) => void;
     timeUpdate: (currentTime: number, duration: number) => void;
+    commitSeek: (currentTime: number, duration?: number) => void;
     setBuffering: (value: boolean) => void;
     setSeeking: (value: boolean) => void;
     setPlaying: (value: boolean) => void;
@@ -373,7 +374,9 @@ export function usePlayer({ serverURL, destination, detailAPI, playbackAPI }: Us
   }, [destination.coverHint, destination.title, serverURL]);
 
   const timeUpdate = useCallback((currentTime: number, duration: number) => {
+    const ignoreProgress = shouldIgnoreProgressDuringPendingSeek(stateRef.current, currentTime);
     dispatch({ type: "timeUpdate", currentTime, duration });
+    if (ignoreProgress) return;
     if (Math.abs(currentTime - lastSavedTimeRef.current) >= PROGRESS_SAVE_INTERVAL_S) {
       persistProgressNow(currentTime, duration);
     }
@@ -387,15 +390,22 @@ export function usePlayer({ serverURL, destination, detailAPI, playbackAPI }: Us
     }
   }, [persistProgressNow, switchEpisode]);
 
+  const commitSeek = useCallback((currentTime: number, duration?: number) => {
+    const total = duration ?? stateRef.current.duration;
+    const target = total > 0 ? Math.min(Math.max(0, currentTime), total) : Math.max(0, currentTime);
+    dispatch({ type: "commitSeek", currentTime: target, duration: total });
+    persistProgressNow(target, total);
+  }, [persistProgressNow]);
+
   const setBuffering = useCallback((value: boolean) => dispatch({ type: "setBuffering", value }), []);
   const setSeeking = useCallback((value: boolean) => dispatch({ type: "setSeeking", value }), []);
   const setPlaying = useCallback((value: boolean) => dispatch({ type: "playState", value }), []);
 
   const actions = useMemo(() => ({
     startPlayback, switchSource, switchLine, switchEpisode,
-    setRate, setSkipIntro, setSkipOutro, timeUpdate, setBuffering, setSeeking, setPlaying,
+    setRate, setSkipIntro, setSkipOutro, timeUpdate, commitSeek, setBuffering, setSeeking, setPlaying,
     onError, persistProgressNow, markResumeConsumed,
-  }), [startPlayback, switchSource, switchLine, switchEpisode, setRate, setSkipIntro, setSkipOutro, timeUpdate, setBuffering, setSeeking, setPlaying, onError, persistProgressNow, markResumeConsumed]);
+  }), [startPlayback, switchSource, switchLine, switchEpisode, setRate, setSkipIntro, setSkipOutro, timeUpdate, commitSeek, setBuffering, setSeeking, setPlaying, onError, persistProgressNow, markResumeConsumed]);
 
   return {
     state,

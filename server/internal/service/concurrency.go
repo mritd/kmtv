@@ -57,8 +57,8 @@ func GetSearchTimeout() time.Duration {
 	return appruntime.Default().SearchTimeout()
 }
 
-// --- CDN probe cache (host -> result + expiry) ---
-// --- CDN 探测缓存, host -> 结果和过期时间 ---
+// --- CDN probe cache (URL -> result + expiry) ---
+// --- CDN 探测缓存, URL -> 结果和过期时间 ---
 
 type probeCacheEntry struct {
 	alive   bool
@@ -67,24 +67,35 @@ type probeCacheEntry struct {
 
 var probeCache struct {
 	sync.RWMutex
-	m map[string]probeCacheEntry // host -> entry
+	m map[string]probeCacheEntry // normalized media URL -> entry
 }
 
 func init() {
 	probeCache.m = make(map[string]probeCacheEntry)
 }
 
-// probeCacheGet looks up the cached probe result for the host.
+// probeCacheKey returns the normalized cache key for a probe URL.
+// probeCacheKey 返回探测 URL 的规范化缓存 key.
+func probeCacheKey(rawURL string) (string, bool) {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", false
+	}
+	u.Fragment = ""
+	return u.String(), true
+}
+
+// probeCacheGet looks up the cached probe result for the concrete media URL.
 // Returns (alive, true) on cache hit, (false, false) on miss.
-// probeCacheGet 查询 host 的缓存探测结果.
+// probeCacheGet 查询具体媒体 URL 的缓存探测结果.
 // 命中时返回 (alive, true), 未命中时返回 (false, false).
 func probeCacheGet(rawURL string) (alive bool, hit bool) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
+	key, ok := probeCacheKey(rawURL)
+	if !ok {
 		return false, false
 	}
 	probeCache.RLock()
-	entry, ok := probeCache.m[u.Host]
+	entry, ok := probeCache.m[key]
 	probeCache.RUnlock()
 	if ok && time.Now().Before(entry.expires) {
 		return entry.alive, true
@@ -92,14 +103,14 @@ func probeCacheGet(rawURL string) (alive bool, hit bool) {
 	return false, false
 }
 
-// probeCacheSet stores a probe result (alive or dead) for the host.
-// probeCacheSet 保存 host 的探测结果, 可用和不可用都会缓存.
+// probeCacheSet stores a probe result (alive or dead) for the concrete media URL.
+// probeCacheSet 保存具体媒体 URL 的探测结果, 可用和不可用都会缓存.
 func probeCacheSet(rawURL string, alive bool) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
+	key, ok := probeCacheKey(rawURL)
+	if !ok {
 		return
 	}
 	probeCache.Lock()
-	probeCache.m[u.Host] = probeCacheEntry{alive: alive, expires: time.Now().Add(consts.ProbeCacheTTL)}
+	probeCache.m[key] = probeCacheEntry{alive: alive, expires: time.Now().Add(consts.ProbeCacheTTL)}
 	probeCache.Unlock()
 }

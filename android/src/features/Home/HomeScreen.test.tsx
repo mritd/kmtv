@@ -4,6 +4,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, waitFor } from "@testing-library/react-native";
 import React from "react";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import type { DoubanAPI } from "@/api/douban";
 import type { DoubanHomeResponse } from "@/api/types";
@@ -11,6 +12,8 @@ import { ThemeProvider } from "@/designSystem/ThemeProvider";
 import { ToastProvider } from "@/designSystem/Toast";
 import { initI18n } from "@/i18n";
 import { useServerStore } from "@/store/serverStore";
+import { _resetForTests } from "@/storage/mmkv";
+import { recordPlayProgress, type WatchHistoryItem } from "@/storage/watchHistory";
 
 import { HomeScreen, HomeScreenContext } from "./HomeScreen";
 
@@ -42,22 +45,33 @@ const payload: DoubanHomeResponse = {
   ],
 };
 
+const safeAreaMetrics = {
+  frame: { x: 0, y: 0, width: 390, height: 844 },
+  insets: { top: 0, left: 0, right: 0, bottom: 0 },
+};
+
 function makeWrapper(
   api: DoubanAPI,
-  callbacks: { onSearch?: () => void; onSelectTitle?: (title: string) => void } = {},
+  callbacks: {
+    onSearch?: () => void;
+    onSelectTitle?: (title: string) => void;
+    onSelectHistory?: (entry: WatchHistoryItem) => void;
+  } = {},
 ) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // eslint-disable-next-line react/display-name
   return ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client={qc}>
-      <ThemeProvider override="system">
-        <ToastProvider>
-          <HomeScreenContext.Provider value={{ api, ...callbacks }}>
-            {children}
-          </HomeScreenContext.Provider>
-        </ToastProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+    <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+      <QueryClientProvider client={qc}>
+        <ThemeProvider override="system">
+          <ToastProvider>
+            <HomeScreenContext.Provider value={{ api, ...callbacks }}>
+              {children}
+            </HomeScreenContext.Provider>
+          </ToastProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    </SafeAreaProvider>
   );
 }
 
@@ -66,6 +80,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  _resetForTests();
   useServerStore.setState({ serverURL: "https://x" });
 });
 
@@ -110,7 +125,8 @@ describe("HomeScreen", () => {
       doubanCategories: jest.fn(),
       doubanRecommendFilter: jest.fn(),
     };
-    const { findByTestId } = render(<HomeScreen />, { wrapper: makeWrapper(api, { onSearch }) });
+    const { findByTestId, findByText } = render(<HomeScreen />, { wrapper: makeWrapper(api, { onSearch }) });
+    await findByText("热门");
     const btn = await findByTestId("homeSearchButton");
     fireEvent.press(btn);
     expect(onSearch).toHaveBeenCalledTimes(1);
@@ -127,5 +143,34 @@ describe("HomeScreen", () => {
     const card = await findByText("OnlyInNewSection");
     fireEvent.press(card);
     expect(onSelectTitle).toHaveBeenCalledWith("OnlyInNewSection");
+  });
+
+  it("passes the full watch-history entry when a continue-watching card is tapped", async () => {
+    recordPlayProgress("https://x", {
+      id: "src:v-continue:3",
+      sourceKey: "src",
+      videoId: "v-continue",
+      title: "Continue Title",
+      cover: "/continue.jpg",
+      episode: "E4",
+      episodeIndex: 3,
+      progress: 120,
+      duration: 600,
+    });
+    const onSelectHistory = jest.fn();
+    const api: DoubanAPI = {
+      doubanHome: jest.fn(async () => payload),
+      doubanCategories: jest.fn(),
+      doubanRecommendFilter: jest.fn(),
+    };
+    const { findByText, getByTestId } = render(<HomeScreen />, { wrapper: makeWrapper(api, { onSelectHistory }) });
+    await findByText("Continue Title");
+    fireEvent.press(getByTestId("continueCard"));
+    expect(onSelectHistory).toHaveBeenCalledWith(expect.objectContaining({
+      sourceKey: "src",
+      videoId: "v-continue",
+      episodeIndex: 3,
+      episode: "E4",
+    }));
   });
 });

@@ -2,11 +2,13 @@
 // PlayerScreen — <Video /> + 自定义遮罩 + 底栏 + Modal 全屏 + BackHandler.
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import {
   BackHandler, Modal, Pressable, StyleSheet, Text, View,
 } from "react-native";
-import Video from "react-native-video";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Video, { ViewType } from "react-native-video";
 
 import { createAPIClient } from "@/api/client";
 import { createDetailAPI, type DetailAPI } from "@/api/detail";
@@ -29,6 +31,23 @@ import { useFavoriteToggle } from "./useFavoriteToggle";
 
 const OVERLAY_AUTO_HIDE_MS = 5000;
 const SKIP_SECONDS = 10;
+
+function clampSeekSeconds(seconds: number, duration: number): number {
+  const nonNegative = Math.max(0, seconds);
+  return duration > 0 ? Math.min(nonNegative, duration) : nonNegative;
+}
+
+/**
+ * Build a react-native-video source. Android ExoPlayer cannot infer HLS from the proxied
+ * `/proxy/m3u8?...` path, so force the `m3u8` extension only for HLS URLs.
+ * 构建 react-native-video source. Android ExoPlayer 无法从代理 `/proxy/m3u8?...` 路径推断 HLS,
+ * 因此仅对 HLS URL 显式指定 `m3u8` extension.
+ */
+export function videoSourceForURL(uri: string): { uri: string; type?: string } {
+  const withoutQuery = uri.split("?", 1)[0] ?? uri;
+  const isHLS = withoutQuery.endsWith(".m3u8") || withoutQuery.endsWith("/proxy/m3u8");
+  return isHLS ? { uri, type: "m3u8" } : { uri };
+}
 
 /**
  * Context value lets tests inject fake APIs + onClose without booting the store/navigation stack.
@@ -86,6 +105,7 @@ export function PlayerScreen({ route, navigation }: PlayerScreenProps) {
 function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; destination: PlayDestination }) {
   const { colors } = useTheme();
   const { t } = useTranslation("playback");
+  const insets = useSafeAreaInsets();
   const { state, resumeStartSeconds, actions, stateRef } = usePlayer({
     serverURL: ctx.serverURL,
     destination,
@@ -98,6 +118,7 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
   const [isFullScreen, setFullScreen] = useState(false);
   const overlayHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoRef = useRef<{ seek: (s: number) => void } | null>(null);
+  const remountSeekSecondsRef = useRef<number | null>(null);
   // Track URL transitions so onLoad only consumes the resume target on the first new URL.
   // 跟踪 URL 变化, 让 onLoad 仅在新 URL 首次到达时消费续播位置.
   const lastUrlGenRef = useRef(0);
@@ -121,28 +142,39 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
 
   // BackHandler — exit full-screen first, then close.
   // BackHandler — 优先退出全屏, 否则关闭.
+  const setFullScreenPreservingPosition = useCallback((value: boolean) => {
+    remountSeekSecondsRef.current = stateRef.current.currentTime;
+    setOverlayVisible(true);
+    setFullScreen(value);
+  }, [stateRef]);
+
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (isFullScreen) {
-        setFullScreen(false);
+        setFullScreenPreservingPosition(false);
         return true;
       }
       ctx.onClose();
       return true;
     });
     return () => sub.remove();
-  }, [ctx, isFullScreen]);
+  }, [ctx, isFullScreen, setFullScreenPreservingPosition]);
 
   // Persist progress on unmount.
   // 卸载时持久化进度.
   useEffect(() => () => { actions.persistProgressNow(); }, [actions]);
 
-  const toggleOverlay = () => setOverlayVisible((v) => !v);
-
   const onSeekCommit = (ratio: number) => {
     const target = ratio * Math.max(state.duration, 1);
     videoRef.current?.seek(target);
-    actions.setSeeking(false);
+    actions.commitSeek(target, state.duration);
+  };
+
+  const seekRelative = (deltaSeconds: number) => {
+    const duration = stateRef.current.duration;
+    const target = clampSeekSeconds(stateRef.current.currentTime + deltaSeconds, duration);
+    videoRef.current?.seek(target);
+    actions.commitSeek(target, duration);
   };
 
   const list = selectEpisodes(stateRef.current);
@@ -156,10 +188,22 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
       // `key={urlGeneration}` 每次成功解析都强制重挂, 瞬时错误后重试同一 URL 也能真正重启.
       key={state.urlGeneration}
       ref={videoRef as never}
-      source={{ uri: playbackURL }}
+      source={videoSourceForURL(playbackURL)}
+      viewType={ViewType.TEXTURE}
+      useTextureView
+      pointerEvents="none"
       paused={!state.isPlaying}
       rate={state.playbackRate}
       onLoad={(meta: { duration: number }) => {
+        const remountSeekSeconds = remountSeekSecondsRef.current;
+        if (remountSeekSeconds !== null) {
+          remountSeekSecondsRef.current = null;
+          const target = clampSeekSeconds(remountSeekSeconds, meta.duration);
+          if (target > 0) videoRef.current?.seek(target);
+          actions.timeUpdate(target, meta.duration);
+          actions.setPlaying(true);
+          return;
+        }
         // First onLoad for a freshly-resolved URL: seek to resumeStartSeconds (watchHistory +
         // skipIntro), mark the resume consumed, and seed currentTime/duration. Subsequent onLoad
         // events (Android's onLoad can fire after a rate / track change with the same URL) only
@@ -169,11 +213,14 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
         // duration, 避免把进度拉回起点.
         if (state.urlGeneration !== lastUrlGenRef.current) {
           lastUrlGenRef.current = state.urlGeneration;
-          if (resumeStartSeconds > 0) videoRef.current?.seek(resumeStartSeconds);
+          const target = clampSeekSeconds(resumeStartSeconds, meta.duration);
+          if (target > 0) videoRef.current?.seek(target);
           actions.markResumeConsumed();
-          actions.timeUpdate(resumeStartSeconds, meta.duration);
+          actions.timeUpdate(target, meta.duration);
         } else {
-          actions.timeUpdate(stateRef.current.currentTime, meta.duration);
+          const currentTime = clampSeekSeconds(stateRef.current.currentTime, meta.duration);
+          if (currentTime > 0) videoRef.current?.seek(currentTime);
+          actions.timeUpdate(currentTime, meta.duration);
         }
         actions.setPlaying(true);
       }}
@@ -188,24 +235,54 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
   ) : null;
 
   const playerSurface = (
-    <Pressable
-      testID="playerSurface"
-      onPress={toggleOverlay}
-      style={[styles.surface, { aspectRatio: 16 / 9, backgroundColor: "black" }]}
-    >
-      {/* Render Video only when NOT full-screen — the Modal owns the player while full-screen. */}
-      {/* 仅在非全屏时渲染 Video, 全屏时由 Modal 接管, 避免出现两个 Video 实例抢音频. */}
-      {isFullScreen ? null : videoElement}
+    <View testID="playerSurface" style={[styles.surface, { aspectRatio: 16 / 9, backgroundColor: "black" }]}>
+      {videoElement}
+      {!overlayVisible ? (
+        <Pressable
+          testID="playerTouchCatcher"
+          accessibilityRole="button"
+          accessibilityLabel={t("showControls")}
+          onPress={() => setOverlayVisible(true)}
+          style={styles.touchCatcher}
+        />
+      ) : null}
       {overlayVisible ? (
-        <View accessibilityLabel="player-overlay" style={styles.overlay}>
-          <Pressable accessibilityLabel="skipBackward" onPress={() => videoRef.current?.seek(Math.max(0, state.currentTime - SKIP_SECONDS))} style={styles.iconBtn}>
-            <Text style={styles.iconText}>-10s</Text>
+        <Pressable
+          testID="playerOverlayDismissArea"
+          accessibilityRole="button"
+          accessibilityLabel={t("hideControls")}
+          onPress={() => setOverlayVisible(false)}
+          style={styles.overlayScrim}
+        />
+      ) : null}
+      {overlayVisible ? (
+        <View accessibilityLabel="player-overlay" pointerEvents="box-none" style={styles.overlay}>
+          <Pressable
+            testID="playerSkipBackwardButton"
+            accessibilityRole="button"
+            accessibilityLabel={t("skipBackward")}
+            onPress={() => seekRelative(-SKIP_SECONDS)}
+            style={styles.transportBtn}
+          >
+            <Ionicons name="play-back" size={24} color="white" />
           </Pressable>
-          <Pressable accessibilityLabel="playPause" onPress={() => actions.setPlaying(!state.isPlaying)} style={styles.iconBtn}>
-            <Text style={styles.iconText}>{state.isPlaying ? "Pause" : "Play"}</Text>
+          <Pressable
+            testID="playerPlayPauseButton"
+            accessibilityRole="button"
+            accessibilityLabel={state.isPlaying ? t("pause") : t("play")}
+            onPress={() => actions.setPlaying(!state.isPlaying)}
+            style={styles.transportBtnPrimary}
+          >
+            <Ionicons name={state.isPlaying ? "pause" : "play"} size={34} color="white" />
           </Pressable>
-          <Pressable accessibilityLabel="skipForward" onPress={() => videoRef.current?.seek(state.currentTime + SKIP_SECONDS)} style={styles.iconBtn}>
-            <Text style={styles.iconText}>+10s</Text>
+          <Pressable
+            testID="playerSkipForwardButton"
+            accessibilityRole="button"
+            accessibilityLabel={t("skipForward")}
+            onPress={() => seekRelative(SKIP_SECONDS)}
+            style={styles.transportBtn}
+          >
+            <Ionicons name="play-forward" size={24} color="white" />
           </Pressable>
         </View>
       ) : null}
@@ -223,17 +300,37 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
           <Pressable accessibilityLabel="rateMenu" onPress={() => actions.setRate(state.playbackRate >= 2 ? 1 : state.playbackRate + 0.5)} style={styles.iconBtn}>
             <Text style={styles.iconText}>{state.playbackRate}x</Text>
           </Pressable>
-          <Pressable accessibilityLabel="fullscreenButton" onPress={() => setFullScreen(true)} style={styles.iconBtn}>
-            <Text style={styles.iconText}>⤢</Text>
+          <Pressable
+            testID={isFullScreen ? "exitFullscreenButton" : "fullscreenButton"}
+            accessibilityRole="button"
+            accessibilityLabel={isFullScreen ? t("exitFullscreen") : t("fullscreen")}
+            onPress={() => {
+              setFullScreenPreservingPosition(!isFullScreen);
+            }}
+            style={styles.iconBtn}
+          >
+            <Ionicons name={isFullScreen ? "contract-outline" : "expand-outline"} size={20} color="white" />
           </Pressable>
         </View>
       ) : null}
-    </Pressable>
+    </View>
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bgPrimary }}>
-      {playerSurface}
+    <View style={{ flex: 1, backgroundColor: colors.bgPrimary, paddingTop: insets.top }}>
+      <Pressable
+        testID="playerBackButton"
+        accessibilityRole="button"
+        accessibilityLabel="Back"
+        onPress={ctx.onClose}
+        style={({ pressed }) => [
+          styles.backButton,
+          { top: insets.top + 8, backgroundColor: "rgba(0, 0, 0, 0.42)", opacity: pressed ? 0.7 : 1 },
+        ]}
+      >
+        <Ionicons name="chevron-back" size={24} color="white" />
+      </Pressable>
+      {isFullScreen ? null : playerSurface}
       <PlayerTitleRow
         title={state.detail?.title ?? destination.title}
         subtitle={state.detail ? [state.detail.type, state.detail.year].filter(Boolean).join(" · ") : ""}
@@ -303,8 +400,10 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
           <EpisodeGrid episodes={list} currentIndex={state.currentEpisodeIndex} onSelect={(i) => void actions.switchEpisode(i)} />
         </View>
       ) : null}
-      <Modal visible={isFullScreen} onRequestClose={() => setFullScreen(false)} animationType="fade">
-        <View style={{ flex: 1, backgroundColor: "black", justifyContent: "center" }}>{videoElement}</View>
+      <Modal visible={isFullScreen} onRequestClose={() => setFullScreenPreservingPosition(false)} animationType="fade">
+        <View testID="playerFullscreenModal" style={styles.fullscreenRoot}>
+          {isFullScreen ? playerSurface : null}
+        </View>
       </Modal>
     </View>
   );
@@ -359,9 +458,42 @@ function formatTime(seconds: number): string {
 
 const styles = StyleSheet.create({
   surface: { width: "100%" },
-  overlay: { position: "absolute", left: 0, right: 0, top: 0, bottom: 32, flexDirection: "row", justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.35)" },
-  bottomBar: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 12, paddingVertical: 8, flexDirection: "row", alignItems: "center", backgroundColor: "rgba(0,0,0,0.55)" },
+  touchCatcher: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 2 },
+  backButton: {
+    position: "absolute",
+    left: 16,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  overlayScrim: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 2, backgroundColor: "rgba(0,0,0,0.35)" },
+  overlay: { position: "absolute", left: 0, right: 0, top: 0, bottom: 32, zIndex: 3, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 18 },
+  bottomBar: { position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 4, paddingHorizontal: 12, paddingVertical: 8, flexDirection: "row", alignItems: "center", backgroundColor: "rgba(0,0,0,0.55)" },
   timecode: { color: "white", fontSize: 11 },
   iconBtn: { paddingHorizontal: 12, paddingVertical: 8 },
   iconText: { color: "white", fontSize: 13, fontWeight: "700" },
+  transportBtn: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.18)",
+  },
+  transportBtnPrimary: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.26)",
+  },
+  fullscreenRoot: {
+    flex: 1,
+    backgroundColor: "black",
+    justifyContent: "center",
+  },
 });

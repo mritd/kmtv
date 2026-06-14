@@ -39,7 +39,7 @@ describe("FavoritesScreen", () => {
     expect(getByText("No Favorites")).toBeTruthy();
   });
 
-  it("renders favorites list and navigates to Detail on tap", () => {
+  it("renders favorites list and navigates to Player on tap", () => {
     addFavorite("http://localhost", mk({ title: "A" }));
     addFavorite("http://localhost", mk({ videoId: "v2", title: "B" }));
     const navigation = { navigate: jest.fn() };
@@ -47,7 +47,7 @@ describe("FavoritesScreen", () => {
     expect(getByText("B")).toBeTruthy();
     // Newest-first ordering: B is first. Tap it.
     fireEvent.press(getByTestId("favorite-row-s1:v2"));
-    expect(navigation.navigate).toHaveBeenCalledWith("Detail", expect.objectContaining({
+    expect(navigation.navigate).toHaveBeenCalledWith("Player", expect.objectContaining({
       title: "B", sourceKey: "s1", videoId: "v2",
     }));
   });

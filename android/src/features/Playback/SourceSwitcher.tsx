@@ -40,7 +40,7 @@ export function SourceSwitcher({ sources, currentKey, onSelect }: SourceSwitcher
       <View style={styles.grid}>
         {display.map((s) => (
           <View key={s.source_key} style={styles.cell}>
-            <SourceButton source={s} isSelected={s.source_key === currentKey} onPress={onSelect} />
+            <SourceButton compact source={s} isSelected={s.source_key === currentKey} onPress={onSelect} />
           </View>
         ))}
       </View>

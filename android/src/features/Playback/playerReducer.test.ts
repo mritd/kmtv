@@ -26,6 +26,7 @@ test("initialPlayerState seeds sources, key, episodeIndex; defaults everything e
   expect(s.isPlaying).toBe(false);
   expect(s.isBuffering).toBe(false);
   expect(s.playbackRate).toBe(1);
+  expect(s.pendingSeekTime).toBeNull();
   expect(s.playbackURL).toBeNull();
   expect(s.urlGeneration).toBe(0);
 });
@@ -90,6 +91,28 @@ test("timeUpdate updates currentTime + duration unless seeking", () => {
   const next2 = playerReducer(not, { type: "timeUpdate", currentTime: 30, duration: 60 });
   expect(next2.currentTime).toBe(30);
   expect(next2.duration).toBe(60);
+
+  const overDuration = playerReducer(not, { type: "timeUpdate", currentTime: 70, duration: 60 });
+  expect(overDuration.currentTime).toBe(60);
+});
+
+test("commitSeek updates the UI immediately and ignores stale progress until native seek catches up", () => {
+  const committed = playerReducer(seed({ currentTime: 10, duration: 100, isSeeking: true }), {
+    type: "commitSeek",
+    currentTime: 80,
+    duration: 100,
+  });
+  expect(committed.currentTime).toBe(80);
+  expect(committed.isSeeking).toBe(false);
+  expect(committed.pendingSeekTime).toBe(80);
+
+  const stale = playerReducer(committed, { type: "timeUpdate", currentTime: 12, duration: 100 });
+  expect(stale.currentTime).toBe(80);
+  expect(stale.pendingSeekTime).toBe(80);
+
+  const caughtUp = playerReducer(stale, { type: "timeUpdate", currentTime: 80.5, duration: 100 });
+  expect(caughtUp.currentTime).toBe(80.5);
+  expect(caughtUp.pendingSeekTime).toBeNull();
 });
 
 test("error sets message, clears buffering, clears playbackURL", () => {

@@ -1,10 +1,9 @@
-// HomeStack — HomeRoot + Search. SearchScreen is reachable via tab-stack navigation, mirroring iOS.
-// HomeStack — HomeRoot + Search. SearchScreen 通过 Tab 内 stack 导航到达, 与 iOS 一致.
+// HomeStack — HomeRoot + Search + Player. Search results open Player directly, mirroring iOS.
+// HomeStack — HomeRoot + Search + Player. 搜索结果直接打开 Player, 与 iOS 一致.
 
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { HomeScreen } from "@/features/Home/HomeScreen";
-import { DetailScreen } from "@/features/Playback/DetailScreen";
 import { PlayerScreen } from "@/features/Playback/PlayerScreen";
 import { SearchScreen } from "@/features/Search/SearchScreen";
 
@@ -21,7 +20,6 @@ export function HomeStack() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="HomeRoot" component={HomeScreen} />
       <Stack.Screen name="Search" component={SearchScreen} />
-      <Stack.Screen name="Detail" component={DetailScreen} />
       <Stack.Screen name="Player" component={PlayerScreen} />
     </Stack.Navigator>
   );

@@ -8,6 +8,7 @@ import { NavigationContainer } from "@react-navigation/native";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import React from "react";
 import { I18nextProvider } from "react-i18next";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import type { DoubanAPI } from "@/api/douban";
 import { ThemeProvider } from "@/designSystem/ThemeProvider";
@@ -32,6 +33,11 @@ const groupsPayload = {
   ],
 };
 
+const safeAreaMetrics = {
+  frame: { x: 0, y: 0, width: 390, height: 844 },
+  insets: { top: 0, left: 0, right: 0, bottom: 0 },
+};
+
 function buildAPI(overrides: Partial<DoubanAPI> = {}): DoubanAPI {
   return {
     doubanHome: jest.fn(),
@@ -51,17 +57,19 @@ async function renderScreen(api: DoubanAPI, onSearchTitle: (q: string) => void =
   const i18n = await initI18n("en");
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <NavigationContainer>
-      <QueryClientProvider client={qc}>
-        <I18nextProvider i18n={i18n}>
-          <ThemeProvider override="light">
-            <CategoriesScreenContext.Provider value={{ api, serverURL: "https://api.test", onSearchTitle }}>
-              <CategoriesScreen />
-            </CategoriesScreenContext.Provider>
-          </ThemeProvider>
-        </I18nextProvider>
-      </QueryClientProvider>
-    </NavigationContainer>,
+    <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+      <NavigationContainer>
+        <QueryClientProvider client={qc}>
+          <I18nextProvider i18n={i18n}>
+            <ThemeProvider override="light">
+              <CategoriesScreenContext.Provider value={{ api, serverURL: "https://api.test", onSearchTitle }}>
+                <CategoriesScreen />
+              </CategoriesScreenContext.Provider>
+            </ThemeProvider>
+          </I18nextProvider>
+        </QueryClientProvider>
+      </NavigationContainer>
+    </SafeAreaProvider>,
   );
 }
 
@@ -134,15 +142,17 @@ describe("CategoriesScreen", () => {
     const i18n = await initI18n("en");
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-      <NavigationContainer>
-        <QueryClientProvider client={qc}>
-          <I18nextProvider i18n={i18n}>
-            <ThemeProvider override="light">
-              <CategoriesScreen />
-            </ThemeProvider>
-          </I18nextProvider>
-        </QueryClientProvider>
-      </NavigationContainer>,
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <NavigationContainer>
+          <QueryClientProvider client={qc}>
+            <I18nextProvider i18n={i18n}>
+              <ThemeProvider override="light">
+                <CategoriesScreen />
+              </ThemeProvider>
+            </I18nextProvider>
+          </QueryClientProvider>
+        </NavigationContainer>
+      </SafeAreaProvider>,
     );
     expect(screen.getByTestId("categoriesUnconfigured")).toBeTruthy();
   });
