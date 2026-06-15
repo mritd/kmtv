@@ -5,7 +5,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import {
-  BackHandler, Modal, Pressable, StyleSheet, Text, View,
+  BackHandler, Modal, Pressable, ScrollView, StyleSheet, Text, View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Video, { ViewType } from "react-native-video";
@@ -16,6 +16,7 @@ import { createPlaybackAPI, type PlaybackAPI } from "@/api/playback";
 import type { PlayDestination } from "@/api/types";
 import { sizes } from "@/designSystem/theme";
 import { useTheme } from "@/designSystem/useTheme";
+import { setAndroidOrientation } from "@/native/screenOrientation";
 import { useAuthStore } from "@/store/authStore";
 import { useServerStore } from "@/store/serverStore";
 
@@ -31,6 +32,7 @@ import { useFavoriteToggle } from "./useFavoriteToggle";
 
 const OVERLAY_AUTO_HIDE_MS = 5000;
 const SKIP_SECONDS = 10;
+const PLAYBACK_RATES = [0.5, 1, 1.25, 1.5, 2, 3] as const;
 
 function clampSeekSeconds(seconds: number, duration: number): number {
   const nonNegative = Math.max(0, seconds);
@@ -47,6 +49,15 @@ export function videoSourceForURL(uri: string): { uri: string; type?: string } {
   const withoutQuery = uri.split("?", 1)[0] ?? uri;
   const isHLS = withoutQuery.endsWith(".m3u8") || withoutQuery.endsWith("/proxy/m3u8");
   return isHLS ? { uri, type: "m3u8" } : { uri };
+}
+
+export function progressDurationFor(
+  knownDuration: number,
+  progress: { seekableDuration?: number },
+): number {
+  if (Number.isFinite(knownDuration) && knownDuration > 0) return knownDuration;
+  const seekableDuration = progress.seekableDuration ?? 0;
+  return Number.isFinite(seekableDuration) && seekableDuration > 0 ? seekableDuration : 0;
 }
 
 /**
@@ -116,6 +127,7 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
 
   const [overlayVisible, setOverlayVisible] = useState(true);
   const [isFullScreen, setFullScreen] = useState(false);
+  const [rateMenuVisible, setRateMenuVisible] = useState(false);
   const overlayHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoRef = useRef<{ seek: (s: number) => void } | null>(null);
   const remountSeekSecondsRef = useRef<number | null>(null);
@@ -129,9 +141,13 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
   }, []);
 
   useEffect(() => {
-    if (overlayVisible) scheduleOverlayHide();
+    if (overlayVisible && !isFullScreen) scheduleOverlayHide();
     return () => { if (overlayHideTimer.current) clearTimeout(overlayHideTimer.current); };
-  }, [overlayVisible, scheduleOverlayHide]);
+  }, [isFullScreen, overlayVisible, scheduleOverlayHide]);
+
+  useEffect(() => {
+    if (!overlayVisible) setRateMenuVisible(false);
+  }, [overlayVisible]);
 
   // Auto-start once detail is loaded and URL has not been resolved yet.
   // 详情加载完毕且未解析 URL 时自动起播.
@@ -147,6 +163,16 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
     setOverlayVisible(true);
     setFullScreen(value);
   }, [stateRef]);
+
+  useEffect(() => {
+    setAndroidOrientation(isFullScreen ? "sensorLandscape" : "portrait");
+    if (isFullScreen) {
+      setOverlayVisible(true);
+    }
+    return () => {
+      setAndroidOrientation("portrait");
+    };
+  }, [isFullScreen]);
 
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -224,19 +250,140 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
         }
         actions.setPlaying(true);
       }}
-      onProgress={(p: { currentTime: number; playableDuration?: number }) =>
-        actions.timeUpdate(p.currentTime, state.duration || p.playableDuration || 0)}
+      onProgress={(p: { currentTime: number; playableDuration?: number; seekableDuration?: number }) =>
+        actions.timeUpdate(p.currentTime, progressDurationFor(stateRef.current.duration, p))}
       onError={() => { void actions.onError("player error"); }}
       onBuffer={(b: { isBuffering: boolean }) => actions.setBuffering(b.isBuffering)}
       onEnd={() => { void actions.switchEpisode(state.currentEpisodeIndex + 1); }}
+      onTouchStart={() => setOverlayVisible(true)}
       resizeMode="contain"
       style={StyleSheet.absoluteFill}
     />
   ) : null;
 
+  const playerControls = overlayVisible ? (
+    <>
+      <View
+        testID="playerOverlayDismissArea"
+        pointerEvents="none"
+        style={styles.overlayScrim}
+      />
+      {isFullScreen ? (
+        <Pressable
+          testID="fullscreenBackButton"
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          onPress={ctx.onClose}
+          style={({ pressed }) => [
+            styles.fullscreenBackButton,
+            { top: insets.top + 12, opacity: pressed ? 0.7 : 1 },
+          ]}
+        >
+          <Ionicons name="chevron-back" size={26} color="white" />
+        </Pressable>
+      ) : null}
+      <View accessibilityLabel="player-overlay" pointerEvents="box-none" style={[styles.overlay, isFullScreen ? styles.fullscreenOverlay : null]}>
+        <Pressable
+          testID="playerSkipBackwardButton"
+          accessibilityRole="button"
+          accessibilityLabel={t("skipBackward")}
+          onPress={() => seekRelative(-SKIP_SECONDS)}
+          style={styles.transportBtn}
+        >
+          <Ionicons name="play-back" size={18} color="white" />
+        </Pressable>
+        <Pressable
+          testID="playerPlayPauseButton"
+          accessibilityRole="button"
+          accessibilityLabel={state.isPlaying ? t("pause") : t("play")}
+          onPress={() => actions.setPlaying(!state.isPlaying)}
+          style={styles.transportBtnPrimary}
+        >
+          <Ionicons name={state.isPlaying ? "pause" : "play"} size={24} color="white" />
+        </Pressable>
+        <Pressable
+          testID="playerSkipForwardButton"
+          accessibilityRole="button"
+          accessibilityLabel={t("skipForward")}
+          onPress={() => seekRelative(SKIP_SECONDS)}
+          style={styles.transportBtn}
+        >
+          <Ionicons name="play-forward" size={18} color="white" />
+        </Pressable>
+      </View>
+      <View style={[styles.bottomBar, isFullScreen ? styles.fullscreenBottomBar : null]}>
+        <Text style={styles.timecode}>{formatTime(state.currentTime)} / {formatTime(state.duration)}</Text>
+        <View testID="progressSlot" style={[styles.progressSlot, isFullScreen ? styles.fullscreenProgressSlot : null]}>
+          <CustomSlider
+            value={state.duration > 0 ? state.currentTime / state.duration : 0}
+            onDragStart={() => actions.setSeeking(true)}
+            onDragEnd={onSeekCommit}
+            testID="progressSlider"
+          />
+        </View>
+        <View style={styles.rateMenuAnchor}>
+          {rateMenuVisible ? (
+            <View testID="rateMenu" style={styles.rateMenu}>
+              {PLAYBACK_RATES.map((rate) => {
+                const active = rate === state.playbackRate;
+                return (
+                  <Pressable
+                    key={rate}
+                    testID={`rateOption-${rate}`}
+                    accessibilityRole="menuitem"
+                    accessibilityState={{ selected: active }}
+                    onPress={() => {
+                      actions.setRate(rate);
+                      setRateMenuVisible(false);
+                    }}
+                    style={[styles.rateOption, active ? styles.rateOptionActive : null]}
+                  >
+                    <Text style={[styles.rateOptionText, active ? styles.rateOptionTextActive : null]}>
+                      {rate}x
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
+          <Pressable
+            testID="rateMenuButton"
+            accessibilityRole="button"
+            accessibilityLabel="rateMenu"
+            accessibilityState={{ expanded: rateMenuVisible }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            onPress={() => setRateMenuVisible((v) => !v)}
+            style={styles.rateButton}
+          >
+            <Text style={styles.iconText}>{state.playbackRate}x</Text>
+            <Ionicons name={rateMenuVisible ? "chevron-down" : "chevron-up"} size={14} color="white" />
+          </Pressable>
+        </View>
+        <Pressable
+          testID={isFullScreen ? "exitFullscreenButton" : "fullscreenButton"}
+          accessibilityRole="button"
+          accessibilityLabel={isFullScreen ? t("exitFullscreen") : t("fullscreen")}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          onPress={() => {
+            setFullScreenPreservingPosition(!isFullScreen);
+          }}
+          style={styles.iconBtn}
+        >
+          <Ionicons name={isFullScreen ? "contract-outline" : "expand-outline"} size={20} color="white" />
+        </Pressable>
+      </View>
+    </>
+  ) : null;
+
   const playerSurface = (
-    <View testID="playerSurface" style={[styles.surface, { aspectRatio: 16 / 9, backgroundColor: "black" }]}>
+    <View testID="playerSurface" style={[styles.surface, { backgroundColor: "black" }]}>
       {videoElement}
+    </View>
+  );
+
+  const playerFrame = (
+    <View style={[styles.playerFrame, isFullScreen ? styles.fullscreenFrame : styles.inlineFrame]}>
+      {playerSurface}
       {!overlayVisible ? (
         <Pressable
           testID="playerTouchCatcher"
@@ -246,73 +393,7 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
           style={styles.touchCatcher}
         />
       ) : null}
-      {overlayVisible ? (
-        <Pressable
-          testID="playerOverlayDismissArea"
-          accessibilityRole="button"
-          accessibilityLabel={t("hideControls")}
-          onPress={() => setOverlayVisible(false)}
-          style={styles.overlayScrim}
-        />
-      ) : null}
-      {overlayVisible ? (
-        <View accessibilityLabel="player-overlay" pointerEvents="box-none" style={styles.overlay}>
-          <Pressable
-            testID="playerSkipBackwardButton"
-            accessibilityRole="button"
-            accessibilityLabel={t("skipBackward")}
-            onPress={() => seekRelative(-SKIP_SECONDS)}
-            style={styles.transportBtn}
-          >
-            <Ionicons name="play-back" size={24} color="white" />
-          </Pressable>
-          <Pressable
-            testID="playerPlayPauseButton"
-            accessibilityRole="button"
-            accessibilityLabel={state.isPlaying ? t("pause") : t("play")}
-            onPress={() => actions.setPlaying(!state.isPlaying)}
-            style={styles.transportBtnPrimary}
-          >
-            <Ionicons name={state.isPlaying ? "pause" : "play"} size={34} color="white" />
-          </Pressable>
-          <Pressable
-            testID="playerSkipForwardButton"
-            accessibilityRole="button"
-            accessibilityLabel={t("skipForward")}
-            onPress={() => seekRelative(SKIP_SECONDS)}
-            style={styles.transportBtn}
-          >
-            <Ionicons name="play-forward" size={24} color="white" />
-          </Pressable>
-        </View>
-      ) : null}
-      {overlayVisible ? (
-        <View style={styles.bottomBar}>
-          <Text style={styles.timecode}>{formatTime(state.currentTime)} / {formatTime(state.duration)}</Text>
-          <View style={{ flex: 1, marginHorizontal: 8 }}>
-            <CustomSlider
-              value={state.duration > 0 ? state.currentTime / state.duration : 0}
-              onDragStart={() => actions.setSeeking(true)}
-              onDragEnd={onSeekCommit}
-              testID="progressSlider"
-            />
-          </View>
-          <Pressable accessibilityLabel="rateMenu" onPress={() => actions.setRate(state.playbackRate >= 2 ? 1 : state.playbackRate + 0.5)} style={styles.iconBtn}>
-            <Text style={styles.iconText}>{state.playbackRate}x</Text>
-          </Pressable>
-          <Pressable
-            testID={isFullScreen ? "exitFullscreenButton" : "fullscreenButton"}
-            accessibilityRole="button"
-            accessibilityLabel={isFullScreen ? t("exitFullscreen") : t("fullscreen")}
-            onPress={() => {
-              setFullScreenPreservingPosition(!isFullScreen);
-            }}
-            style={styles.iconBtn}
-          >
-            <Ionicons name={isFullScreen ? "contract-outline" : "expand-outline"} size={20} color="white" />
-          </Pressable>
-        </View>
-      ) : null}
+      {playerControls}
     </View>
   );
 
@@ -330,79 +411,86 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
       >
         <Ionicons name="chevron-back" size={24} color="white" />
       </Pressable>
-      {isFullScreen ? null : playerSurface}
-      <PlayerTitleRow
-        title={state.detail?.title ?? destination.title}
-        subtitle={state.detail ? [state.detail.type, state.detail.year].filter(Boolean).join(" · ") : ""}
-        serverURL={ctx.serverURL}
-        currentSourceKey={state.currentSourceKey}
-        currentVideoID={
-          state.sources.find((s) => s.source_key === state.currentSourceKey)?.video_id ?? destination.videoId
-        }
-        cover={state.detail?.cover ?? destination.coverHint}
-        type={state.detail?.type ?? ""}
-        year={state.detail?.year ?? ""}
-      />
-      {state.sources.length > 1 ? (
-        <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
-          <SourceSwitcher sources={state.sources} currentKey={state.currentSourceKey} onSelect={(k) => void actions.switchSource(k)} />
-        </View>
-      ) : null}
-      {(state.detail?.episodes.length ?? 0) > 1 ? (
-        <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
-          <Text style={{ color: colors.textSecondary, fontSize: 12, marginBottom: 6 }}>{t("cdnLines")}</Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
-            {(state.detail?.episodes ?? []).map((line, idx) => {
-              // Dead line (empty inner array) — show strike-through and disable per spec §7.
-              // 死线路 (内层数组为空) — 按 spec §7 加划线并禁用.
-              const dead = line.length === 0;
-              const isCurrent = idx === state.currentLineIndex;
-              return (
-                <Pressable
-                  key={`line-${idx}`}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isCurrent, disabled: dead }}
-                  disabled={dead}
-                  onPress={() => void actions.switchLine(idx)}
-                  style={{
-                    paddingHorizontal: 12,
-                    paddingVertical: 6,
-                    marginRight: 6,
-                    marginBottom: 6,
-                    borderRadius: sizes.radius.sm,
-                    backgroundColor: isCurrent ? colors.accent : colors.bgCard,
-                    opacity: dead ? 0.5 : 1,
-                  }}
-                >
-                  <Text style={{
-                    color: isCurrent ? "white" : colors.textPrimary,
-                    fontSize: 11,
-                    textDecorationLine: dead ? "line-through" : "none",
-                  }}>
-                    {t(dead ? "lineDead" : "line", { index: idx + 1 })}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-      ) : null}
-      <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
-        <SkipSettingsRow
-          skipIntroSeconds={state.skipIntroSeconds}
-          skipOutroSeconds={state.skipOutroSeconds}
-          onChangeIntro={actions.setSkipIntro}
-          onChangeOutro={actions.setSkipOutro}
+      <ScrollView
+        testID="playerDetailsScroll"
+        style={styles.detailsScroll}
+        contentContainerStyle={[styles.detailsContent, { paddingBottom: Math.max(insets.bottom, 12) + 92 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {isFullScreen ? null : playerFrame}
+        <PlayerTitleRow
+          title={state.detail?.title ?? destination.title}
+          subtitle={state.detail ? [state.detail.type, state.detail.year].filter(Boolean).join(" · ") : ""}
+          serverURL={ctx.serverURL}
+          currentSourceKey={state.currentSourceKey}
+          currentVideoID={
+            state.sources.find((s) => s.source_key === state.currentSourceKey)?.video_id ?? destination.videoId
+          }
+          cover={state.detail?.cover ?? destination.coverHint}
+          type={state.detail?.type ?? ""}
+          year={state.detail?.year ?? ""}
         />
-      </View>
-      {list.length > 1 ? (
-        <View style={{ paddingHorizontal: 16 }}>
-          <EpisodeGrid episodes={list} currentIndex={state.currentEpisodeIndex} onSelect={(i) => void actions.switchEpisode(i)} />
+        {state.sources.length > 1 ? (
+          <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
+            <SourceSwitcher sources={state.sources} currentKey={state.currentSourceKey} onSelect={(k) => void actions.switchSource(k)} />
+          </View>
+        ) : null}
+        {(state.detail?.episodes.length ?? 0) > 1 ? (
+          <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
+            <Text style={{ color: colors.textSecondary, fontSize: 12, marginBottom: 6 }}>{t("cdnLines")}</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+              {(state.detail?.episodes ?? []).map((line, idx) => {
+                // Dead line (empty inner array) — show strike-through and disable per spec §7.
+                // 死线路 (内层数组为空) — 按 spec §7 加划线并禁用.
+                const dead = line.length === 0;
+                const isCurrent = idx === state.currentLineIndex;
+                return (
+                  <Pressable
+                    key={`line-${idx}`}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isCurrent, disabled: dead }}
+                    disabled={dead}
+                    onPress={() => void actions.switchLine(idx)}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      marginRight: 6,
+                      marginBottom: 6,
+                      borderRadius: sizes.radius.sm,
+                      backgroundColor: isCurrent ? colors.accent : colors.bgCard,
+                      opacity: dead ? 0.5 : 1,
+                    }}
+                  >
+                    <Text style={{
+                      color: isCurrent ? "white" : colors.textPrimary,
+                      fontSize: 11,
+                      textDecorationLine: dead ? "line-through" : "none",
+                    }}>
+                      {t(dead ? "lineDead" : "line", { index: idx + 1 })}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
+        <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
+          <SkipSettingsRow
+            skipIntroSeconds={state.skipIntroSeconds}
+            skipOutroSeconds={state.skipOutroSeconds}
+            onChangeIntro={actions.setSkipIntro}
+            onChangeOutro={actions.setSkipOutro}
+          />
         </View>
-      ) : null}
+        {list.length > 1 ? (
+          <View style={{ paddingHorizontal: 16 }}>
+            <EpisodeGrid episodes={list} currentIndex={state.currentEpisodeIndex} onSelect={(i) => void actions.switchEpisode(i)} />
+          </View>
+        ) : null}
+      </ScrollView>
       <Modal visible={isFullScreen} onRequestClose={() => setFullScreenPreservingPosition(false)} animationType="fade">
         <View testID="playerFullscreenModal" style={styles.fullscreenRoot}>
-          {isFullScreen ? playerSurface : null}
+          {isFullScreen ? playerFrame : null}
         </View>
       </Modal>
     </View>
@@ -457,12 +545,18 @@ function formatTime(seconds: number): string {
 }
 
 const styles = StyleSheet.create({
-  surface: { width: "100%" },
-  touchCatcher: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 2 },
+  playerFrame: { position: "relative", overflow: "hidden", backgroundColor: "black" },
+  inlineFrame: { width: "100%", aspectRatio: 16 / 9 },
+  fullscreenFrame: { flex: 1, width: "100%" },
+  surface: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 },
+  detailsScroll: { flex: 1 },
+  detailsContent: { flexGrow: 1 },
+  touchCatcher: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 2, elevation: 8 },
   backButton: {
     position: "absolute",
     left: 16,
     zIndex: 10,
+    elevation: 16,
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -470,27 +564,59 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   overlayScrim: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 2, backgroundColor: "rgba(0,0,0,0.35)" },
-  overlay: { position: "absolute", left: 0, right: 0, top: 0, bottom: 32, zIndex: 3, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 18 },
-  bottomBar: { position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 4, paddingHorizontal: 12, paddingVertical: 8, flexDirection: "row", alignItems: "center", backgroundColor: "rgba(0,0,0,0.55)" },
+  fullscreenBackButton: { position: "absolute", left: 16, zIndex: 5, elevation: 16, width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.42)" },
+  overlay: { position: "absolute", left: 0, right: 0, top: 0, bottom: 32, zIndex: 3, elevation: 10, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 12 },
+  fullscreenOverlay: { bottom: 88 },
+  bottomBar: { position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 4, elevation: 12, overflow: "visible", paddingHorizontal: 12, paddingVertical: 6, flexDirection: "row", alignItems: "center", backgroundColor: "rgba(0,0,0,0.55)" },
+  fullscreenBottomBar: { left: 16, right: 16, bottom: 18, minHeight: 48, borderRadius: 8 },
+  progressSlot: { flex: 1, flexShrink: 1, minWidth: 0, marginHorizontal: 8 },
+  fullscreenProgressSlot: { marginHorizontal: 10 },
   timecode: { color: "white", fontSize: 11 },
-  iconBtn: { paddingHorizontal: 12, paddingVertical: 8 },
+  iconBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   iconText: { color: "white", fontSize: 13, fontWeight: "700" },
   transportBtn: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "rgba(255,255,255,0.16)",
   },
   transportBtnPrimary: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.26)",
+    backgroundColor: "rgba(255,255,255,0.24)",
   },
+  rateMenuAnchor: { position: "relative", zIndex: 6 },
+  rateButton: {
+    width: 62,
+    height: 44,
+    paddingHorizontal: 8,
+    borderRadius: 22,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+  },
+  rateMenu: {
+    position: "absolute",
+    right: 0,
+    bottom: 42,
+    width: 86,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: "rgba(22,22,28,0.96)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.18)",
+    elevation: 12,
+  },
+  rateOption: { height: 32, paddingHorizontal: 10, justifyContent: "center" },
+  rateOptionActive: { backgroundColor: "rgba(100,149,237,0.32)" },
+  rateOptionText: { color: "white", fontSize: 13, fontWeight: "600" },
+  rateOptionTextActive: { color: "white" },
   fullscreenRoot: {
     flex: 1,
     backgroundColor: "black",

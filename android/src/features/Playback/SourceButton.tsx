@@ -2,7 +2,7 @@
 // SourceButton — SourceSwitcher 中的单源选择胶囊按钮.
 
 import React from "react";
-import { Pressable, StyleSheet, Text } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { SourceResult } from "@/api/types";
 import { sizes } from "@/designSystem/theme";
@@ -26,12 +26,15 @@ export interface SourceButtonProps {
 export function SourceButton({ source, isSelected, onPress, compact = false }: SourceButtonProps) {
   const { colors } = useTheme();
   const name = cleanSourceName(source.source_name);
+  const latency = formatLatency(source.duration_ms);
+  const textColor = isSelected ? "white" : colors.textPrimary;
+  const secondaryColor = isSelected ? "rgba(255,255,255,0.78)" : colors.textSecondary;
   return (
     <Pressable
       testID={`sourceButton-${source.source_key}`}
       onPress={() => onPress(source.source_key)}
       accessibilityRole="button"
-      accessibilityLabel={name}
+      accessibilityLabel={latency ? `${name} ${latency}` : name}
       accessibilityState={{ selected: isSelected }}
       style={[
         styles.root,
@@ -39,13 +42,20 @@ export function SourceButton({ source, isSelected, onPress, compact = false }: S
         { backgroundColor: isSelected ? colors.accent : colors.bgCard },
       ]}
     >
-      <Text
-        numberOfLines={1}
-        ellipsizeMode="tail"
-        style={{ color: isSelected ? "white" : colors.textPrimary, fontSize: 12, fontWeight: "600" }}
-      >
-        {name}
-      </Text>
+      <View style={styles.textStack}>
+        <Text
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          style={{ color: textColor, fontSize: 12, fontWeight: "700" }}
+        >
+          {name}
+        </Text>
+        {latency ? (
+          <Text numberOfLines={1} style={{ color: secondaryColor, fontSize: 10, fontWeight: "600", marginTop: 2 }}>
+            {latency}
+          </Text>
+        ) : null}
+      </View>
     </Pressable>
   );
 }
@@ -54,8 +64,15 @@ function cleanSourceName(name: string): string {
   return name.replace(/^(🎬|🔞)\s?/u, "");
 }
 
+function formatLatency(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return "";
+  if (durationMs < 1000) return `${Math.round(durationMs)} ms`;
+  return `${(durationMs / 1000).toFixed(1)} s`;
+}
+
 const styles = StyleSheet.create({
   root: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: sizes.radius.sm, alignItems: "center" },
+  textStack: { maxWidth: "100%", alignItems: "center" },
   bordered: { minWidth: 88, maxWidth: 140 },
   compact: { width: "100%" },
 });

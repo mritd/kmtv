@@ -5,7 +5,7 @@ import { render } from "@testing-library/react-native";
 import React from "react";
 import { StyleSheet } from "react-native";
 
-import { CustomSlider } from "./CustomSlider";
+import { CustomSlider, sliderRatioFromPageX } from "./CustomSlider";
 
 test("CustomSlider fires drag callbacks via test pan", () => {
   const onDragStart = jest.fn();
@@ -47,4 +47,10 @@ test("CustomSlider centers the thumb inside the slider height", () => {
   const { getByTestId } = render(<CustomSlider value={0.5} testID="slider" />);
   const thumbStyle = StyleSheet.flatten(getByTestId("slider-thumb").props.style);
   expect(thumbStyle.top).toBeGreaterThanOrEqual(0);
+});
+
+test("sliderRatioFromPageX computes from absolute slider bounds", () => {
+  expect(sliderRatioFromPageX(180, 100, 400)).toBeCloseTo(0.2);
+  expect(sliderRatioFromPageX(80, 100, 400)).toBe(0);
+  expect(sliderRatioFromPageX(560, 100, 400)).toBe(1);
 });

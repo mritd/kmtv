@@ -27,4 +27,8 @@ describe("app.config.ts brand surface", () => {
     expect(opts?.resizeMode).toBe("contain");
     expect(opts?.imageWidth).toBe(360);
   });
+
+  it("registers the Android orientation bridge plugin before generated native code is built", () => {
+    expect(appConfig.plugins?.[0]).toBe("./plugins/withKmtvOrientation");
+  });
 });

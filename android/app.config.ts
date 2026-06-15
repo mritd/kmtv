@@ -24,6 +24,7 @@ const config: ExpoConfig = {
     permissions: ["INTERNET"],
   },
   plugins: [
+    "./plugins/withKmtvOrientation",
     "expo-secure-store",
     "expo-localization",
     [

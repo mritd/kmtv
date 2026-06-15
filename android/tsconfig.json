@@ -12,5 +12,5 @@
     "baseUrl": ".",
     "ignoreDeprecations": "6.0"
   },
-  "include": ["src", "App.tsx", "index.ts", "app.config.ts", "jest.setup.ts"]
+  "include": ["src", "plugins", "App.tsx", "index.ts", "app.config.ts", "jest.setup.ts"]
 }

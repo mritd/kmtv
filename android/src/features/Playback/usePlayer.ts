@@ -19,6 +19,7 @@ import {
 } from "./playerReducer";
 
 const PROGRESS_SAVE_INTERVAL_S = 5;
+const END_ADVANCE_EPSILON_S = 0.75;
 
 /**
  * Pure helper: apply a sequence of actions and return the final state. The failover loop uses
@@ -111,6 +112,8 @@ export function usePlayer({ serverURL, destination, detailAPI, playbackAPI }: Us
   const stateRef = useRef(state);
   stateRef.current = state;
   const lastSavedTimeRef = useRef(0);
+  const autoAdvanceKeyRef = useRef<string | null>(null);
+  const autoAdvanceBlockedRef = useRef(false);
   const resumeStartRef = useRef(0);
   // `resumeConsumed` is a state (not a ref) so flipping it re-renders the hook and the next read
   // of `resumeStartSeconds` sees 0. The flag never resets — once consumed, subsequent onLoad
@@ -119,6 +122,23 @@ export function usePlayer({ serverURL, destination, detailAPI, playbackAPI }: Us
   // resumeConsumed 是 state (而非 ref), flip 时触发重渲染, 下次读 resumeStartSeconds 才能取到 0.
   // 一旦置 true 在屏幕生命周期内不重置; 切线路/剧集/源时显式置回 false.
   const [resumeConsumed, setResumeConsumed] = useState(false);
+
+  const resumeStartFor = useCallback((input: PlayerState, episodeIndex = input.currentEpisodeIndex): number => {
+    const videoId = sourceVideoID(input);
+    const saved = loadWatchHistory(serverURL, 100).find((h) =>
+      h.sourceKey === input.currentSourceKey
+      && h.videoId === videoId
+      && h.episodeIndex === episodeIndex,
+    );
+    return saved && saved.progress > 0 ? saved.progress : input.skipIntroSeconds;
+  }, [serverURL]);
+
+  const setResumeStartFor = useCallback((input: PlayerState, episodeIndex = input.currentEpisodeIndex) => {
+    const nextResumeStart = resumeStartFor(input, episodeIndex);
+    resumeStartRef.current = nextResumeStart;
+    lastSavedTimeRef.current = nextResumeStart;
+    setResumeConsumed(false);
+  }, [resumeStartFor]);
 
   // Seed skip-intro / skip-outro from MMKV, then compute resume position (watchHistory + skipIntro).
   // 由 MMKV 加载跳过设置, 再用 watchHistory + skipIntro 计算续播位置.
@@ -290,13 +310,14 @@ export function usePlayer({ serverURL, destination, detailAPI, playbackAPI }: Us
         { type: "urlCleared" },
         { type: "clearError" },
       ]);
+      autoAdvanceBlockedRef.current = false;
+      setResumeStartFor(seed);
       const after = await playFrom(seed);
       commitFinalState(before, after);
-      setResumeConsumed(false);
     } catch (err) {
       dispatch({ type: "error", message: err instanceof Error ? err.message : "switch source failed" });
     }
-  }, [commitFinalState, detailAPI, playFrom]);
+  }, [commitFinalState, detailAPI, playFrom, setResumeStartFor]);
 
   const switchLine = useCallback(async (index: number) => {
     const before = stateRef.current;
@@ -305,10 +326,11 @@ export function usePlayer({ serverURL, destination, detailAPI, playbackAPI }: Us
       { type: "urlCleared" },
       { type: "clearError" },
     ]);
+    autoAdvanceBlockedRef.current = false;
+    setResumeStartFor(seed);
     const after = await playFrom(seed);
     commitFinalState(before, after);
-    setResumeConsumed(false);
-  }, [commitFinalState, playFrom]);
+  }, [commitFinalState, playFrom, setResumeStartFor]);
 
   const switchEpisode = useCallback(async (index: number) => {
     const before = stateRef.current;
@@ -317,10 +339,10 @@ export function usePlayer({ serverURL, destination, detailAPI, playbackAPI }: Us
       { type: "urlCleared" },
       { type: "clearError" },
     ]);
+    setResumeStartFor(seed);
     const after = await playFrom(seed);
     commitFinalState(before, after);
-    setResumeConsumed(false);
-  }, [commitFinalState, playFrom]);
+  }, [commitFinalState, playFrom, setResumeStartFor]);
 
   const setRate = useCallback((rate: number) => {
     dispatch({ type: "setRate", rate });
@@ -380,11 +402,24 @@ export function usePlayer({ serverURL, destination, detailAPI, playbackAPI }: Us
     if (Math.abs(currentTime - lastSavedTimeRef.current) >= PROGRESS_SAVE_INTERVAL_S) {
       persistProgressNow(currentTime, duration);
     }
-    const { skipOutroSeconds, currentEpisodeIndex } = stateRef.current;
+    const { currentSourceKey, currentLineIndex, skipOutroSeconds, currentEpisodeIndex, isSeeking } = stateRef.current;
     const list = selectEpisodes(stateRef.current);
-    if (skipOutroSeconds > 0 && duration > 0) {
+    if (autoAdvanceBlockedRef.current) {
+      const awayFromEnd = duration <= 0 || duration - currentTime > END_ADVANCE_EPSILON_S;
+      if (awayFromEnd) {
+        autoAdvanceBlockedRef.current = false;
+      } else {
+        return;
+      }
+    }
+    if (duration > 0 && !isSeeking && currentEpisodeIndex < list.length - 1) {
       const remaining = duration - currentTime;
-      if (remaining > 0 && remaining <= skipOutroSeconds && currentEpisodeIndex < list.length - 1) {
+      const shouldSkipOutro = skipOutroSeconds > 0 && remaining > 0 && remaining <= skipOutroSeconds;
+      const reachedEnd = remaining >= 0 && remaining <= END_ADVANCE_EPSILON_S;
+      const advanceKey = `${currentSourceKey}:${currentLineIndex}:${currentEpisodeIndex}`;
+      if ((shouldSkipOutro || reachedEnd) && autoAdvanceKeyRef.current !== advanceKey) {
+        autoAdvanceKeyRef.current = advanceKey;
+        autoAdvanceBlockedRef.current = true;
         void switchEpisode(currentEpisodeIndex + 1);
       }
     }

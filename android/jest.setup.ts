@@ -2,6 +2,11 @@
 // 全局 jest 启动配置: mock 在 node 环境无法运行的原生模块.
 
 import "@testing-library/jest-native/extend-expect";
+import { NativeModules } from "react-native";
+
+(NativeModules as Record<string, unknown>).KmtvOrientation = {
+  setOrientation: jest.fn(),
+};
 
 // react-native-mmkv: in-memory Map per instance, mirroring the createMMKV() v4 API.
 // react-native-mmkv: 每个实例使用内存 Map, 复刻 createMMKV() v4 API.

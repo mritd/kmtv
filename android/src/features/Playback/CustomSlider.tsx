@@ -3,7 +3,10 @@
 // CustomSlider — 细进度条 + 小圆头, 拖动时放大. 生产使用 PanResponder; 测试通过 _panForTest 触发同一回调.
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { PanResponder, StyleSheet, View, type LayoutChangeEvent } from "react-native";
+import {
+  PanResponder, StyleSheet, View, type LayoutChangeEvent, type GestureResponderEvent,
+  type PanResponderGestureState,
+} from "react-native";
 
 const TRACK_HEIGHT = 3;
 const THUMB_IDLE = 8;
@@ -36,6 +39,11 @@ function clamp01(v: number): number {
   return v;
 }
 
+export function sliderRatioFromPageX(pageX: number, sliderLeft: number, width: number): number {
+  if (width <= 0 || !Number.isFinite(pageX) || !Number.isFinite(sliderLeft)) return 0;
+  return clamp01((pageX - sliderLeft) / width);
+}
+
 /**
  * Thin slider with growing thumb. Updates display position immediately during drag, but only
  * commits the seek when the gesture ends.
@@ -45,11 +53,38 @@ export function CustomSlider({ value, onDragStart, onDragEnd, testID, _panForTes
   const [width, setWidth] = useState(0);
   const [dragValue, setDragValue] = useState<number | null>(null);
   const widthRef = useRef(0);
+  const rootRef = useRef<View | null>(null);
+  const sliderLeftRef = useRef(0);
+  const hasSliderLeftRef = useRef(false);
+
+  const measureSlider = useCallback(() => {
+    rootRef.current?.measureInWindow((x, _y, measuredWidth) => {
+      sliderLeftRef.current = x;
+      hasSliderLeftRef.current = true;
+      if (measuredWidth > 0) {
+        setWidth(measuredWidth);
+        widthRef.current = measuredWidth;
+      }
+    });
+  }, []);
 
   const onLayout = useCallback((e: LayoutChangeEvent) => {
     const w = e.nativeEvent.layout.width;
     setWidth(w);
     widthRef.current = w;
+    measureSlider();
+  }, [measureSlider]);
+
+  const ratioFromResponder = useCallback((
+    evt: GestureResponderEvent,
+    gestureState?: PanResponderGestureState,
+  ) => {
+    const w = widthRef.current || 1;
+    const absoluteX = gestureState?.moveX ?? evt.nativeEvent.pageX;
+    if (hasSliderLeftRef.current && Number.isFinite(absoluteX)) {
+      return sliderRatioFromPageX(absoluteX, sliderLeftRef.current, w);
+    }
+    return clamp01(evt.nativeEvent.locationX / w);
   }, []);
 
   const dispatchPan = useCallback((ratio: number, phase: "start" | "end") => {
@@ -80,16 +115,14 @@ export function CustomSlider({ value, onDragStart, onDragEnd, testID, _panForTes
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (evt) => {
-        const w = widthRef.current || 1;
-        dispatchPanRef.current(evt.nativeEvent.locationX / w, "start");
+        measureSlider();
+        dispatchPanRef.current(ratioFromResponder(evt), "start");
       },
-      onPanResponderMove: (evt) => {
-        const w = widthRef.current || 1;
-        setDragValue(clamp01(evt.nativeEvent.locationX / w));
+      onPanResponderMove: (evt, gestureState) => {
+        setDragValue(ratioFromResponder(evt, gestureState));
       },
-      onPanResponderRelease: (evt) => {
-        const w = widthRef.current || 1;
-        dispatchPanRef.current(evt.nativeEvent.locationX / w, "end");
+      onPanResponderRelease: (evt, gestureState) => {
+        dispatchPanRef.current(ratioFromResponder(evt, gestureState), "end");
       },
       onPanResponderTerminate: () => {
         setDragValue(null);
@@ -106,6 +139,7 @@ export function CustomSlider({ value, onDragStart, onDragEnd, testID, _panForTes
 
   return (
     <View
+      ref={rootRef}
       onLayout={onLayout}
       testID={testID}
       style={styles.root}

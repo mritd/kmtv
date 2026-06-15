@@ -38,3 +38,13 @@ test("selected style differs from unselected (accessibilityState reflects it)", 
   rerender(<ThemeProvider override="light"><SourceButton source={src} isSelected={true} onPress={() => {}} /></ThemeProvider>);
   expect(getByRole("button").props.accessibilityState).toEqual({ selected: true });
 });
+
+test("renders source latency from duration_ms", () => {
+  const fast = { ...src, duration_ms: 238 };
+  const slow = { ...src, source_key: "k2", source_name: "Slow Source", duration_ms: 1240 };
+  const { getByText, rerender } = wrap(<SourceButton source={fast} isSelected={false} onPress={() => {}} />);
+  expect(getByText("238 ms")).toBeTruthy();
+
+  rerender(<ThemeProvider override="light"><SourceButton source={slow} isSelected={false} onPress={() => {}} /></ThemeProvider>);
+  expect(getByText("1.2 s")).toBeTruthy();
+});

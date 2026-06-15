@@ -164,6 +164,43 @@ test("switchLine then switchEpisode update reducer state and resolve a URL", asy
   expect(result.current.state.currentEpisodeIndex).toBe(0);
 });
 
+test("timeUpdate auto-advances to the next episode when progress reaches the end", async () => {
+  const apis = mkAPIs();
+  apis.detail.detail = jest.fn().mockResolvedValue({
+    ...detail,
+    episodes: [[
+      { name: "E1", url: "raw://e1" },
+      { name: "E2", url: "raw://e2" },
+      { name: "E3", url: "raw://e3" },
+    ]],
+  });
+  apis.playback.playbackURL = jest.fn()
+    .mockResolvedValueOnce({ mode: "proxy", url: "https://p/e1.m3u8" })
+    .mockResolvedValueOnce({ mode: "proxy", url: "https://p/e2.m3u8" })
+    .mockResolvedValueOnce({ mode: "proxy", url: "https://p/e3.m3u8" });
+  const { result } = renderHook(() =>
+    usePlayer({ serverURL: "http://srv-auto-next", destination: dest, detailAPI: apis.detail, playbackAPI: apis.playback }),
+  );
+  await waitFor(() => expect(result.current.state.detail).not.toBeNull());
+  await act(async () => { await result.current.actions.startPlayback(); });
+  expect(result.current.state.currentEpisodeIndex).toBe(0);
+
+  act(() => { result.current.actions.timeUpdate(99.5, 100); });
+
+  await waitFor(() => expect(result.current.state.currentEpisodeIndex).toBe(1));
+  expect(result.current.state.playbackURL).toBe("https://p/e2.m3u8");
+  expect(apis.playback.playbackURL).toHaveBeenLastCalledWith("raw://e2", "a");
+
+  act(() => { result.current.actions.timeUpdate(99.7, 100); });
+  expect(result.current.state.currentEpisodeIndex).toBe(1);
+  expect(apis.playback.playbackURL).toHaveBeenCalledTimes(2);
+
+  act(() => { result.current.actions.timeUpdate(2, 100); });
+  act(() => { result.current.actions.timeUpdate(99.5, 100); });
+  await waitFor(() => expect(result.current.state.currentEpisodeIndex).toBe(2));
+  expect(result.current.state.playbackURL).toBe("https://p/e3.m3u8");
+});
+
 test("setSkipIntro and setSkipOutro persist to MMKV", async () => {
   const { loadPlaybackSettings } = require("@/storage/playbackSettings");
   const apis = mkAPIs();
@@ -205,4 +242,32 @@ test("resumeStartSeconds defaults to skipIntro until consumed", async () => {
   expect(result.current.resumeStartSeconds).toBe(12);
   act(() => { result.current.actions.markResumeConsumed(); });
   expect(result.current.resumeStartSeconds).toBe(0);
+});
+
+test("switchEpisode recomputes resume position for the target episode", async () => {
+  const { recordPlayProgress } = require("@/storage/watchHistory");
+  const serverURL = "http://srv-resume-target";
+  recordPlayProgress(serverURL, {
+    id: "a:v-a:0",
+    sourceKey: "a",
+    videoId: "v-a",
+    title: "T",
+    cover: "",
+    episode: "E1",
+    episodeIndex: 0,
+    progress: 95,
+    duration: 100,
+  });
+  savePlaybackSettings(serverURL, "T", { skipIntroSeconds: 12, skipOutroSeconds: 0, playbackRate: 1 });
+  const apis = mkAPIs();
+  const { result } = renderHook(() =>
+    usePlayer({ serverURL, destination: dest, detailAPI: apis.detail, playbackAPI: apis.playback }),
+  );
+  await waitFor(() => expect(result.current.resumeStartSeconds).toBe(95));
+  act(() => { result.current.actions.markResumeConsumed(); });
+
+  await act(async () => { await result.current.actions.switchEpisode(1); });
+
+  expect(result.current.state.currentEpisodeIndex).toBe(1);
+  expect(result.current.resumeStartSeconds).toBe(12);
 });
