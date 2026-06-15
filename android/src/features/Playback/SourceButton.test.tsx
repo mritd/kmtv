@@ -5,7 +5,7 @@ import { fireEvent, render } from "@testing-library/react-native";
 import React from "react";
 
 import { ThemeProvider } from "@/designSystem/ThemeProvider";
-import { SourceButton } from "./SourceButton";
+import { latencyColorForDuration, SourceButton } from "./SourceButton";
 import type { SourceResult } from "@/api/types";
 
 const src: SourceResult = {
@@ -47,4 +47,11 @@ test("renders source latency from duration_ms", () => {
 
   rerender(<ThemeProvider override="light"><SourceButton source={slow} isSelected={false} onPress={() => {}} /></ThemeProvider>);
   expect(getByText("1.2 s")).toBeTruthy();
+});
+
+test("colors latency by response time tier", () => {
+  expect(latencyColorForDuration(238)).toBe("#54d86a");
+  expect(latencyColorForDuration(1240)).toBe("#f6c453");
+  expect(latencyColorForDuration(3600)).toBe("#fb4667");
+  expect(latencyColorForDuration(0)).toBeNull();
 });

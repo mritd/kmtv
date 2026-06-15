@@ -3,7 +3,7 @@
 
 import { NativeModules } from "react-native";
 
-export type AndroidOrientationMode = "portrait" | "sensorLandscape";
+export type AndroidOrientationMode = "portrait" | "fullSensor";
 
 interface KmtvOrientationModule {
   setOrientation?: (mode: AndroidOrientationMode) => void;

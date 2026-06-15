@@ -2,6 +2,7 @@
 // SourceSwitcher — 源胶囊网格, 列表过长时折叠并暴露 "全部展开 / 收起" 切换.
 
 import React, { useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -45,8 +46,21 @@ export function SourceSwitcher({ sources, currentKey, onSelect }: SourceSwitcher
         ))}
       </View>
       {sources.length > COLLAPSE_THRESHOLD ? (
-        <Pressable accessibilityRole="button" onPress={() => setShowAll((v) => !v)} style={styles.toggleRow}>
-          <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+        <Pressable
+          testID="sourceToggleButton"
+          accessibilityRole="button"
+          onPress={() => setShowAll((v) => !v)}
+          style={({ pressed }) => [
+            styles.toggleRow,
+            {
+              backgroundColor: colors.bgCard,
+              borderColor: colors.bgSecondary,
+              opacity: pressed ? 0.72 : 1,
+            },
+          ]}
+        >
+          <Ionicons name={showAll ? "chevron-up" : "chevron-down"} size={14} color={colors.accent} />
+          <Text style={{ color: colors.accent, fontSize: 12, fontWeight: "700" }}>
             {showAll ? t("collapse") : t("showAll", { count: sources.length })}
           </Text>
         </Pressable>
@@ -58,5 +72,15 @@ export function SourceSwitcher({ sources, currentKey, onSelect }: SourceSwitcher
 const styles = StyleSheet.create({
   grid: { flexDirection: "row", flexWrap: "wrap" },
   cell: { width: "33.333%", padding: 4 },
-  toggleRow: { paddingVertical: 6, alignItems: "center" },
+  toggleRow: {
+    marginHorizontal: 4,
+    marginTop: 8,
+    minHeight: 36,
+    borderWidth: 1,
+    borderRadius: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
 });

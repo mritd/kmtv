@@ -165,7 +165,7 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
   }, [stateRef]);
 
   useEffect(() => {
-    setAndroidOrientation(isFullScreen ? "sensorLandscape" : "portrait");
+    setAndroidOrientation(isFullScreen ? "fullSensor" : "portrait");
     if (isFullScreen) {
       setOverlayVisible(true);
     }
@@ -382,7 +382,10 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
   );
 
   const playerFrame = (
-    <View style={[styles.playerFrame, isFullScreen ? styles.fullscreenFrame : styles.inlineFrame]}>
+    <View
+      testID={isFullScreen ? "playerFullscreenFrame" : "playerFixedFrame"}
+      style={[styles.playerFrame, isFullScreen ? styles.fullscreenFrame : styles.inlineFrame]}
+    >
       {playerSurface}
       {!overlayVisible ? (
         <Pressable
@@ -411,13 +414,13 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
       >
         <Ionicons name="chevron-back" size={24} color="white" />
       </Pressable>
+      {isFullScreen ? null : playerFrame}
       <ScrollView
         testID="playerDetailsScroll"
         style={styles.detailsScroll}
         contentContainerStyle={[styles.detailsContent, { paddingBottom: Math.max(insets.bottom, 12) + 92 }]}
         showsVerticalScrollIndicator={false}
       >
-        {isFullScreen ? null : playerFrame}
         <PlayerTitleRow
           title={state.detail?.title ?? destination.title}
           subtitle={state.detail ? [state.detail.type, state.detail.year].filter(Boolean).join(" · ") : ""}

@@ -90,7 +90,9 @@ test("PlayerScreen renders <Video /> after URL resolves", async () => {
   const playbackAPI: PlaybackAPI = { playbackURL: jest.fn().mockResolvedValue({ mode: "proxy", url: "https://p/m3u8" }) };
   const { findByTestId, getByTestId } = wrap(detailAPI, playbackAPI);
   const video = await findByTestId("video");
+  expect(getByTestId("playerFixedFrame")).toBeTruthy();
   expect(getByTestId("playerDetailsScroll")).toBeTruthy();
+  expect(() => getByTestId("playerDetailsScroll").findByProps({ testID: "playerFixedFrame" })).toThrow();
   expect(video.props.viewType).toBe(ViewType.TEXTURE);
   expect(video.props.useTextureView).toBe(true);
   expect(video.props.pointerEvents).toBe("none");
@@ -245,7 +247,7 @@ test("full-screen remount keeps controls visible and resumes from the current ti
   await waitFor(() => expect(getByText("2:05 / 10:00")).toBeTruthy());
 
   await act(async () => { fireEvent.press(getByTestId("fullscreenButton")); });
-  await waitFor(() => expect(orientation.setOrientation).toHaveBeenCalledWith("sensorLandscape"));
+  await waitFor(() => expect(orientation.setOrientation).toHaveBeenCalledWith("fullSensor"));
   expect(getByTestId("playerFullscreenModal")).toBeTruthy();
   expect(getByTestId("exitFullscreenButton")).toBeTruthy();
   expect(getByTestId("playerPlayPauseButton")).toBeTruthy();

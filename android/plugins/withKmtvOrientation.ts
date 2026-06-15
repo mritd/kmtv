@@ -31,7 +31,7 @@ class ${MODULE_CLASS}(reactContext: ReactApplicationContext) : ReactContextBaseJ
     @Suppress("DEPRECATION")
     val activity: Activity = getCurrentActivity() ?: return
     val orientation = when (mode) {
-      "sensorLandscape" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+      "fullSensor" -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
       else -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
     }
     activity.runOnUiThread {

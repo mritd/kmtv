@@ -38,11 +38,15 @@ test("renders all sources when count <= 6", () => {
 
 test("collapses long lists to first 6 with Show all toggle", () => {
   const sources = ["a", "b", "c", "d", "e", "f", "g", "h"].map(src);
-  const { getByText, queryByText } = wrap(
+  const { getByTestId, getByText, queryByText } = wrap(
     <SourceSwitcher sources={sources} currentKey="a" onSelect={() => {}} />,
   );
   expect(queryByText("name-h")).toBeNull();
   expect(getByText("Show all 8 sources")).toBeTruthy();
+  expect(getByTestId("sourceToggleButton").props.style).toEqual(expect.arrayContaining([
+    expect.objectContaining({ minHeight: 36, borderWidth: 1, flexDirection: "row" }),
+    expect.objectContaining({ backgroundColor: "rgb(255, 255, 255)", borderColor: "rgb(235, 235, 239)" }),
+  ]));
   fireEvent.press(getByText("Show all 8 sources"));
   expect(getByText("name-h")).toBeTruthy();
   expect(getByText("Collapse")).toBeTruthy();
