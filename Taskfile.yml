@@ -170,7 +170,7 @@ tasks:
       - docker buildx build --build-arg VERSION={{.VERSION}} --build-arg GIT_COMMIT={{.GIT_COMMIT}} --build-arg BUILD_TIME={{.BUILD_TIME}} -t mritd/kmtv -f server/Dockerfile . --load
 
   docker:push:
-    desc: Build and push Docker image
+    desc: Build and push all image variants (multi-arch GOAMD64=v3 + amd64v2 fallback)
     vars:
       VERSION:
         sh: git describe --tags --always --dirty 2>/dev/null || echo "v0.0.0-dev"
@@ -179,7 +179,25 @@ tasks:
       BUILD_TIME:
         sh: date -u +%Y-%m-%dT%H:%M:%SZ
     cmds:
-      - docker buildx build --platform=linux/amd64,linux/arm64 --build-arg VERSION={{.VERSION}} --build-arg GIT_COMMIT={{.GIT_COMMIT}} --build-arg BUILD_TIME={{.BUILD_TIME}} -t mritd/kmtv -t mritd/kmtv:{{.VERSION}} -f server/Dockerfile . --push
+      - >-
+        docker buildx build
+        --platform=linux/amd64,linux/arm64
+        --build-arg GOAMD64=v3
+        --build-arg VERSION={{.VERSION}}
+        --build-arg GIT_COMMIT={{.GIT_COMMIT}}
+        --build-arg BUILD_TIME={{.BUILD_TIME}}
+        -t mritd/kmtv
+        -t mritd/kmtv:{{.VERSION}}
+        -f server/Dockerfile . --push
+      - >-
+        docker buildx build
+        --platform=linux/amd64
+        --build-arg GOAMD64=v2
+        --build-arg VERSION={{.VERSION}}
+        --build-arg GIT_COMMIT={{.GIT_COMMIT}}
+        --build-arg BUILD_TIME={{.BUILD_TIME}}
+        -t mritd/kmtv:amd64v2
+        -f server/Dockerfile . --push
 
   android:install:
     desc: Install Android RN dependencies
