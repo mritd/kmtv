@@ -13,6 +13,12 @@ const (
 	// EnvPublicBaseURL 覆盖生成代理链接时使用的外部访问根地址.
 	EnvPublicBaseURL = "KMTV_PUBLIC_BASE_URL"
 
+	// EnvDBPath overrides the database path/DSN. Set to ":memory:" for an
+	// ephemeral in-memory database. Lower precedence than the --db-path flag.
+	// EnvDBPath 覆盖数据库路径/DSN. 设为 ":memory:" 启用临时内存数据库.
+	// 优先级低于 --db-path flag.
+	EnvDBPath = "KMTV_DB_PATH"
+
 	// SettingPublicBaseURL is the DB setting key for generated public proxy links.
 	// SettingPublicBaseURL 是生成公开代理链接使用的 DB 设置 key.
 	SettingPublicBaseURL = "public_base_url"

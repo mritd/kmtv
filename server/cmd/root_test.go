@@ -311,3 +311,67 @@ func TestExecuteHelp(t *testing.T) {
 
 	Execute()
 }
+
+// TestChooseDBPath covers the db-path precedence: explicit flag > env > default.
+// TestChooseDBPath 覆盖 db-path 优先级: 显式 flag > 环境变量 > 默认值.
+func TestChooseDBPath(t *testing.T) {
+	const def = "kmtv.db"
+	tests := []struct {
+		name        string
+		flagChanged bool
+		flagVal     string
+		envVal      string
+		want        string
+	}{
+		{"explicit flag wins over env", true, "custom.db", ":memory:", "custom.db"},
+		{"env used when flag unchanged", false, def, ":memory:", ":memory:"},
+		{"default when flag unchanged and env empty", false, def, "", def},
+		{"default when env is whitespace only", false, def, "   ", def},
+		{"env file path when flag unchanged", false, def, "/data/kmtv.db", "/data/kmtv.db"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := chooseDBPath(tt.flagChanged, tt.flagVal, tt.envVal)
+			if got != tt.want {
+				t.Errorf("chooseDBPath(%v, %q, %q) = %q, want %q",
+					tt.flagChanged, tt.flagVal, tt.envVal, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestPrepareServerInMemoryLogsEphemeral boots prepareServer against an
+// in-memory database end-to-end and asserts the startup log marks it ephemeral
+// (not a disk path) while the default admin is still created.
+// TestPrepareServerInMemoryLogsEphemeral 端到端用内存数据库启动 prepareServer,
+// 断言启动日志标注为 ephemeral (而非磁盘路径), 且默认 admin 仍被创建.
+func TestPrepareServerInMemoryLogsEphemeral(t *testing.T) {
+	t.Setenv(consts.EnvInitSourceURL, "")
+
+	var logs bytes.Buffer
+	oldOutput := logrus.StandardLogger().Out
+	logrus.SetOutput(&logs)
+	t.Cleanup(func() { logrus.SetOutput(oldOutput) })
+
+	s, cleanup, _, err := prepareServer(":memory:", FrontendFS)
+	if err != nil {
+		t.Fatalf("prepareServer(:memory:) error: %v", err)
+	}
+	t.Cleanup(cleanup)
+
+	admin, err := s.GetUserByUsername("admin")
+	if err != nil {
+		t.Fatalf("GetUserByUsername admin: %v", err)
+	}
+	if admin == nil || admin.Role != "admin" {
+		t.Fatalf("default admin was not created in memory mode: %+v", admin)
+	}
+
+	got := logs.String()
+	if !strings.Contains(got, "Database: in-memory (ephemeral") {
+		t.Fatalf("startup log missing in-memory marker: %s", got)
+	}
+	if strings.Contains(got, "Database path:") {
+		t.Fatalf("startup log should not print a disk path in memory mode: %s", got)
+	}
+}

@@ -52,6 +52,10 @@ EXPOSE 8080
 
 VOLUME ["/data"]
 
+# Default DB path via env (not a CMD flag) so `-e KMTV_DB_PATH=:memory:` can
+# opt into in-memory mode; an explicit `--db-path` still overrides both.
+ENV KMTV_DB_PATH=/data/kmtv.db
+
 ENTRYPOINT ["kmtv"]
 
-CMD ["--listen", ":8080", "--db-path", "/data/kmtv.db"]
+CMD ["--listen", ":8080"]

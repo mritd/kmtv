@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/mritd/kmtv/internal/errs"
 	"modernc.org/sqlite"
@@ -51,17 +52,44 @@ type Store struct {
 	db *sql.DB
 }
 
-// New opens a SQLite database at the given path and runs migrations.
-// New 打开指定路径的 SQLite 数据库并执行迁移.
+// IsMemoryDSN reports whether dsn selects an ephemeral in-memory database.
+// IsMemoryDSN 判断 dsn 是否指向临时内存数据库.
+func IsMemoryDSN(dsn string) bool {
+	return dsn == ":memory:" || strings.Contains(dsn, "mode=memory")
+}
+
+// New opens a SQLite database at the given DSN and runs migrations.
+// A ":memory:" DSN (or one carrying mode=memory) opens an ephemeral in-memory
+// database that never touches disk and resets on restart.
+// New 打开指定 DSN 的 SQLite 数据库并执行迁移. ":memory:" (或带 mode=memory 的 DSN)
+// 打开不落盘、重启即重置的临时内存数据库.
 func New(dsn string) (*Store, error) {
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("enable WAL mode: %w", err)
+	if IsMemoryDSN(dsn) {
+		// A plain :memory: database is private per connection, so pin the pool
+		// to a single, never-recycled connection: every query then targets the
+		// same in-memory database, and it stays alive for the whole process.
+		// Recycling that one connection would destroy the database mid-run.
+		// 纯 :memory: 库是每连接私有的, 因此把连接池钉死为唯一且永不回收的连接:
+		// 所有查询命中同一个内存库, 且它在整个进程生命周期内存活. 回收这条连接
+		// 会导致内存库中途蒸发.
+		db.SetMaxOpenConns(1)
+		db.SetMaxIdleConns(1)
+		db.SetConnMaxLifetime(0)
+		db.SetConnMaxIdleTime(0)
+		// WAL is meaningless for :memory: (SQLite silently keeps an in-memory
+		// journal), so skip it; memory mode depends on no disk journal.
+		// WAL 对 :memory: 无意义 (SQLite 静默保持内存 journal), 跳过; 内存模式
+		// 不依赖任何磁盘 journal.
+	} else {
+		if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("enable WAL mode: %w", err)
+		}
 	}
 
 	s := &Store{db: db}

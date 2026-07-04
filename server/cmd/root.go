@@ -41,7 +41,7 @@ var rootCmd = &cobra.Command{
 	// (版本号、commit、编译时间).
 	Version: version.Info(),
 	Run: func(cmd *cobra.Command, args []string) {
-		_, cleanup, r, err := prepareServer(dbPath, FrontendFS)
+		_, cleanup, r, err := prepareServer(resolveDBPath(cmd), FrontendFS)
 		if err != nil {
 			logrus.Fatalf("Failed to prepare server: %v", err)
 		}
@@ -54,9 +54,30 @@ var rootCmd = &cobra.Command{
 	},
 }
 
+// chooseDBPath applies precedence: an explicit --db-path flag wins, otherwise
+// the KMTV_DB_PATH env value (if non-empty), otherwise the flag default.
+// flagChanged reports whether --db-path was set explicitly on the command line.
+// chooseDBPath 按优先级选择: 显式 --db-path > KMTV_DB_PATH 环境变量 > 默认值.
+// flagChanged 表示 --db-path 是否在命令行被显式设置.
+func chooseDBPath(flagChanged bool, flagVal, envVal string) string {
+	if flagChanged {
+		return flagVal
+	}
+	if env := strings.TrimSpace(envVal); env != "" {
+		return env
+	}
+	return flagVal
+}
+
+// resolveDBPath resolves the effective database path from the flag and env.
+// resolveDBPath 从 flag 和环境变量解析出生效的数据库路径.
+func resolveDBPath(cmd *cobra.Command) string {
+	return chooseDBPath(cmd.Flags().Changed("db-path"), dbPath, os.Getenv(consts.EnvDBPath))
+}
+
 func init() {
 	rootCmd.PersistentFlags().StringVar(&listenAddr, "listen", ":8080", "server listen address")
-	rootCmd.PersistentFlags().StringVar(&dbPath, "db-path", "kmtv.db", "database file path")
+	rootCmd.PersistentFlags().StringVar(&dbPath, "db-path", "kmtv.db", "database file path (use :memory: or set KMTV_DB_PATH=:memory: for an ephemeral in-memory database)")
 	// Print only the build summary for -v/--version instead of the default
 	// "kmtv version <...>" wrapper, since Info() is already self-describing.
 	// -v/--version 只打印构建摘要, 而非默认的 "kmtv version <...>" 包装,
@@ -76,7 +97,11 @@ func prepareServer(databasePath string, frontendFS embed.FS) (*store.Store, func
 	}
 	logrus.Infof("KMTV %s starting...", version.Version)
 	logrus.Infof("Listen address: %s", listenAddr)
-	logrus.Infof("Database path: %s", databasePath)
+	if store.IsMemoryDSN(databasePath) {
+		logrus.Info("Database: in-memory (ephemeral, data resets on restart)")
+	} else {
+		logrus.Infof("Database path: %s", databasePath)
+	}
 
 	// Initialize store before services so all DB-backed dependencies are ready.
 	// 先初始化 store, 确保所有依赖数据库的服务可用.

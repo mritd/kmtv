@@ -211,7 +211,10 @@ KMTV_TEST_SERVER_URL=http://<mac-lan-ip>:8080 xcodebuild test ...
 |------------------------|-----------------------------------------------------------------------------|
 | `KMTV_INIT_SOURCE_URL` | Source subscription URL imported on first startup; creates a 86400-second auto-update subscription |
 | `KMTV_PUBLIC_BASE_URL` | Public external URL, higher priority than DB setting `public_base_url`       |
+| `KMTV_DB_PATH`         | Database path/DSN, lower priority than `--db-path`; set to `:memory:` for an in-memory database |
 | `KMTV_TEST_SERVER_URL` | Backend URL for Apple UI tests, default `http://localhost:8080`              |
+
+> In-memory mode (`KMTV_DB_PATH=:memory:` or `--db-path :memory:`): data never touches disk, which suits low-spec disks where file locking is unreliable. It resets on every restart, so provide sources via `KMTV_INIT_SOURCE_URL` rather than adding them in the UI (UI changes do not persist).
 
 ---
 
