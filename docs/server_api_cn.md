@@ -506,7 +506,10 @@ data: {"message":"search failed"}
 {"message": "watch history cleared"}
 ```
 
-常见错误: `401 NotLoggedIn`, `500 ServerError`.
+`event_time_ms` 必须为正整数; 服务端会将超过自身时钟的值钳回当前时间,
+避免客户端时钟走快导致该用户后续写入被拒绝.
+
+常见错误: `400 InvalidRequest`, `401 NotLoggedIn`, `500 ServerError`.
 
 ## Douban
 

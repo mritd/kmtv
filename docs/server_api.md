@@ -509,7 +509,10 @@ Success `200`:
 {"message": "watch history cleared"}
 ```
 
-Common errors: `401 NotLoggedIn`, `500 ServerError`.
+`event_time_ms` must be a positive integer; the server clamps values ahead of its own clock so a
+fast client clock cannot block that user's later writes.
+
+Common errors: `400 InvalidRequest`, `401 NotLoggedIn`, `500 ServerError`.
 
 ## Douban
 

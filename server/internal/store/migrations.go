@@ -60,6 +60,11 @@ var migrations = []migration{
 		name:    "add_watch_history",
 		up:      migrateAddWatchHistory,
 	},
+	{
+		version: 10,
+		name:    "fix_watch_history_index",
+		up:      migrateFixWatchHistoryIndex,
+	},
 }
 
 // migrate applies schema changes in version order and records completed steps.
@@ -395,6 +400,23 @@ func migrateAddWatchHistory(tx *sql.Tx) error {
 	for _, stmt := range statements {
 		if _, err := tx.Exec(stmt); err != nil {
 			return fmt.Errorf("exec watch history migration %.40q: %w", stmt, err)
+		}
+	}
+	return nil
+}
+
+// migrateFixWatchHistoryIndex replaces the v9 index, which was keyed on
+// updated_at while every watch history query sorts by event_time_ms.
+// migrateFixWatchHistoryIndex 替换 v9 建立的索引: 该索引以 updated_at 为键,
+// 但所有观看历史查询都按 event_time_ms 排序.
+func migrateFixWatchHistoryIndex(tx *sql.Tx) error {
+	statements := []string{
+		`DROP INDEX IF EXISTS idx_watch_history_user_updated`,
+		`CREATE INDEX IF NOT EXISTS idx_watch_history_user_event ON watch_history(user_id, event_time_ms DESC, id DESC)`,
+	}
+	for _, stmt := range statements {
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("exec watch history index migration %.40q: %w", stmt, err)
 		}
 	}
 	return nil

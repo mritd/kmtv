@@ -125,7 +125,19 @@ func (s *Store) UpsertWatchHistory(userID int64, item *model.WatchHistoryItem) (
 		return nil, fmt.Errorf("commit watch history upsert: %w", err)
 	}
 
-	return s.GetWatchHistoryByTitle(userID, title)
+	saved, err := s.GetWatchHistoryByTitle(userID, title)
+	if err != nil {
+		return nil, err
+	}
+	if saved == nil {
+		// The row fell outside the retained window and was trimmed inside the
+		// same transaction, so the write did not survive. Report it as stale
+		// rather than answering 200 with an empty body.
+		// 该行落在保留窗口之外, 已在同一事务中被裁剪, 写入并未留存.
+		// 此时按 stale 返回, 而不是用空响应体回 200.
+		return nil, errs.ErrStaleWrite
+	}
+	return saved, nil
 }
 
 // GetWatchHistoryByTitle returns the stored history item for a normalized title.
@@ -203,8 +215,16 @@ func (s *Store) DeleteWatchHistoryByTitle(userID int64, title string) error {
 // ClearWatchHistory removes all history for a user.
 // ClearWatchHistory 删除某个用户的全部观看历史.
 func (s *Store) ClearWatchHistory(userID, clearedAtMS int64) error {
-	if userID <= 0 || !validWatchHistoryEventTime(clearedAtMS) {
+	if userID <= 0 || clearedAtMS <= 0 {
 		return errs.ErrInvalidRequest
+	}
+	// A client clock running ahead must not park the tombstone in the future:
+	// UpsertWatchHistory rejects events at or before it, so a future value
+	// would lock that user out of their own history until wall clock caught up.
+	// 客户端时钟走快时不能把墓碑写到未来: UpsertWatchHistory 会拒绝早于等于它的
+	// 事件, 未来的墓碑会让该用户在真实时间追上前无法写入自己的历史.
+	if now := time.Now().UnixMilli(); clearedAtMS > now {
+		clearedAtMS = now
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
