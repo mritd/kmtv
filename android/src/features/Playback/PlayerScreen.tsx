@@ -12,6 +12,7 @@ import Video, { ViewType } from "react-native-video";
 
 import { createAPIClient } from "@/api/client";
 import { createDetailAPI, type DetailAPI } from "@/api/detail";
+import { createWatchHistoryAPI, type WatchHistoryAPI } from "@/api/history";
 import { createPlaybackAPI, type PlaybackAPI } from "@/api/playback";
 import type { PlayDestination } from "@/api/types";
 import { sizes } from "@/designSystem/theme";
@@ -67,6 +68,7 @@ export function progressDurationFor(
 export interface PlayerScreenContextValue {
   detailAPI: DetailAPI;
   playbackAPI: PlaybackAPI;
+  historyAPI?: WatchHistoryAPI;
   serverURL: string;
   onClose: () => void;
 }
@@ -86,7 +88,7 @@ function useDefaultContext(onClose: () => void): PlayerScreenContextValue | null
       getToken: () => useAuthStore.getState().token,
       onUnauthorized: () => useAuthStore.getState().handleAuthExpired(),
     });
-    return { detailAPI: createDetailAPI(client), playbackAPI: createPlaybackAPI(client) };
+    return { detailAPI: createDetailAPI(client), playbackAPI: createPlaybackAPI(client), historyAPI: createWatchHistoryAPI(client) };
   }, [serverURL]);
   return apis && serverURL ? { ...apis, serverURL, onClose } : null;
 }
@@ -114,14 +116,17 @@ export function PlayerScreen({ route, navigation }: PlayerScreenProps) {
 }
 
 function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; destination: PlayDestination }) {
-  const { colors } = useTheme();
-  const { t } = useTranslation("playback");
-  const insets = useSafeAreaInsets();
-  const { state, resumeStartSeconds, actions, stateRef } = usePlayer({
-    serverURL: ctx.serverURL,
+	const { colors } = useTheme();
+	const { t } = useTranslation("playback");
+	const userID = useAuthStore((s) => s.user?.id ?? 0);
+	const insets = useSafeAreaInsets();
+	const { state, historyReady, resumeStartSeconds, actions, stateRef } = usePlayer({
+		serverURL: ctx.serverURL,
+		userID,
     destination,
     detailAPI: ctx.detailAPI,
     playbackAPI: ctx.playbackAPI,
+		historyAPI: userID > 0 ? ctx.historyAPI : undefined,
   });
   const playbackURL = state.playbackURL;
 
@@ -152,9 +157,9 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
   // Auto-start once detail is loaded and URL has not been resolved yet.
   // 详情加载完毕且未解析 URL 时自动起播.
   useEffect(() => {
-    if (state.detail && !playbackURL) void actions.startPlayback();
+		if (state.detail && historyReady && !playbackURL) void actions.startPlayback();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.detail]);
+	}, [historyReady, state.detail]);
 
   // BackHandler — exit full-screen first, then close.
   // BackHandler — 优先退出全屏, 否则关闭.

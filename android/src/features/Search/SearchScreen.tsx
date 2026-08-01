@@ -165,7 +165,7 @@ function Inner({ api, serverURL, initialQuery, resumeHint }: InnerProps) {
   });
   const controllerRef = useRef<AbortController | null>(null);
   const resumeKey = resumeHint
-    ? `${resumeHint.title}:${resumeHint.sourceKey}:${resumeHint.videoId}:${resumeHint.episodeIndex}:${resumeHint.episodeName}`
+		? `${resumeHint.title}:${resumeHint.sourceKey}:${resumeHint.videoId}:${resumeHint.groupIndex}:${resumeHint.episodeIndex}:${resumeHint.episodeName}`
     : "";
 
   const runSearch = useCallback(async (raw: string) => {
@@ -255,7 +255,7 @@ function Inner({ api, serverURL, initialQuery, resumeHint }: InnerProps) {
       videoId: first.video_id,
       coverHint: result.cover,
       resumeIntent: matchingResume
-        ? { episodeIndex: matchingResume.episodeIndex, episodeName: matchingResume.episodeName }
+		? { groupIndex: matchingResume.groupIndex, episodeIndex: matchingResume.episodeIndex, episodeName: matchingResume.episodeName }
         : undefined,
     };
     navigation.navigate("Player", dest);

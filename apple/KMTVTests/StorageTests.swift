@@ -52,7 +52,7 @@ final class StorageTests: XCTestCase {
     }
 
     @MainActor
-    func testWatchHistoryUpsert() throws {
+	func testWatchHistoryUpsert() throws {
         let container = try ModelContainerFactory.makeInMemory()
         let context = container.mainContext
         let serverURL = "https://kmtv.example.com"
@@ -76,9 +76,34 @@ final class StorageTests: XCTestCase {
         XCTAssertEqual(items.count, 1)
         XCTAssertEqual(items[0].progress, 60)
         XCTAssertEqual(items[0].sourceKey, "src2")
-    }
+	}
 
-    @MainActor
+	@MainActor
+	func testWatchHistoryIsIsolatedByServerAndUser() throws {
+		let container = try ModelContainerFactory.makeInMemory()
+		let context = container.mainContext
+		WatchHistoryItem.upsert(
+			in: context, serverURL: "https://a.example", userID: 1,
+			sourceKey: "a", videoId: "1", title: "Shared", cover: "", episode: "EP1",
+			episodeIndex: 0, progress: 10, duration: 100
+		)
+		WatchHistoryItem.upsert(
+			in: context, serverURL: "https://a.example", userID: 2,
+			sourceKey: "b", videoId: "2", title: "Shared", cover: "", episode: "EP1",
+			episodeIndex: 0, progress: 20, duration: 100
+		)
+		WatchHistoryItem.upsert(
+			in: context, serverURL: "https://b.example", userID: 1,
+			sourceKey: "c", videoId: "3", title: "Shared", cover: "", episode: "EP1",
+			episodeIndex: 0, progress: 30, duration: 100
+		)
+
+		XCTAssertEqual(WatchHistoryItem.recent(in: context, serverURL: "https://a.example", userID: 1).first?.progress, 10)
+		XCTAssertEqual(WatchHistoryItem.recent(in: context, serverURL: "https://a.example", userID: 2).first?.progress, 20)
+		XCTAssertEqual(WatchHistoryItem.recent(in: context, serverURL: "https://b.example", userID: 1).first?.progress, 30)
+	}
+
+	@MainActor
     func testWatchHistoryMaxItems() throws {
         let container = try ModelContainerFactory.makeInMemory()
         let context = container.mainContext

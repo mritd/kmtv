@@ -6,6 +6,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useCallback, useState } from "react";
 
 import type { AuthAPI } from "@/api/auth";
+import type { WatchHistoryAPI } from "@/api/history";
 import type { User } from "@/api/types";
 import { clearWatchHistory, loadWatchHistory } from "@/storage/watchHistory";
 
@@ -15,6 +16,7 @@ import { clearWatchHistory, loadWatchHistory } from "@/storage/watchHistory";
  */
 export interface UseProfileArgs {
   auth: AuthAPI;
+  historyAPI?: WatchHistoryAPI;
   user: User | null;
   serverURL: string;
   onUserChanged: (user: User) => void;
@@ -53,7 +55,7 @@ export interface UseProfileResult {
   deleteAvatar: () => Promise<void>;
 
   refreshWatchCount: () => void;
-  clearWatchHistory: () => void;
+	clearWatchHistory: () => Promise<void>;
 
   dismissError: () => void;
   dismissSuccess: () => void;
@@ -63,7 +65,7 @@ export interface UseProfileResult {
  * useProfile — composes the four ProfileScreen sub-actions into one hook.
  * useProfile — 把 ProfileScreen 的四类子操作组合成单一 hook.
  */
-export function useProfile({ auth, user, serverURL, onUserChanged, initialWatchCount = 0 }: UseProfileArgs): UseProfileResult {
+export function useProfile({ auth, historyAPI, user, serverURL, onUserChanged, initialWatchCount = 0 }: UseProfileArgs): UseProfileResult {
   const [isEditingUsername, setIsEditingUsername] = useState(false);
   const [editUsername, setEditUsername] = useState(user?.username ?? "");
   const [passwordCurrent, setPasswordCurrent] = useState("");
@@ -157,15 +159,22 @@ export function useProfile({ auth, user, serverURL, onUserChanged, initialWatchC
     } catch (e) { reportError(e); }
   }, [auth, onUserChanged, reportError]);
 
-  const refreshWatchCount = useCallback(() => {
-    setWatchHistoryCount(loadWatchHistory(serverURL, 1000).length);
-  }, [serverURL]);
+	const refreshWatchCount = useCallback(() => {
+		setWatchHistoryCount(loadWatchHistory(serverURL, 1000, user?.id ?? 0).length);
+	}, [serverURL, user?.id]);
 
-  const clearAllWatch = useCallback(() => {
-    clearWatchHistory(serverURL);
-    setWatchHistoryCount(0);
-    setSuccessMessage("profile.danger.historyCleared");
-  }, [serverURL]);
+	const clearAllWatch = useCallback(async () => {
+		try {
+			if ((user?.id ?? 0) > 0 && historyAPI) {
+				await historyAPI.clearWatchHistory();
+			}
+			clearWatchHistory(serverURL, user?.id ?? 0);
+			setWatchHistoryCount(0);
+			setSuccessMessage("profile.danger.historyCleared");
+		} catch (e) {
+			reportError(e);
+		}
+	}, [historyAPI, reportError, serverURL, user?.id]);
 
   return {
     isEditingUsername, editUsername, passwordCurrent, passwordNext, passwordConfirm,

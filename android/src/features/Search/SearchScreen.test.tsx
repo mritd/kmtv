@@ -280,6 +280,7 @@ describe("SearchScreen", () => {
         sourceKey: "s1",
         videoId: "v1",
         coverHint: "/old.jpg",
+        groupIndex: 0,
         episodeIndex: 3,
         episodeName: "E4",
       },
@@ -291,7 +292,7 @@ describe("SearchScreen", () => {
       sourceKey: "s1",
       videoId: "v1",
       coverHint: "/fresh.jpg",
-      resumeIntent: { episodeIndex: 3, episodeName: "E4" },
+      resumeIntent: { groupIndex: 0, episodeIndex: 3, episodeName: "E4" },
     }));
   });
 
@@ -316,6 +317,7 @@ describe("SearchScreen", () => {
         sourceKey: "stale",
         videoId: "stale-v1",
         coverHint: "/old.jpg",
+        groupIndex: 0,
         episodeIndex: 3,
         episodeName: "E4",
       },
@@ -327,7 +329,7 @@ describe("SearchScreen", () => {
       sourceKey: "fresh",
       videoId: "fresh-v1",
       coverHint: "/fresh.jpg",
-      resumeIntent: { episodeIndex: 3, episodeName: "E4" },
+      resumeIntent: { groupIndex: 0, episodeIndex: 3, episodeName: "E4" },
     }));
   });
 });

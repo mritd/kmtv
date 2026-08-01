@@ -250,10 +250,10 @@ struct ProfileView: View {
 
     @ViewBuilder
     private func dangerSection(_ vm: ProfileViewModel) -> some View {
-        Section {
-            Button("Clear Watch History") {
-                vm.clearWatchHistory()
-            }
+		Section {
+			Button("Clear Watch History") {
+				Task { await vm.clearWatchHistory() }
+			}
             .foregroundStyle(.red)
         }
 

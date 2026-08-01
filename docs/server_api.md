@@ -388,6 +388,129 @@ Success `200`:
 
 Common errors: `400 MissingParam`, `404 NotFound`, `500 ServerError`.
 
+## Watch History
+
+Watch history endpoints require a real logged-in user. When `anonymous_access == "true"`,
+anonymous viewers may still browse and play, but these endpoints return `401 NotLoggedIn`
+because there is no user row to synchronize.
+
+History is deduplicated by `(user_id, normalized title)`. The server normalizes the title by
+trimming whitespace and lowercasing it. `source_key` and `video_id` are stored as the latest
+watched source payload for resume/search handoff, not as the database identity.
+
+### `GET /history`
+
+Protected. Returns the current user's recent watch history, newest first.
+
+Query parameters:
+
+| Name    | Required | Default | Description                         |
+|---------|----------|---------|-------------------------------------|
+| `limit` | No       | `10`    | Positive item count, capped at `100` |
+| `completed` | No   | all     | Optional `true`/`false` filter applied before `limit` |
+
+Success `200`:
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "source_key": "source.example",
+      "video_id": "123",
+      "title": "Movie",
+      "cover": "https://example.com/cover.jpg",
+      "episode": "Episode 1",
+      "group_index": 0,
+      "episode_index": 0,
+      "progress_sec": 120,
+      "duration_sec": 1800,
+	  "completed": false,
+	  "event_time_ms": 1783656000000,
+      "created_at": "2026-07-09T12:00:00Z",
+      "updated_at": "2026-07-09T12:05:00Z"
+    }
+  ]
+}
+```
+
+Common errors: `400 InvalidRequest`, `401 NotLoggedIn`, `500 ServerError`.
+
+### `PUT /history`
+
+Protected. Upserts the latest playback state for a title. If the same user writes the same
+normalized title again, the row is overwritten only when `event_time_ms` is newer than the
+stored event. Clients set `completed=true` only after the final episode reaches its completion
+threshold; the server does not infer title completion from an arbitrary episode.
+
+The request body is capped at 64 KiB. Titles are limited to 512 Unicode scalars, source keys and
+video IDs to 1024, episode labels to 512, and cover values to 8192.
+
+Request:
+
+```json
+{
+  "source_key": "source.example",
+  "video_id": "123",
+  "title": "Movie",
+  "cover": "https://example.com/cover.jpg",
+  "episode": "Episode 1",
+  "group_index": 0,
+  "episode_index": 0,
+  "progress_sec": 120,
+  "duration_sec": 1800,
+	"completed": false,
+	"event_time_ms": 1783656000000
+}
+```
+
+Success `200`: one watch-history item with the same shape as `GET /history.items[]`.
+
+Common errors: `400 InvalidRequest`, `401 NotLoggedIn`, `409 StaleWrite`, `500 ServerError`.
+
+### `GET /history/item`
+
+Protected. Returns one history item by title.
+
+Query parameters:
+
+| Name    | Required | Description |
+|---------|----------|-------------|
+| `title` | Yes      | Title lookup |
+
+Success `200`: one watch-history item.
+
+Common errors: `400 MissingParam`, `401 NotLoggedIn`, `404 NotFound`, `500 ServerError`.
+
+### `DELETE /history/item`
+
+Protected. Deletes one history item by title.
+
+Query parameters are the same as `GET /history/item`.
+
+Success `200`:
+
+```json
+{"message": "watch history deleted"}
+```
+
+Common errors: `400 MissingParam`, `401 NotLoggedIn`, `404 NotFound`, `500 ServerError`.
+
+### `DELETE /history`
+
+Protected. Clears all watch history for the current user.
+
+Optional query parameter `event_time_ms` records the clear event and prevents older in-flight
+PUT requests from recreating deleted rows. Current clients always send it.
+
+Success `200`:
+
+```json
+{"message": "watch history cleared"}
+```
+
+Common errors: `401 NotLoggedIn`, `500 ServerError`.
+
 ## Douban
 
 ### `GET /douban/categories`

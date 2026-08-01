@@ -68,6 +68,27 @@ type Setting struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// WatchHistoryItem stores the latest playback state for one user/title pair.
+// WatchHistoryItem 保存某个用户/标题组合的最近播放状态.
+type WatchHistoryItem struct {
+	ID           int64     `json:"id"`
+	UserID       int64     `json:"-"`
+	TitleKey     string    `json:"-"`
+	SourceKey    string    `json:"source_key"`
+	VideoID      string    `json:"video_id"`
+	Title        string    `json:"title"`
+	Cover        string    `json:"cover"`
+	Episode      string    `json:"episode"`
+	GroupIndex   int       `json:"group_index"`
+	EpisodeIndex int       `json:"episode_index"`
+	ProgressSec  float64   `json:"progress_sec"`
+	DurationSec  float64   `json:"duration_sec"`
+	Completed    bool      `json:"completed"`
+	EventTimeMS  int64     `json:"event_time_ms"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
 // SearchResult represents a deduplicated search result across multiple sources.
 // SearchResult 表示跨多个视频源去重后的搜索结果.
 type SearchResult struct {

@@ -58,6 +58,7 @@ var (
 	UnknownSetting = E{1205, "unknown setting"}
 	LastAdmin      = E{1206, "cannot remove the last admin"}
 	SelfDelete     = E{1207, "cannot delete your own account"}
+	StaleWrite     = E{1208, "stale write rejected"}
 )
 
 // --- General (13xx) ---

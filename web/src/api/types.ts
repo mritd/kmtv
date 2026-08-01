@@ -14,7 +14,8 @@
  *   AdminUser, CreateUserPayload, UpdateUserPayload, UsersResponse,
  *   Episode, SourceResult, SearchResult, SearchResponse,
  *   SearchProgressPhase, SearchProgress, SearchStreamEvent,
- *   DetailResponse, PlaybackURLResponse, DoubanItem, DoubanHomeSection, DoubanHomeResponse
+ *   DetailResponse, PlaybackURLResponse, WatchHistoryItem, WatchHistoryPayload,
+ *   WatchHistoryResponse, DoubanItem, DoubanHomeSection, DoubanHomeResponse
  *
  * Callers / 调用方:
  *   client.ts, tokenStore.ts, searchStream.ts, adminHooks.ts, viewerHooks.ts,
@@ -367,6 +368,49 @@ export interface DetailResponse {
 export interface PlaybackURLResponse {
   mode: "proxy" | "direct";
   url: string;
+}
+
+/**
+ * WatchHistoryItem is one server-synchronized continue-watching entry.
+ * WatchHistoryItem
+ * 是一条服务端同步的继续观看记录.
+ *
+ * The backend deduplicates by the current user plus normalized title. source_key/video_id are the
+ * latest watched source payload and may be replaced by later writes for the same title.
+ * 后端按当前用户 + 归一化标题去重. source_key/video_id 是最近观看源的 payload,
+ * 同标题后续写入可能覆盖它们.
+ */
+export interface WatchHistoryItem {
+  id: number;
+  source_key: string;
+  video_id: string;
+  title: string;
+  cover: string;
+  episode: string;
+  group_index: number;
+  episode_index: number;
+  progress_sec: number;
+  duration_sec: number;
+	completed: boolean;
+	event_time_ms: number;
+	created_at: string;
+  updated_at: string;
+}
+
+/**
+ * WatchHistoryPayload is the PUT /history request body.
+ * WatchHistoryPayload
+ * 是 PUT /history 请求体.
+ */
+export type WatchHistoryPayload = Omit<WatchHistoryItem, "id" | "created_at" | "updated_at">;
+
+/**
+ * WatchHistoryResponse wraps the GET /history item list.
+ * WatchHistoryResponse
+ * 封装 GET /history 的条目列表.
+ */
+export interface WatchHistoryResponse {
+  items: WatchHistoryItem[];
 }
 
 /**

@@ -29,6 +29,9 @@ func init() {
 		if _, err := conn.ExecContext(context.Background(), query, nil); err != nil {
 			return fmt.Errorf("set busy timeout: %w", err)
 		}
+		if _, err := conn.ExecContext(context.Background(), "PRAGMA foreign_keys=ON", nil); err != nil {
+			return fmt.Errorf("enable foreign keys: %w", err)
+		}
 		return nil
 	})
 }

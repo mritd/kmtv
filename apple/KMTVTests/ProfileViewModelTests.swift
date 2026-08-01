@@ -8,8 +8,9 @@ final class ProfileViewModelTests: XCTestCase {
         let container = try ModelContainerFactory.makeInMemory()
         let context = container.mainContext
         WatchHistoryItem.upsert(
-            in: context,
-            serverURL: "https://kmtv.example",
+			in: context,
+			serverURL: "https://kmtv.example",
+			userID: 1,
             sourceKey: "s1",
             videoId: "v1",
             title: "Video 1",
@@ -20,8 +21,9 @@ final class ProfileViewModelTests: XCTestCase {
             duration: 100
         )
         WatchHistoryItem.upsert(
-            in: context,
-            serverURL: "https://other.example",
+			in: context,
+			serverURL: "https://other.example",
+			userID: 1,
             sourceKey: "s1",
             videoId: "v2",
             title: "Video 2",
@@ -31,11 +33,12 @@ final class ProfileViewModelTests: XCTestCase {
             progress: 20,
             duration: 100
         )
-        let vm = ProfileViewModel(
-            apiClient: AuthAPIFake(),
-            modelContext: context,
-            serverURL: "https://kmtv.example",
-            user: nil
+		let api = AuthAPIFake()
+		let vm = ProfileViewModel(
+			apiClient: api,
+			modelContext: context,
+			serverURL: "https://kmtv.example",
+			user: api.user
         )
 
         vm.load()
@@ -139,12 +142,13 @@ final class ProfileViewModelTests: XCTestCase {
         XCTAssertEqual(vm.user?.avatar, "/api/v1/auth/avatar")
     }
 
-    func testClearWatchHistoryRemovesServerScopedRows() throws {
+    func testClearWatchHistoryRemovesServerScopedRows() async throws {
         let container = try ModelContainerFactory.makeInMemory()
         let context = container.mainContext
-        WatchHistoryItem.upsert(
-            in: context,
-            serverURL: "https://kmtv.example",
+		WatchHistoryItem.upsert(
+			in: context,
+			serverURL: "https://kmtv.example",
+			userID: 1,
             sourceKey: "s1",
             videoId: "v1",
             title: "Video 1",
@@ -154,9 +158,10 @@ final class ProfileViewModelTests: XCTestCase {
             progress: 20,
             duration: 100
         )
-        WatchHistoryItem.upsert(
-            in: context,
-            serverURL: "https://other.example",
+		WatchHistoryItem.upsert(
+			in: context,
+			serverURL: "https://other.example",
+			userID: 1,
             sourceKey: "s1",
             videoId: "v2",
             title: "Video 2",
@@ -166,17 +171,19 @@ final class ProfileViewModelTests: XCTestCase {
             progress: 20,
             duration: 100
         )
+        let api = AuthAPIFake()
         let vm = ProfileViewModel(
-            apiClient: AuthAPIFake(),
-            modelContext: context,
-            serverURL: "https://kmtv.example",
-            user: nil
+            apiClient: api,
+			modelContext: context,
+			serverURL: "https://kmtv.example",
+			user: api.user
         )
 
-        vm.clearWatchHistory()
+		await vm.clearWatchHistory()
 
-        XCTAssertTrue(WatchHistoryItem.recent(in: context, serverURL: "https://kmtv.example").isEmpty)
-        XCTAssertEqual(WatchHistoryItem.recent(in: context, serverURL: "https://other.example").count, 1)
+		XCTAssertTrue(WatchHistoryItem.recent(in: context, serverURL: "https://kmtv.example", userID: 1).isEmpty)
+		XCTAssertEqual(WatchHistoryItem.recent(in: context, serverURL: "https://other.example", userID: 1).count, 1)
         XCTAssertEqual(vm.watchHistoryCount, 0)
+        XCTAssertTrue(api.clearRemoteWatchHistoryCalled)
     }
 }

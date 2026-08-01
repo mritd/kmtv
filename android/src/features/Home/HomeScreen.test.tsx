@@ -152,10 +152,12 @@ describe("HomeScreen", () => {
       videoId: "v-continue",
       title: "Continue Title",
       cover: "/continue.jpg",
-      episode: "E4",
-      episodeIndex: 3,
+		episode: "E4",
+		groupIndex: 0,
+		episodeIndex: 3,
       progress: 120,
-      duration: 600,
+		duration: 600,
+		completed: false,
     });
     const onSelectHistory = jest.fn();
     const api: DoubanAPI = {

@@ -5,6 +5,7 @@ import { act, renderHook, waitFor } from "@testing-library/react-native";
 import React from "react";
 
 import type { DetailAPI } from "@/api/detail";
+import type { WatchHistoryAPI } from "@/api/history";
 import type { PlaybackAPI } from "@/api/playback";
 import type { PlayDestination, SourceResult, VideoDetail } from "@/api/types";
 import { savePlaybackSettings } from "@/storage/playbackSettings";
@@ -244,6 +245,55 @@ test("resumeStartSeconds defaults to skipIntro until consumed", async () => {
   expect(result.current.resumeStartSeconds).toBe(0);
 });
 
+test("waits for remote history and restores its episode before playback", async () => {
+	const apis = mkAPIs();
+	apis.detail.detail = jest.fn().mockResolvedValue({
+		...detail,
+		episodes: [
+			[{ name: "L1E1", url: "raw://l1e1" }],
+			[{ name: "L2E1", url: "raw://l2e1" }, { name: "L2E2", url: "raw://l2e2" }],
+		],
+	});
+	const remoteDestination: PlayDestination = { ...dest, sources: [src("a"), src("b")] };
+	const historyAPI: WatchHistoryAPI = {
+		listWatchHistory: jest.fn(async () => ({ items: [] })),
+		watchHistory: jest.fn(async () => ({
+			id: 1,
+			source_key: "b",
+			video_id: "v-b",
+			title: "T",
+			cover: "",
+			episode: "E2",
+			group_index: 1,
+			episode_index: 1,
+			progress_sec: 45,
+			duration_sec: 100,
+			completed: false,
+			event_time_ms: 1,
+			created_at: "",
+			updated_at: "",
+		})),
+		saveWatchHistory: jest.fn(),
+		deleteWatchHistory: jest.fn(async () => undefined),
+		clearWatchHistory: jest.fn(async () => undefined),
+	};
+	const { result } = renderHook(() => usePlayer({
+		serverURL: "http://srv-remote-resume",
+		userID: 1,
+		destination: remoteDestination,
+		detailAPI: apis.detail,
+		playbackAPI: apis.playback,
+		historyAPI,
+	}));
+
+	await waitFor(() => expect(result.current.historyReady).toBe(true));
+	await waitFor(() => expect(apis.detail.detail).toHaveBeenCalledWith("b", "v-b"));
+	expect(result.current.state.currentSourceKey).toBe("b");
+	expect(result.current.state.currentLineIndex).toBe(1);
+	expect(result.current.state.currentEpisodeIndex).toBe(1);
+	expect(result.current.resumeStartSeconds).toBe(45);
+});
+
 test("switchEpisode recomputes resume position for the target episode", async () => {
   const { recordPlayProgress } = require("@/storage/watchHistory");
   const serverURL = "http://srv-resume-target";
@@ -254,9 +304,11 @@ test("switchEpisode recomputes resume position for the target episode", async ()
     title: "T",
     cover: "",
     episode: "E1",
+		groupIndex: 0,
     episodeIndex: 0,
     progress: 95,
     duration: 100,
+		completed: false,
   });
   savePlaybackSettings(serverURL, "T", { skipIntroSeconds: 12, skipOutroSeconds: 0, playbackRate: 1 });
   const apis = mkAPIs();

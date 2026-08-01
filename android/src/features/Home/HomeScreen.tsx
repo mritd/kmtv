@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { createAPIClient } from "@/api/client";
 import { createDoubanAPI, type DoubanAPI } from "@/api/douban";
+import { createWatchHistoryAPI, type WatchHistoryAPI } from "@/api/history";
 import { useDoubanHomeQuery } from "@/api/viewerHooks";
 import { resolvePosterURL } from "@/designSystem/PosterImage";
 import { Skeleton } from "@/designSystem/Skeleton";
@@ -23,7 +24,9 @@ import { useServerStore } from "@/store/serverStore";
 import {
   clearWatchHistory,
   loadWatchHistory,
+  recordPlayProgress,
   type WatchHistoryItem,
+  watchHistoryItemFromRemote,
 } from "@/storage/watchHistory";
 
 import { ContinueWatchingRow } from "./ContinueWatchingRow";
@@ -31,7 +34,7 @@ import { HeroCarousel } from "./HeroCarousel";
 import { SectionRow } from "./SectionRow";
 
 interface HomeScreenContextValue {
-  api: DoubanAPI;
+  api: DoubanAPI & Partial<WatchHistoryAPI>;
   /**
    * Optional callback so tests can stub the search button navigation without wrapping in
    * a NavigationContainer just to satisfy useNavigation. Production path supplies a navigate
@@ -62,7 +65,7 @@ export const HomeScreenContext = createContext<HomeScreenContextValue | null>(nu
  * Build a default DoubanAPI from serverStore + authStore.
  * 由 serverStore + authStore 构建默认 DoubanAPI.
  */
-function useDefaultDoubanAPI(): DoubanAPI | null {
+function useDefaultDoubanAPI(): (DoubanAPI & WatchHistoryAPI) | null {
   const serverURL = useServerStore((s) => s.serverURL);
   return useMemo(() => {
     if (!serverURL) return null;
@@ -71,7 +74,7 @@ function useDefaultDoubanAPI(): DoubanAPI | null {
       getToken: () => useAuthStore.getState().token,
       onUnauthorized: () => useAuthStore.getState().handleAuthExpired(),
     });
-    return createDoubanAPI(client);
+    return { ...createDoubanAPI(client), ...createWatchHistoryAPI(client) };
   }, [serverURL]);
 }
 
@@ -119,9 +122,10 @@ function DefaultHomeScreen() {
         resumeHint: {
           title: entry.title,
           sourceKey: entry.sourceKey,
-          videoId: entry.videoId,
-          coverHint: entry.cover,
-          episodeIndex: entry.episodeIndex,
+			videoId: entry.videoId,
+			coverHint: entry.cover,
+			groupIndex: entry.groupIndex,
+			episodeIndex: entry.episodeIndex,
           episodeName: entry.episode,
         },
       });
@@ -153,34 +157,61 @@ function HomeScreenInner({
   onSelectTitle,
   onSelectHistory,
 }: {
-  api: DoubanAPI;
+  api: DoubanAPI & Partial<WatchHistoryAPI>;
   onSearch?: () => void;
   onSelectTitle?: (title: string) => void;
   onSelectHistory?: (entry: WatchHistoryItem) => void;
 }) {
   const { colors } = useTheme();
-  const { t } = useTranslation("home");
-  const serverURL = useServerStore((s) => s.serverURL) ?? "";
-  const insets = useSafeAreaInsets();
+	const { t } = useTranslation("home");
+	const serverURL = useServerStore((s) => s.serverURL) ?? "";
+	const userID = useAuthStore((s) => s.user?.id ?? 0);
+	const insets = useSafeAreaInsets();
 
   // Local-first ordering mirrors HomeViewModel.load(): seed history from MMKV synchronously,
   // then fire the remote query. The useState initializer runs before useDoubanHomeQuery
   // is registered, so the first render already has local history visible.
   // 本地优先, 与 HomeViewModel.load() 一致: 先同步从 MMKV 读取历史, 再发起远端 query.
   // useState 初始化器先于 useDoubanHomeQuery 注册, 首次渲染已经显示本地历史.
-  const [history, setHistory] = useState<WatchHistoryItem[]>(() => loadWatchHistory(serverURL));
+	const [history, setHistory] = useState<WatchHistoryItem[]>(() =>
+		loadWatchHistory(serverURL, 10, userID).filter((item) => !item.completed));
   const query = useDoubanHomeQuery(api, serverURL);
 
   // Re-read MMKV when serverURL changes (e.g. user switched server mid-session).
   // 当 serverURL 切换时重新读取 MMKV (例如会话中切换 server).
   useEffect(() => {
-    setHistory(loadWatchHistory(serverURL));
-  }, [serverURL]);
+		setHistory(loadWatchHistory(serverURL, 10, userID).filter((item) => !item.completed));
+		if (userID <= 0 || !api.listWatchHistory) return;
+    let cancelled = false;
+    void api.listWatchHistory(10)
+      .then((response) => {
+        if (cancelled) return;
+			const remote = response.items
+				.filter((item) => !item.completed)
+				.map(watchHistoryItemFromRemote);
+			clearWatchHistory(serverURL, userID);
+			for (const item of remote) {
+				recordPlayProgress(serverURL, item, userID);
+        }
+        setHistory(remote);
+      })
+      .catch(() => {
+			if (!cancelled) setHistory(loadWatchHistory(serverURL, 10, userID).filter((item) => !item.completed));
+      });
+    return () => { cancelled = true; };
+	}, [api, serverURL, userID]);
 
-  const handleClearHistory = useCallback(() => {
-    clearWatchHistory(serverURL);
-    setHistory([]);
-  }, [serverURL]);
+	const handleClearHistory = useCallback(() => {
+		const clearLocal = () => {
+			clearWatchHistory(serverURL, userID);
+			setHistory([]);
+		};
+		if (userID <= 0 || !api.clearWatchHistory) {
+			clearLocal();
+			return;
+		}
+		void api.clearWatchHistory().then(clearLocal).catch(() => undefined);
+	}, [api, serverURL, userID]);
 
   // Hero and section cards mirror iOS HomeView.navigateToSearch(SearchQuery(query: item.title, ...)).
   // Continue-watching cards also go through Search so stale sources are refreshed before Player opens.

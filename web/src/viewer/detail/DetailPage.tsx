@@ -43,7 +43,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation, useParams } from "react-router-dom";
 
-import type { DetailResponse, Episode, SearchResult, SourceResult } from "@/api/types";
+import type { DetailResponse, Episode, SearchResult, SourceResult, WatchHistoryItem } from "@/api/types";
 import { useAPI } from "@/api/context";
 import { useDetailQuery } from "@/api/viewerHooks";
 import { StatusState } from "@/shared/ui/StatusState";
@@ -60,6 +60,7 @@ import {
   upsertSourceBundleDetail,
 } from "@/storage/sourceBundles";
 import {
+  type PlaybackProgressEntry,
   getPlaybackProgress,
   setPlaybackPosition,
   setPlaybackSelection,
@@ -139,6 +140,7 @@ function DetailPageContent({ sourceKey: source, videoId: id }: DetailPageContent
   const recoveryAttemptedRoute = useRef<string | null>(null);
   const recoveryGeneration = useRef(0);
   const pendingEpisodeSelection = useRef<{ sourceKey: string; videoID: string; episodeIndex: number } | null>(null);
+	const [remoteHistoryState, setRemoteHistoryState] = useState<{ title: string; item: WatchHistoryItem | null } | null>(null);
   const currentRouteIDRef = useRef(currentRouteID);
   currentRouteIDRef.current = currentRouteID;
   const bundle = bundleState.bundle;
@@ -209,6 +211,7 @@ function DetailPageContent({ sourceKey: source, videoId: id }: DetailPageContent
     recoveryGeneration.current += 1;
     recoveryAttemptedRoute.current = null;
     pendingEpisodeSelection.current = null;
+		setRemoteHistoryState(null);
     backgroundLoadingIDs.current.clear();
     dispatch({ type: "reset" });
   }, [source, id, location.state, dispatch]);
@@ -224,7 +227,35 @@ function DetailPageContent({ sourceKey: source, videoId: id }: DetailPageContent
     });
   }, [currentSourceKey, currentVideoID, detail.data]);
 
-  useEffect(() => {
+	useEffect(() => {
+		const title = currentDetail?.title?.trim();
+		if (!title) {
+			setRemoteHistoryState({ title: "", item: null });
+			return;
+		}
+		setRemoteHistoryState(null);
+    let cancelled = false;
+    void api
+      .getWatchHistory(title)
+      .then((item) => {
+        if (!cancelled) {
+					setRemoteHistoryState({ title, item });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+					setRemoteHistoryState({ title, item: null });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+	}, [api, currentDetail?.title]);
+	const currentHistoryTitle = currentDetail?.title?.trim() ?? "";
+	const remoteHistoryPending = currentHistoryTitle !== "" && remoteHistoryState?.title !== currentHistoryTitle;
+	const remoteHistory = remoteHistoryState?.title === currentHistoryTitle ? remoteHistoryState.item : null;
+
+	useEffect(() => {
     if (!detail.isError) {
       return;
     }
@@ -344,8 +375,11 @@ function DetailPageContent({ sourceKey: source, videoId: id }: DetailPageContent
     }
   }, [api, backgroundSourceSignature, bundle, currentSourceID]);
 
-  useEffect(() => {
-    const pendingSelection = pendingEpisodeSelection.current;
+	useEffect(() => {
+		if (remoteHistoryPending) {
+			return;
+		}
+		const pendingSelection = pendingEpisodeSelection.current;
     if (pendingSelection?.sourceKey === currentSourceKey && pendingSelection.videoID === currentVideoID) {
       const detailStatus = bundle.details[sourceKeyID(currentSourceKey, currentVideoID)]?.status;
       if (detailStatus !== "ready") {
@@ -367,7 +401,7 @@ function DetailPageContent({ sourceKey: source, videoId: id }: DetailPageContent
     // Restore the last-watched episode for this title when one is recorded;
     // fall back to the first playable episode.
     // 优先恢复该影片上次观看的集数; 没有记录时回退到首集.
-    const saved = getPlaybackProgress(currentSourceKey, currentVideoID);
+    const saved = progressEntryFor(currentSourceKey, currentVideoID, remoteHistory);
     if (saved) {
       const savedGroup = groups[saved.groupIndex];
       const savedEpisode = savedGroup?.[saved.episodeIndex];
@@ -382,7 +416,7 @@ function DetailPageContent({ sourceKey: source, videoId: id }: DetailPageContent
       return;
     }
     resolvePlaybackEpisode(groupIndex, 0, episode, currentSourceKey);
-  }, [bundle.details, currentSourceKey, currentVideoID, groups, state.selectedEpisode, state.status]);
+	}, [bundle.details, currentSourceKey, currentVideoID, groups, remoteHistory, remoteHistoryPending, state.selectedEpisode, state.status]);
 
   async function resolvePlaybackEpisode(
     groupIndex: number,
@@ -484,10 +518,29 @@ function DetailPageContent({ sourceKey: source, videoId: id }: DetailPageContent
             onRetry={retry}
             // Resume only when the persisted entry matches the episode currently loaded.
             // 仅当持久化条目与当前播放集匹配时才恢复.
-            initialPositionSec={resumePositionFor(currentSourceKey, currentVideoID, state.groupIndex, state.episodeIndex)}
-            onPositionChange={(positionSec, durationSec) =>
-              setPlaybackPosition(currentSourceKey, currentVideoID, state.groupIndex, state.episodeIndex, positionSec, durationSec)
-            }
+            initialPositionSec={resumePositionFor(currentSourceKey, currentVideoID, state.groupIndex, state.episodeIndex, remoteHistory)}
+            onPositionChange={(positionSec, durationSec) => {
+              setPlaybackPosition(currentSourceKey, currentVideoID, state.groupIndex, state.episodeIndex, positionSec, durationSec);
+              const title = displayDetail?.title?.trim();
+              if (!title) return;
+              void api
+                .saveWatchHistory({
+                  source_key: currentSourceKey,
+                  video_id: currentVideoID,
+                  title,
+                  cover: displayDetail?.cover ?? "",
+                  episode: state.selectedEpisode?.name ?? "",
+					group_index: state.groupIndex,
+					episode_index: state.episodeIndex,
+					progress_sec: positionSec,
+					duration_sec: durationSec,
+					completed: state.episodeIndex === (groups[state.groupIndex]?.length ?? 0) - 1
+						&& playbackCompleted(positionSec, durationSec),
+					event_time_ms: Date.now(),
+				})
+				.then((item) => setRemoteHistoryState({ title, item }))
+                .catch(() => undefined);
+            }}
           />
           <section className="detail-copy">
             <p className="muted">{[displayDetail.type, displayDetail.year, displayDetail.area].filter(Boolean).join(" | ")}</p>
@@ -718,11 +771,32 @@ function isEpisode(value: unknown): value is Episode {
  * or when positionSec is zero (never played, no meaningful resume point).
  * sourceKey/videoID 为空 (合成 bundle 初始状态) 或 positionSec 为零 (从未播放) 时返回 undefined.
  */
-function resumePositionFor(sourceKey: string, videoID: string, groupIndex: number, episodeIndex: number): number | undefined {
+function progressEntryFor(sourceKey: string, videoID: string, remoteHistory: WatchHistoryItem | null): PlaybackProgressEntry | null {
+  if (remoteHistory) {
+    if (remoteHistory.completed || remoteHistory.source_key !== sourceKey || remoteHistory.video_id !== videoID) {
+      return null;
+    }
+    return {
+      groupIndex: remoteHistory.group_index,
+      episodeIndex: remoteHistory.episode_index,
+      positionSec: remoteHistory.progress_sec,
+      durationSec: remoteHistory.duration_sec,
+      updatedAt: Date.parse(remoteHistory.updated_at) || Date.now(),
+    };
+  }
+  return getPlaybackProgress(sourceKey, videoID);
+}
+
+function playbackCompleted(positionSec: number, durationSec: number): boolean {
+	if (positionSec <= 0 || durationSec <= 0) return false;
+	return durationSec - positionSec <= 30 || positionSec / durationSec >= 0.95;
+}
+
+function resumePositionFor(sourceKey: string, videoID: string, groupIndex: number, episodeIndex: number, remoteHistory: WatchHistoryItem | null): number | undefined {
   // Guard: synthetic bundles have empty sourceKey/videoID — no stored progress to restore.
   // 防护: 合成 bundle 的 sourceKey/videoID 为空 — 没有存储的进度可恢复.
   if (!sourceKey || !videoID) return undefined;
-  const saved = getPlaybackProgress(sourceKey, videoID);
+  const saved = progressEntryFor(sourceKey, videoID, remoteHistory);
   if (!saved) return undefined;
   if (saved.groupIndex !== groupIndex || saved.episodeIndex !== episodeIndex) return undefined;
   return saved.positionSec > 0 ? saved.positionSec : undefined;

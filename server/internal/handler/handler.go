@@ -96,6 +96,11 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	protectedv1.GET("/douban/recommend/filter", h.DoubanRecommendByFilters)
 	protectedv1.GET("/douban/home", h.DoubanHomeSections)
 	protectedv1.POST("/playback/url", h.PlaybackURL)
+	protectedv1.GET("/history", h.ListWatchHistory)
+	protectedv1.PUT("/history", h.UpsertWatchHistory)
+	protectedv1.GET("/history/item", h.GetWatchHistory)
+	protectedv1.DELETE("/history/item", h.DeleteWatchHistory)
+	protectedv1.DELETE("/history", h.ClearWatchHistory)
 
 	// Admin routes require authentication and admin role.
 	// 管理端路由需要认证和 admin 角色.

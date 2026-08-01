@@ -107,7 +107,7 @@ describe("M4 wire types", () => {
   });
 
   it("EpisodeResumeIntent requires both fields", () => {
-    const resume: EpisodeResumeIntent = { episodeIndex: 2, episodeName: "03" };
+		const resume: EpisodeResumeIntent = { groupIndex: 0, episodeIndex: 2, episodeName: "03" };
     expect(resume.episodeIndex).toBe(2);
     expect(resume.episodeName).toBe("03");
   });
@@ -120,7 +120,7 @@ describe("M4 wire types", () => {
     const dest: PlayDestination = {
       title: "T", sources: [source], sourceKey: "k", videoId: "v",
       coverHint: "/cover.jpg",
-      resumeIntent: { episodeIndex: 1, episodeName: "02" },
+		resumeIntent: { groupIndex: 0, episodeIndex: 1, episodeName: "02" },
     };
     expect(dest.resumeIntent?.episodeName).toBe("02");
     const destNoResume: PlayDestination = {

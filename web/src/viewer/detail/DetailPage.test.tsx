@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SearchResult } from "@/api/types";
+import type { SearchResult, WatchHistoryItem } from "@/api/types";
 import { APIProvider } from "@/api/context";
 import { detailRoutePath } from "@/storage/detailRoute";
 import { bundleFromSearchResult, restoreSourceBundle, saveSourceBundle, sourceBundleStorageKey, upsertSourceBundleDetail } from "@/storage/sourceBundles";
@@ -122,10 +122,52 @@ describe("DetailPage", () => {
     window.localStorage.clear();
   });
 
-  afterEach(() => {
+	afterEach(() => {
     window.localStorage.clear();
     vi.restoreAllMocks();
-  });
+	});
+
+	it("waits for remote history before selecting the initial episode", async () => {
+		const history = deferred<WatchHistoryItem>();
+		const getWatchHistory = vi.fn(() => history.promise);
+		const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+		const api = createTestAPI({
+			detail: async () => ({
+				id: "video-a",
+				title: "Demo Show",
+				episodes: [[
+					{ name: "01", url: "https://cdn.example/1.m3u8" },
+					{ name: "02", url: "https://cdn.example/2.m3u8" },
+				]],
+			}),
+			getWatchHistory,
+			playbackURL,
+		});
+		renderDetail(api);
+
+		await waitFor(() => expect(getWatchHistory).toHaveBeenCalledWith("Demo Show"));
+		expect(playbackURL).not.toHaveBeenCalled();
+		await act(async () => {
+			history.resolve({
+				id: 1,
+				source_key: "source-a",
+				video_id: "video-a",
+				title: "Demo Show",
+				cover: "",
+				episode: "02",
+				group_index: 0,
+				episode_index: 1,
+				progress_sec: 45,
+				duration_sec: 120,
+				completed: false,
+				event_time_ms: 1,
+				created_at: "",
+				updated_at: "",
+			});
+		});
+
+		await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/2.m3u8", "source-a"));
+	});
 
   it("renders the invalid-token status when the route token cannot be decoded", () => {
     renderDetail(createTestAPI(), "/detail/0OIl-invalid");

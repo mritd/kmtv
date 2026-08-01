@@ -12,18 +12,24 @@ final class HomeViewModelTests: XCTestCase {
                 DoubanItem(id: "2", title: "B", cover: "", rate: "8.1", year: "2026")
             ])
         ])
-        WatchHistoryItem.upsert(
-            in: container.mainContext,
-            serverURL: "https://kmtv.example",
-            sourceKey: "s1",
-            videoId: "v1",
-            title: "History",
-            cover: "",
-            episode: "EP1",
-            episodeIndex: 0,
-            progress: 10,
-            duration: 100
-        )
+        api.watchHistory = WatchHistoryResponse(items: [
+            WatchHistoryResponseItem(
+                id: 1,
+                sourceKey: "s1",
+                videoId: "v1",
+                title: "History",
+                cover: "",
+                episode: "EP1",
+                groupIndex: 0,
+                episodeIndex: 0,
+                progressSec: 10,
+                durationSec: 100,
+				completed: false,
+				eventTimeMS: 1,
+				createdAt: nil,
+                updatedAt: nil
+            )
+        ])
         let vm = HomeViewModel(apiClient: api, modelContext: container.mainContext, serverURL: "https://kmtv.example")
 
         await vm.load()
@@ -31,6 +37,7 @@ final class HomeViewModelTests: XCTestCase {
         XCTAssertEqual(vm.sections.count, 1)
         XCTAssertEqual(vm.heroItems.count, 2)
         XCTAssertEqual(vm.watchHistory.count, 1)
+        XCTAssertEqual(vm.watchHistory.first?.title, "History")
         XCTAssertFalse(vm.isLoading)
     }
 

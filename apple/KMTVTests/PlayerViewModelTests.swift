@@ -15,6 +15,8 @@ final class PlayerViewModelTests: XCTestCase {
             cover: "", desc: "", director: "", actor: "", area: "",
             episodes: [[Episode(name: "EP1", url: "https://cdn.example/video.m3u8")]]
         )
+		var savedHistoryRequests: [WatchHistoryRequest] = []
+		var remoteHistory: WatchHistoryResponseItem?
 
         func detail(sourceKey: String, videoId: String) async throws -> VideoDetail {
             detailResponse
@@ -24,9 +26,92 @@ final class PlayerViewModelTests: XCTestCase {
             playbackRequests.append((url: url, source: source))
             return playbackResponse
         }
-    }
 
-    @MainActor
+        func listWatchHistory(limit: Int) async throws -> WatchHistoryResponse {
+            WatchHistoryResponse(items: [])
+        }
+
+		func watchHistory(title: String) async throws -> WatchHistoryResponseItem {
+			if let remoteHistory { return remoteHistory }
+			throw APIError.serverError(404, 1204, "watch history not found")
+        }
+
+        func saveWatchHistory(_ request: WatchHistoryRequest) async throws -> WatchHistoryResponseItem {
+            savedHistoryRequests.append(request)
+            return WatchHistoryResponseItem(
+                id: 1,
+                sourceKey: request.sourceKey,
+                videoId: request.videoId,
+                title: request.title,
+                cover: request.cover,
+                episode: request.episode,
+                groupIndex: request.groupIndex,
+                episodeIndex: request.episodeIndex,
+                progressSec: request.progressSec,
+                durationSec: request.durationSec,
+				completed: request.completed,
+				eventTimeMS: request.eventTimeMS,
+				createdAt: nil,
+                updatedAt: nil
+            )
+        }
+
+        func deleteWatchHistory(title: String) async throws {}
+
+        func clearRemoteWatchHistory() async throws {}
+	}
+
+	@MainActor
+	func testRemoteHistoryIsLoadedBeforePlaybackSelection() async throws {
+		let container = try ModelContainerFactory.makeInMemory()
+		let api = FakePlayerAPI()
+		api.detailResponse.episodes = [[
+			Episode(name: "EP1", url: "https://cdn.example/1.m3u8"),
+			Episode(name: "EP2", url: "https://cdn.example/2.m3u8")
+		]]
+		api.remoteHistory = WatchHistoryResponseItem(
+			id: 1,
+			sourceKey: "s1",
+			videoId: "video-1",
+			title: "Video",
+			cover: "",
+			episode: "EP2",
+			groupIndex: 0,
+			episodeIndex: 1,
+			progressSec: 45,
+			durationSec: 120,
+			completed: false,
+			eventTimeMS: 1,
+			createdAt: nil,
+			updatedAt: nil
+		)
+		let vm = PlayerViewModel(
+			apiClient: api,
+			modelContext: container.mainContext,
+			serverURL: "https://kmtv.example",
+			userID: 1,
+			sources: [SourceResult(
+				sourceKey: "s1", sourceName: "S1", videoId: "video-1",
+				durationMs: 0, episodes: []
+			)],
+			sourceKey: "s1",
+			videoId: "video-1",
+			title: "Video"
+		)
+
+		await vm.loadRemoteWatchHistory()
+		_ = await vm.loadDetail(sourceKey: vm.currentSourceKey, videoId: vm.currentVideoID)
+
+		XCTAssertEqual(vm.currentEpisodeIndex, 1)
+		let cached = WatchHistoryItem.recent(
+			in: container.mainContext,
+			serverURL: "https://kmtv.example",
+			userID: 1
+		)
+		XCTAssertEqual(cached.first?.progress, 45)
+	}
+
+	@MainActor
     func testInitialPlaybackState() throws {
         let container = try ModelContainerFactory.makeInMemory()
         let vm = PlayerViewModel(

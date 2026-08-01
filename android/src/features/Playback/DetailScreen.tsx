@@ -156,7 +156,7 @@ function DetailInner({ ctx, destination }: { ctx: DetailScreenContextValue; dest
       sourceKey: currentSourceKey,
       videoId: activeSource?.video_id ?? destination.videoId,
       coverHint: detail?.cover ?? destination.coverHint,
-      resumeIntent: { episodeIndex, episodeName: episodes[episodeIndex]?.name ?? "" },
+		resumeIntent: { groupIndex: 0, episodeIndex, episodeName: episodes[episodeIndex]?.name ?? "" },
     };
     ctx.onPlay(dest);
   };

@@ -56,10 +56,11 @@ export interface PlayerState {
  * source_name 都用 sourceKey, detailLoaded 后由常规 reducer 转换替换为真实数据.
  */
 export function initialPlayerState(
-  sources: SourceResult[],
-  sourceKey: string,
-  videoId: string,
-  episodeIndex: number,
+	sources: SourceResult[],
+	sourceKey: string,
+	videoId: string,
+	episodeIndex: number,
+	lineIndex: number = 0,
 ): PlayerState {
   const seeded = sources.length > 0
     ? sources
@@ -68,7 +69,7 @@ export function initialPlayerState(
     detail: null,
     sources: seeded,
     currentSourceKey: sourceKey,
-    currentLineIndex: 0,
+		currentLineIndex: Math.max(0, lineIndex),
     currentEpisodeIndex: Math.max(0, episodeIndex),
     currentTime: 0,
     duration: 0,
@@ -110,7 +111,10 @@ export type PlayerAction =
   | { type: "urlCleared" };
 
 function clampEpisodeIndex(state: PlayerState, detail: VideoDetail): number {
-  const next = { ...state, detail };
+	const currentLineIndex = detail.episodes.length > 0
+		? Math.min(Math.max(0, state.currentLineIndex), detail.episodes.length - 1)
+		: 0;
+	const next = { ...state, detail, currentLineIndex };
   const list = selectEpisodes(next);
   if (list.length === 0) return 0;
   return Math.min(Math.max(0, state.currentEpisodeIndex), list.length - 1);
@@ -131,9 +135,16 @@ export function shouldIgnoreProgressDuringPendingSeek(state: PlayerState, curren
  * 纯状态迁移, 不抛错, 不修改输入 state.
  */
 export function playerReducer(state: PlayerState, action: PlayerAction): PlayerState {
-  switch (action.type) {
-    case "detailLoaded":
-      return { ...state, detail: action.detail, currentEpisodeIndex: clampEpisodeIndex(state, action.detail) };
+	switch (action.type) {
+		case "detailLoaded":
+			return {
+				...state,
+				detail: action.detail,
+				currentLineIndex: action.detail.episodes.length > 0
+					? Math.min(Math.max(0, state.currentLineIndex), action.detail.episodes.length - 1)
+					: 0,
+				currentEpisodeIndex: clampEpisodeIndex(state, action.detail),
+			};
     case "switchEpisode":
       return { ...state, currentEpisodeIndex: Math.max(0, action.index), pendingSeekTime: null };
     case "switchLine":

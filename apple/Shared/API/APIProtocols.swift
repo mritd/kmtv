@@ -67,6 +67,26 @@ protocol PlaybackAPIProtocol: Sendable {
     func playbackURL(url: String, source: String) async throws -> PlaybackURLResponse
 }
 
+/// Watch-history API surface used for cross-device continue watching.
+/// 跨设备继续观看使用的观看历史 API 边界.
+protocol WatchHistoryAPIProtocol: Sendable {
+    /// Lists the current user's recent watch history.
+    /// 获取当前用户最近观看历史.
+    func listWatchHistory(limit: Int) async throws -> WatchHistoryResponse
+    /// Fetches one watch history item by title.
+    /// 按标题获取一条观看历史.
+    func watchHistory(title: String) async throws -> WatchHistoryResponseItem
+    /// Saves the latest playback state for a title.
+    /// 保存某个标题的最新播放状态.
+    func saveWatchHistory(_ request: WatchHistoryRequest) async throws -> WatchHistoryResponseItem
+    /// Deletes one title from watch history.
+    /// 从观看历史中删除一个标题.
+    func deleteWatchHistory(title: String) async throws
+    /// Clears all remote watch history for the current user.
+    /// 清空当前用户全部远端观看历史.
+    func clearRemoteWatchHistory() async throws
+}
+
 /// Douban discovery API surface used by home and category screens.
 /// 首页与分类页面使用的 Douban 发现 API 边界.
 protocol DoubanAPIProtocol: Sendable {
@@ -135,9 +155,15 @@ protocol AdminAPIProtocol: Sendable {
 
 /// Combined playback dependencies needed by PlayerViewModel.
 /// PlayerViewModel 需要的播放相关组合依赖.
-typealias PlaybackDetailAPIProtocol = DetailAPIProtocol & PlaybackAPIProtocol
+typealias PlaybackDetailAPIProtocol = DetailAPIProtocol & PlaybackAPIProtocol & WatchHistoryAPIProtocol
+/// Combined home dependencies needed by HomeViewModel.
+/// HomeViewModel 需要的首页相关组合依赖.
+typealias HomeAPIProtocol = DoubanAPIProtocol & WatchHistoryAPIProtocol
+/// Combined profile dependencies needed by ProfileViewModel.
+/// ProfileViewModel 需要的个人资料相关组合依赖.
+typealias ProfileAPIProtocol = AuthAPIProtocol & WatchHistoryAPIProtocol
 /// Full API surface implemented by APIClient.
 /// APIClient 实现的完整 API 边界.
-typealias AppAPIProtocol = AuthAPIProtocol & SearchAPIProtocol & DetailAPIProtocol & PlaybackAPIProtocol & DoubanAPIProtocol & AdminAPIProtocol
+typealias AppAPIProtocol = AuthAPIProtocol & SearchAPIProtocol & DetailAPIProtocol & PlaybackAPIProtocol & WatchHistoryAPIProtocol & DoubanAPIProtocol & AdminAPIProtocol
 
 extension APIClient: AppAPIProtocol {}

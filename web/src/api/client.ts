@@ -41,6 +41,9 @@ import type {
   SubscriptionsResponse,
   UpdateUserPayload,
   User,
+  WatchHistoryItem,
+  WatchHistoryPayload,
+  WatchHistoryResponse,
   UsersResponse,
 } from "./types";
 import { searchStream as runSearchStream, type SearchStreamOptions } from "./searchStream";
@@ -124,6 +127,11 @@ export interface APIClient {
   // 获取一页经筛选的分页推荐结果.
   doubanRecommendFilter(filter: DoubanRecommendFilter): Promise<DoubanListResponse>;
   playbackURL(url: string, source: string): Promise<PlaybackURLResponse>;
+  listWatchHistory(limit?: number): Promise<WatchHistoryResponse>;
+  getWatchHistory(title: string): Promise<WatchHistoryItem>;
+  saveWatchHistory(payload: WatchHistoryPayload): Promise<WatchHistoryItem>;
+  deleteWatchHistory(title: string): Promise<void>;
+  clearWatchHistory(): Promise<void>;
   listSources(): Promise<SourcesResponse>;
   createSource(source: SourcePayload): Promise<Source>;
   updateSource(id: number, source: SourcePayload): Promise<void>;
@@ -346,6 +354,27 @@ export function createAPIClient(options: APIClientOptions): APIClient {
         method: "POST",
         bodyJSON: { url, source },
       }),
+	listWatchHistory: (limit = 10) => {
+		const params = new URLSearchParams({ limit: String(limit), completed: "false" });
+      return request<WatchHistoryResponse>(`/history?${params.toString()}`);
+    },
+    getWatchHistory: (title) => {
+      const params = new URLSearchParams({ title });
+      return request<WatchHistoryItem>(`/history/item?${params.toString()}`);
+    },
+    saveWatchHistory: (payload) =>
+      request<WatchHistoryItem>("/history", {
+        method: "PUT",
+        bodyJSON: payload,
+      }),
+    async deleteWatchHistory(title) {
+      const params = new URLSearchParams({ title });
+      await request<MessageResponse>(`/history/item?${params.toString()}`, { method: "DELETE" });
+    },
+	async clearWatchHistory() {
+		const params = new URLSearchParams({ event_time_ms: String(Date.now()) });
+		await request<MessageResponse>(`/history?${params.toString()}`, { method: "DELETE" });
+    },
     listSources: () => request<SourcesResponse>("/admin/sources"),
     createSource: (source) => request<Source>("/admin/sources", { method: "POST", bodyJSON: source }),
     async updateSource(id, source) {

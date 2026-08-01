@@ -1,7 +1,7 @@
 import Foundation
 @testable import KMTV
 
-final class PlaybackAPIFake: PlaybackAPIProtocol, DetailAPIProtocol, @unchecked Sendable {
+final class PlaybackAPIFake: PlaybackAPIProtocol, DetailAPIProtocol, WatchHistoryAPIProtocol, @unchecked Sendable {
     var detailResponse = VideoDetail(
         id: "video-1",
         title: "Video",
@@ -18,7 +18,24 @@ final class PlaybackAPIFake: PlaybackAPIProtocol, DetailAPIProtocol, @unchecked 
         mode: "proxy",
         url: "https://kmtv.example/api/v1/proxy/m3u8?mt=Base58MediaToken"
     )
+    var historyResponse = WatchHistoryResponseItem(
+        id: 1,
+        sourceKey: "s1",
+        videoId: "video-1",
+        title: "Video",
+        cover: "",
+        episode: "EP1",
+        groupIndex: 0,
+        episodeIndex: 0,
+        progressSec: 30,
+        durationSec: 120,
+		completed: false,
+		eventTimeMS: 1,
+		createdAt: nil,
+        updatedAt: nil
+    )
     var playbackRequests: [(url: String, source: String)] = []
+    var savedHistoryRequests: [WatchHistoryRequest] = []
 
     func detail(sourceKey: String, videoId: String) async throws -> VideoDetail {
         detailResponse
@@ -28,6 +45,23 @@ final class PlaybackAPIFake: PlaybackAPIProtocol, DetailAPIProtocol, @unchecked 
         playbackRequests.append((url: url, source: source))
         return playbackResponse
     }
+
+    func listWatchHistory(limit: Int) async throws -> WatchHistoryResponse {
+        WatchHistoryResponse(items: [historyResponse])
+    }
+
+    func watchHistory(title: String) async throws -> WatchHistoryResponseItem {
+        historyResponse
+    }
+
+    func saveWatchHistory(_ request: WatchHistoryRequest) async throws -> WatchHistoryResponseItem {
+        savedHistoryRequests.append(request)
+        return historyResponse
+    }
+
+    func deleteWatchHistory(title: String) async throws {}
+
+    func clearRemoteWatchHistory() async throws {}
 }
 
 final class SearchAPIFake: SearchAPIProtocol, @unchecked Sendable {
@@ -85,13 +119,15 @@ final class AdminAPIFake: AdminAPIProtocol, @unchecked Sendable {
     }
 }
 
-final class DoubanAPIFake: DoubanAPIProtocol, @unchecked Sendable {
+final class DoubanAPIFake: DoubanAPIProtocol, WatchHistoryAPIProtocol, @unchecked Sendable {
     var home = DoubanHomeResponse(sections: [])
     var homeError: Error?
     var categories = DoubanCategoriesResponse(categories: [])
     var recommend = DoubanListResponse(items: [])
     var recommendResponses: [DoubanListResponse] = []
     var recommendRequests: [(kind: String, tag: String, format: String, region: String, start: Int, count: Int)] = []
+    var watchHistory = WatchHistoryResponse(items: [])
+    var clearRemoteWatchHistoryCalled = false
 
     func doubanHome() async throws -> DoubanHomeResponse {
         if let homeError { throw homeError }
@@ -112,12 +148,49 @@ final class DoubanAPIFake: DoubanAPIProtocol, @unchecked Sendable {
         }
         return recommend
     }
+
+    func listWatchHistory(limit: Int) async throws -> WatchHistoryResponse {
+        watchHistory
+    }
+
+    func watchHistory(title: String) async throws -> WatchHistoryResponseItem {
+        if let item = watchHistory.items.first(where: { $0.title == title }) {
+            return item
+        }
+        throw APIError.serverError(404, 1204, "watch history not found")
+    }
+
+    func saveWatchHistory(_ request: WatchHistoryRequest) async throws -> WatchHistoryResponseItem {
+        WatchHistoryResponseItem(
+            id: 1,
+            sourceKey: request.sourceKey,
+            videoId: request.videoId,
+            title: request.title,
+            cover: request.cover,
+            episode: request.episode,
+            groupIndex: request.groupIndex,
+            episodeIndex: request.episodeIndex,
+            progressSec: request.progressSec,
+            durationSec: request.durationSec,
+			completed: request.completed,
+			eventTimeMS: request.eventTimeMS,
+			createdAt: nil,
+            updatedAt: nil
+        )
+    }
+
+    func deleteWatchHistory(title: String) async throws {}
+
+    func clearRemoteWatchHistory() async throws {
+        clearRemoteWatchHistoryCalled = true
+    }
 }
 
-final class AuthAPIFake: AuthAPIProtocol, @unchecked Sendable {
+final class AuthAPIFake: ProfileAPIProtocol, @unchecked Sendable {
     var user = User(id: 1, username: "admin", role: "admin", avatar: nil)
     var changedPassword: (old: String, new: String)?
     var uploadedAvatar: (bytes: Int, mimeType: String)?
+    var clearRemoteWatchHistoryCalled = false
 
     func login(username: String, password: String) async throws -> LoginResponse {
         throw APIError.serverError(501, 1300, "login is not used by these tests")
@@ -145,5 +218,38 @@ final class AuthAPIFake: AuthAPIProtocol, @unchecked Sendable {
         uploadedAvatar = (imageData.count, mimeType)
         user.avatar = "/api/v1/auth/avatar"
         return user
+    }
+
+    func listWatchHistory(limit: Int) async throws -> WatchHistoryResponse {
+        WatchHistoryResponse(items: [])
+    }
+
+    func watchHistory(title: String) async throws -> WatchHistoryResponseItem {
+        throw APIError.serverError(404, 1204, "watch history not found")
+    }
+
+    func saveWatchHistory(_ request: WatchHistoryRequest) async throws -> WatchHistoryResponseItem {
+        WatchHistoryResponseItem(
+            id: 1,
+            sourceKey: request.sourceKey,
+            videoId: request.videoId,
+            title: request.title,
+            cover: request.cover,
+            episode: request.episode,
+            groupIndex: request.groupIndex,
+            episodeIndex: request.episodeIndex,
+            progressSec: request.progressSec,
+            durationSec: request.durationSec,
+			completed: false,
+			eventTimeMS: request.eventTimeMS,
+			createdAt: Date(),
+            updatedAt: Date()
+        )
+    }
+
+    func deleteWatchHistory(title: String) async throws {}
+
+    func clearRemoteWatchHistory() async throws {
+        clearRemoteWatchHistoryCalled = true
     }
 }

@@ -44,7 +44,7 @@ describe("createAPIClient", () => {
     expect(req.headers.get("Authorization")).toBeNull();
   });
 
-  it("invokes onUnauthorized and rejects with kind=unauthorized on 401", async () => {
+	it("invokes onUnauthorized and rejects with kind=unauthorized on 401", async () => {
     const fetcher = jest.fn(async () => new Response(JSON.stringify({ error: "x" }), { status: 401 }));
     const onUnauthorized = jest.fn();
     const client = createAPIClient({
@@ -54,8 +54,21 @@ describe("createAPIClient", () => {
       fetcher,
     });
     await expect(client.get("/auth/me")).rejects.toEqual({ kind: "unauthorized" });
-    expect(onUnauthorized).toHaveBeenCalledTimes(1);
-  });
+		expect(onUnauthorized).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not expire anonymous state for an expected 401 without a bearer token", async () => {
+		const fetcher = jest.fn(async () => new Response(JSON.stringify({ error: "not logged in" }), { status: 401 }));
+		const onUnauthorized = jest.fn();
+		const client = createAPIClient({
+			baseURL: "https://k.example.com",
+			getToken: () => null,
+			onUnauthorized,
+			fetcher,
+		});
+		await expect(client.get("/history")).rejects.toEqual({ kind: "unauthorized" });
+		expect(onUnauthorized).not.toHaveBeenCalled();
+	});
 
   it("rejects with kind=server on non-2xx", async () => {
     const fetcher = jest.fn(async () => new Response(JSON.stringify({ error: "boom" }), { status: 500 }));

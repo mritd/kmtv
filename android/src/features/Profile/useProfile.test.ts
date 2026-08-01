@@ -184,17 +184,17 @@ describe("useProfile", () => {
 
   it("clearWatchHistory wipes the store and resets the counter", async () => {
     const { recordPlayProgress } = require("@/storage/watchHistory");
-    recordPlayProgress("http://localhost", {
-      id: "x", sourceKey: "s", videoId: "v", title: "T", cover: "",
-      episode: "", episodeIndex: 0, progress: 1, duration: 10,
-    });
+		recordPlayProgress("http://localhost", {
+			id: "x", sourceKey: "s", videoId: "v", title: "T", cover: "",
+			episode: "", groupIndex: 0, episodeIndex: 0, progress: 1, duration: 10, completed: false,
+		}, user.id);
     const auth = makeAuth();
     const { result } = renderHook(() =>
       useProfile({ auth, user, serverURL: "http://localhost", onUserChanged: jest.fn() }),
     );
     act(() => result.current.refreshWatchCount());
     expect(result.current.watchHistoryCount).toBeGreaterThan(0);
-    act(() => result.current.clearWatchHistory());
+		await act(async () => { await result.current.clearWatchHistory(); });
     expect(result.current.watchHistoryCount).toBe(0);
   });
 

@@ -72,6 +72,7 @@ async function performBinaryRequest(
   externalSignal: AbortSignal | undefined,
   onUnauthorized: () => void,
 ): Promise<ArrayBuffer> {
+	const sentBearerToken = new Headers(init.headers).has("Authorization");
   const controller = new AbortController();
   if (externalSignal) {
     if (externalSignal.aborted) controller.abort();
@@ -91,7 +92,7 @@ async function performBinaryRequest(
   }
   if (!res.ok) {
     const err = await APIError.fromResponse(res);
-    if (err.kind === "unauthorized") onUnauthorized();
+		if (err.kind === "unauthorized" && sentBearerToken) onUnauthorized();
     throw err;
   }
   return await res.arrayBuffer();
@@ -105,6 +106,7 @@ async function performRequest<T>(
   externalSignal: AbortSignal | undefined,
   onUnauthorized: () => void,
 ): Promise<T> {
+	const sentBearerToken = new Headers(init.headers).has("Authorization");
   const controller = new AbortController();
   if (externalSignal) {
     if (externalSignal.aborted) controller.abort();
@@ -124,7 +126,7 @@ async function performRequest<T>(
   }
   if (!res.ok) {
     const err = await APIError.fromResponse(res);
-    if (err.kind === "unauthorized") onUnauthorized();
+		if (err.kind === "unauthorized" && sentBearerToken) onUnauthorized();
     throw err;
   }
   if (res.status === 204) return undefined as T;

@@ -59,7 +59,8 @@ final class PlayerViewModel {
 
     private let apiClient: any PlaybackDetailAPIProtocol
     private let modelContext: ModelContext
-    private let serverURL: String
+	private let serverURL: String
+	private let userID: Int64
     private let videoTitle: String
     private let coverHint: String
     private let progressStore: PlaybackProgressStore
@@ -68,15 +69,16 @@ final class PlayerViewModel {
     /// 播放器副作用交给 coordinator 管理, 当前视图模型只维护用户可见状态.
     private let coordinator = PlaybackCoordinator()
 
-    init(apiClient: any PlaybackDetailAPIProtocol, modelContext: ModelContext, serverURL: String,
+	init(apiClient: any PlaybackDetailAPIProtocol, modelContext: ModelContext, serverURL: String, userID: Int64 = 0,
          sources: [SourceResult], sourceKey: String, videoId: String, title: String,
          coverHint: String = "", initialEpisodeIndex: Int? = nil) {
         self.apiClient = apiClient
         self.modelContext = modelContext
-        self.serverURL = serverURL
+		self.serverURL = serverURL
+		self.userID = userID
         self.videoTitle = title
         self.coverHint = coverHint
-        self.progressStore = PlaybackProgressStore(modelContext: modelContext, serverURL: serverURL, title: title)
+		self.progressStore = PlaybackProgressStore(modelContext: modelContext, serverURL: serverURL, userID: userID, title: title)
         self.sources = sources
         self.currentSourceKey = sourceKey
         self.currentEpisodeIndex = max(0, initialEpisodeIndex ?? 0)
@@ -114,13 +116,54 @@ final class PlayerViewModel {
         currentEpisode?.name ?? ""
     }
 
-    var currentSourceName: String {
+	var currentSourceName: String {
         selection.sourceName()
-    }
+	}
 
-    // MARK: - Load
+	var currentVideoID: String {
+		selection.sourceVideoID()
+	}
 
-    func loadDetail(sourceKey: String, videoId: String) async -> Bool {
+	// MARK: - Load
+
+	func loadRemoteWatchHistory() async {
+		guard userID > 0 else { return }
+		do {
+			let item = try await apiClient.watchHistory(title: videoTitle)
+			guard !item.completed else {
+				WatchHistoryItem.delete(
+					in: modelContext,
+					serverURL: serverURL,
+					userID: userID,
+					title: videoTitle
+				)
+				return
+			}
+			if sources.contains(where: { $0.sourceKey == item.sourceKey && $0.videoId == item.videoId }) {
+				currentSourceKey = item.sourceKey
+				currentLineIndex = max(0, item.groupIndex)
+				currentEpisodeIndex = max(0, item.episodeIndex)
+			}
+			WatchHistoryItem.upsert(
+				in: modelContext,
+				serverURL: serverURL,
+				userID: userID,
+				sourceKey: item.sourceKey,
+				videoId: item.videoId,
+				title: item.title,
+				cover: item.cover,
+				episode: item.episode,
+				groupIndex: item.groupIndex,
+				episodeIndex: item.episodeIndex,
+				progress: item.progressSec,
+				duration: item.durationSec
+			)
+		} catch {
+			// Missing or temporarily unavailable remote history falls back to the user-scoped cache.
+		}
+	}
+
+	func loadDetail(sourceKey: String, videoId: String) async -> Bool {
         isLoadingDetail = true
         defer { isLoadingDetail = false }
         do {
@@ -194,6 +237,7 @@ final class PlayerViewModel {
         let startTime = progressStore.startTime(
             sourceKey: currentSourceKey,
             videoId: selection.sourceVideoID(),
+			groupIndex: currentLineIndex,
             episodeIndex: currentEpisodeIndex,
             skipIntroSeconds: skipIntroSeconds
         )
@@ -259,15 +303,36 @@ final class PlayerViewModel {
     private func saveProgress(current: TimeInterval, duration: TimeInterval) {
         guard let detail else { return }
         guard let ep = currentEpisode else { return }
+        let videoId = selection.sourceVideoID()
+		let completed = currentEpisodeIndex == episodes.count - 1
+			&& playbackCompleted(current: current, duration: duration)
         progressStore.saveProgress(
             detail: detail,
             sourceKey: currentSourceKey,
-            videoId: selection.sourceVideoID(),
+            videoId: videoId,
             episode: ep,
+			groupIndex: currentLineIndex,
             episodeIndex: currentEpisodeIndex,
             current: current,
-            duration: duration
+			duration: duration,
+			completed: completed
         )
+		let request = WatchHistoryRequest(
+            sourceKey: currentSourceKey,
+            videoId: videoId,
+            title: detail.title,
+            cover: detail.cover,
+            episode: ep.name,
+            groupIndex: currentLineIndex,
+            episodeIndex: currentEpisodeIndex,
+            progressSec: current,
+            durationSec: duration,
+			completed: completed,
+			eventTimeMS: Int64(Date().timeIntervalSince1970 * 1000)
+        )
+        Task {
+            _ = try? await apiClient.saveWatchHistory(request)
+        }
     }
 
     // MARK: - Switching
@@ -370,13 +435,23 @@ final class PlayerViewModel {
         currentEpisodeIndex = 0
     }
 
-    private func clampCurrentEpisodeIndex() {
-        guard !episodes.isEmpty else {
-            currentEpisodeIndex = 0
-            return
-        }
-        currentEpisodeIndex = min(max(0, currentEpisodeIndex), episodes.count - 1)
-    }
+	private func clampCurrentEpisodeIndex() {
+		if let lineCount = detail?.episodes.count, lineCount > 0 {
+			currentLineIndex = min(max(0, currentLineIndex), lineCount - 1)
+		} else {
+			currentLineIndex = 0
+		}
+		guard !episodes.isEmpty else {
+			currentEpisodeIndex = 0
+			return
+		}
+		currentEpisodeIndex = min(max(0, currentEpisodeIndex), episodes.count - 1)
+	}
+
+	private func playbackCompleted(current: TimeInterval, duration: TimeInterval) -> Bool {
+		guard duration > 0, current > 0 else { return false }
+		return duration - current <= 30 || current / duration >= 0.95
+	}
 
     /// Applies detail refreshes without replacing stable movie metadata during source switching.
     /// 切换视频源时只刷新剧集, 避免覆盖稳定的影片元数据.

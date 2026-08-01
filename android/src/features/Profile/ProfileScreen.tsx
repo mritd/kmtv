@@ -10,6 +10,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-nati
 
 import { createAuthAPI, type AuthAPI } from "@/api/auth";
 import { createAPIClient, type APIClient } from "@/api/client";
+import { createWatchHistoryAPI, type WatchHistoryAPI } from "@/api/history";
 import { useTheme } from "@/designSystem/useTheme";
 import type { ProfileStackParamList } from "@/navigation/types";
 import { useAuthStore } from "@/store/authStore";
@@ -28,6 +29,7 @@ import { useProfile } from "./useProfile";
 export interface ProfileScreenContextValue {
   apiClient: APIClient;
   auth: AuthAPI;
+  historyAPI?: WatchHistoryAPI;
 }
 
 /**
@@ -45,7 +47,7 @@ function useDefaultContext(): ProfileScreenContextValue | null {
       getToken: () => useAuthStore.getState().token,
       onUnauthorized: () => useAuthStore.getState().handleAuthExpired(),
     });
-    return { apiClient: client, auth: createAuthAPI(client) };
+    return { apiClient: client, auth: createAuthAPI(client), historyAPI: createWatchHistoryAPI(client) };
   }, [serverURL]);
 }
 
@@ -63,7 +65,7 @@ function ProfileInner({ ctx }: { ctx: ProfileScreenContextValue }) {
   const logout = useAuthStore((s) => s.logout);
   const serverURL = useServerStore((s) => s.serverURL) ?? "";
 
-  const profile = useProfile({ auth: ctx.auth, user, serverURL, onUserChanged: updateUser });
+  const profile = useProfile({ auth: ctx.auth, historyAPI: ctx.historyAPI, user, serverURL, onUserChanged: updateUser });
 
   useEffect(() => { profile.refreshWatchCount(); }, [profile]);
 
@@ -115,7 +117,7 @@ function ProfileInner({ ctx }: { ctx: ProfileScreenContextValue }) {
       <View style={styles.danger}>
         <Pressable
           testID="clearHistoryButton"
-          onPress={profile.clearWatchHistory}
+			onPress={() => void profile.clearWatchHistory()}
           style={styles.dangerBtn}
           accessibilityRole="button"
         >

@@ -54,13 +54,20 @@ struct HomeView: View {
         #endif
         .task {
             if viewModel == nil, let client = appVM.apiClient {
-                let vm = HomeViewModel(apiClient: client, modelContext: modelContext, serverURL: appVM.serverURL)
+				let vm = HomeViewModel(
+					apiClient: client,
+					modelContext: modelContext,
+					serverURL: appVM.serverURL,
+					userID: Int64(appVM.currentUser?.id ?? 0)
+				)
                 viewModel = vm
                 await vm.load()
             }
         }
         .onAppear {
-            viewModel?.loadWatchHistory()
+            Task {
+                await viewModel?.loadRemoteWatchHistory()
+            }
         }
     }
 
@@ -296,7 +303,7 @@ struct HomeView: View {
                 .foregroundStyle(.primary)
             Spacer()
             #if os(iOS)
-            Button("Clear") { vm.clearWatchHistory() }
+			Button("Clear") { Task { await vm.clearWatchHistory() } }
                 .font(.caption)
                 .foregroundStyle(.secondary)
             #endif

@@ -23,11 +23,12 @@ export type RootStackParamList = {
  * 并把上次观看集数带入 Player.
  */
 export interface SearchResumeHint {
-  title: string;
-  sourceKey: string;
-  videoId: string;
-  coverHint: string;
-  episodeIndex: number;
+	title: string;
+	sourceKey: string;
+	videoId: string;
+	coverHint: string;
+	groupIndex: number;
+	episodeIndex: number;
   episodeName: string;
 }
 

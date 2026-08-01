@@ -6,12 +6,13 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import type { DetailAPI } from "@/api/detail";
+import type { WatchHistoryAPI } from "@/api/history";
 import type { PlaybackAPI } from "@/api/playback";
 import type { PlayDestination, VideoDetail } from "@/api/types";
 import {
   loadPlaybackSettings, savePlaybackSettings, type PlaybackSettings,
 } from "@/storage/playbackSettings";
-import { loadWatchHistory, recordPlayProgress } from "@/storage/watchHistory";
+import { deleteWatchHistory, loadWatchHistory, recordPlayProgress, watchHistoryItemFromRemote, watchHistoryRequestFromItem } from "@/storage/watchHistory";
 
 import { currentEpisode, episodes as selectEpisodes, sourceVideoID } from "./episodeSelection";
 import {
@@ -54,10 +55,12 @@ function matchEpisodeByName(state: PlayerState, prevName: string): number {
  * usePlayer 的入参 — 一律通过 props 注入, 单测可替换为 fake.
  */
 export interface UsePlayerOptions {
-  serverURL: string;
+	serverURL: string;
+	userID?: number;
   destination: PlayDestination;
   detailAPI: DetailAPI;
   playbackAPI: PlaybackAPI;
+  historyAPI?: WatchHistoryAPI;
 }
 
 /**
@@ -68,7 +71,9 @@ export interface UsePlayerOptions {
  * 重渲染. `resumeStartSeconds` 是下次 `onLoad` 后需要 seek 到的位置 (watchHistory + skipIntro 合并).
  */
 export interface UsePlayerResult {
-  state: PlayerState;
+	state: PlayerState;
+	/** True after remote history has succeeded or failed, so playback can initialize once. */
+	historyReady: boolean;
   /** Position in seconds to seek to on the next onLoad. 下次 onLoad 后需要 seek 到的秒数. */
   resumeStartSeconds: number;
   actions: {
@@ -99,15 +104,16 @@ export interface UsePlayerResult {
  * usePlayer — 播放 hook. 挂载即加载详情, 维护 reducer + fallback, 暴露 PlayerScreen UI 与
  * imperative <Video /> 回调共用的 action.
  */
-export function usePlayer({ serverURL, destination, detailAPI, playbackAPI }: UsePlayerOptions): UsePlayerResult {
+export function usePlayer({ serverURL, userID = 0, destination, detailAPI, playbackAPI, historyAPI }: UsePlayerOptions): UsePlayerResult {
   const [state, dispatch] = useReducer(
     playerReducer,
     initialPlayerState(
       destination.sources,
-      destination.sourceKey,
-      destination.videoId,
-      destination.resumeIntent?.episodeIndex ?? 0,
-    ),
+		destination.sourceKey,
+		destination.videoId,
+		destination.resumeIntent?.episodeIndex ?? 0,
+		destination.resumeIntent?.groupIndex ?? 0,
+	),
   );
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -121,17 +127,19 @@ export function usePlayer({ serverURL, destination, detailAPI, playbackAPI }: Us
   // resets it back to false.
   // resumeConsumed 是 state (而非 ref), flip 时触发重渲染, 下次读 resumeStartSeconds 才能取到 0.
   // 一旦置 true 在屏幕生命周期内不重置; 切线路/剧集/源时显式置回 false.
-  const [resumeConsumed, setResumeConsumed] = useState(false);
+	const [resumeConsumed, setResumeConsumed] = useState(false);
+	const [historyReady, setHistoryReady] = useState(historyAPI === undefined);
 
   const resumeStartFor = useCallback((input: PlayerState, episodeIndex = input.currentEpisodeIndex): number => {
     const videoId = sourceVideoID(input);
-    const saved = loadWatchHistory(serverURL, 100).find((h) =>
+		const saved = loadWatchHistory(serverURL, 100, userID).find((h) =>
       h.sourceKey === input.currentSourceKey
       && h.videoId === videoId
+			&& h.groupIndex === input.currentLineIndex
       && h.episodeIndex === episodeIndex,
     );
     return saved && saved.progress > 0 ? saved.progress : input.skipIntroSeconds;
-  }, [serverURL]);
+	}, [serverURL, userID]);
 
   const setResumeStartFor = useCallback((input: PlayerState, episodeIndex = input.currentEpisodeIndex) => {
     const nextResumeStart = resumeStartFor(input, episodeIndex);
@@ -145,25 +153,60 @@ export function usePlayer({ serverURL, destination, detailAPI, playbackAPI }: Us
   useEffect(() => {
     const settings: PlaybackSettings = loadPlaybackSettings(serverURL, destination.title);
     dispatch({ type: "loadSkipSettings", settings });
-    const history = loadWatchHistory(serverURL, 100);
+		const history = loadWatchHistory(serverURL, 100, userID);
     const saved = history.find((h) =>
       h.sourceKey === destination.sourceKey
       && h.videoId === destination.videoId
+			&& h.groupIndex === (destination.resumeIntent?.groupIndex ?? 0)
       && h.episodeIndex === (destination.resumeIntent?.episodeIndex ?? 0),
     );
     resumeStartRef.current = saved && saved.progress > 0 ? saved.progress : settings.skipIntroSeconds;
     lastSavedTimeRef.current = resumeStartRef.current;
     setResumeConsumed(false);
+		let cancelled = false;
+		if (historyAPI) {
+			void historyAPI.watchHistory(destination.title)
+				.then((remote) => {
+					if (cancelled) return;
+					if (remote.completed) {
+						deleteWatchHistory(serverURL, destination.title, userID);
+						resumeStartRef.current = settings.skipIntroSeconds;
+						lastSavedTimeRef.current = settings.skipIntroSeconds;
+						return;
+					}
+					const item = watchHistoryItemFromRemote(remote);
+					recordPlayProgress(serverURL, item, userID);
+					const remoteSource = destination.sources.find((source) =>
+						source.source_key === item.sourceKey && source.video_id === item.videoId);
+					const matchesSeed = item.sourceKey === destination.sourceKey && item.videoId === destination.videoId;
+					if (remoteSource || matchesSeed) {
+						dispatch({ type: "switchSource", sourceKey: item.sourceKey });
+						dispatch({ type: "switchLine", index: item.groupIndex });
+						dispatch({ type: "switchEpisode", index: item.episodeIndex });
+						resumeStartRef.current = item.progress;
+						lastSavedTimeRef.current = item.progress;
+						setResumeConsumed(false);
+					}
+				})
+				.catch(() => undefined)
+				.finally(() => {
+					if (!cancelled) setHistoryReady(true);
+				});
+		}
+		return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load detail on mount.
-  // 挂载时加载详情.
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const detail = await detailAPI.detail(destination.sourceKey, destination.videoId);
+	// Load detail only after remote history has chosen the initial source/episode.
+	// 等远端历史确定初始源与分集后再加载详情.
+	useEffect(() => {
+		if (!historyReady) return;
+		let cancelled = false;
+		void (async () => {
+			try {
+				const sourceKey = stateRef.current.currentSourceKey;
+				const videoId = sourceVideoID(stateRef.current) || destination.videoId;
+				const detail = await detailAPI.detail(sourceKey, videoId);
         if (cancelled) return;
         dispatch({ type: "detailLoaded", detail });
       } catch (err) {
@@ -172,8 +215,7 @@ export function usePlayer({ serverURL, destination, detailAPI, playbackAPI }: Us
       }
     })();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+	}, [destination.videoId, detailAPI, historyReady]);
 
   // Pure transition over (state, episode) → next state with either urlResolved or error.
   // 纯转换: (state, 当前剧集) 推出下一态, 含 urlResolved 或 error.
@@ -381,19 +423,27 @@ export function usePlayer({ serverURL, destination, detailAPI, playbackAPI }: Us
     const currentTime = current ?? stateRef.current.currentTime;
     const duration = total ?? stateRef.current.duration;
     if (currentTime <= 0 || !Number.isFinite(duration)) return;
-    recordPlayProgress(serverURL, {
+		const list = selectEpisodes(stateRef.current);
+		const completed = currentEpisodeIndex === list.length - 1
+			&& duration > 0
+			&& (duration - currentTime <= 30 || currentTime / duration >= 0.95);
+		const item = {
       id: `${currentSourceKey}:${videoId}:${currentEpisodeIndex}`,
       sourceKey: currentSourceKey,
       videoId,
       title: detail?.title ?? destination.title,
       cover: detail?.cover ?? destination.coverHint ?? "",
-      episode: ep.name,
-      episodeIndex: currentEpisodeIndex,
+			episode: ep.name,
+			groupIndex: stateRef.current.currentLineIndex,
+			episodeIndex: currentEpisodeIndex,
       progress: currentTime,
-      duration,
-    });
+			duration,
+			completed,
+		};
+		recordPlayProgress(serverURL, item, userID);
+    void historyAPI?.saveWatchHistory(watchHistoryRequestFromItem(item)).catch(() => undefined);
     lastSavedTimeRef.current = currentTime;
-  }, [destination.coverHint, destination.title, serverURL]);
+	}, [destination.coverHint, destination.title, historyAPI, serverURL, userID]);
 
   const timeUpdate = useCallback((currentTime: number, duration: number) => {
     const ignoreProgress = shouldIgnoreProgressDuringPendingSeek(stateRef.current, currentTime);
@@ -442,8 +492,9 @@ export function usePlayer({ serverURL, destination, detailAPI, playbackAPI }: Us
     onError, persistProgressNow, markResumeConsumed,
   }), [startPlayback, switchSource, switchLine, switchEpisode, setRate, setSkipIntro, setSkipOutro, timeUpdate, commitSeek, setBuffering, setSeeking, setPlaying, onError, persistProgressNow, markResumeConsumed]);
 
-  return {
-    state,
+	return {
+		state,
+		historyReady,
     resumeStartSeconds: resumeConsumed ? 0 : resumeStartRef.current,
     actions,
     stateRef,

@@ -34,6 +34,41 @@ export interface MessageResponse {
 }
 
 /**
+ * Server-synchronized continue-watching entry.
+ * 服务端同步的继续观看条目.
+ */
+export interface WatchHistoryResponseItem {
+  id: number;
+  source_key: string;
+  video_id: string;
+  title: string;
+  cover: string;
+  episode: string;
+  group_index: number;
+  episode_index: number;
+  progress_sec: number;
+  duration_sec: number;
+	completed: boolean;
+	event_time_ms: number;
+	created_at: string;
+  updated_at: string;
+}
+
+/**
+ * GET /history response wrapper.
+ * GET /history 的响应包装.
+ */
+export interface WatchHistoryResponse {
+  items: WatchHistoryResponseItem[];
+}
+
+/**
+ * PUT /history request body.
+ * PUT /history 请求体.
+ */
+export type WatchHistoryRequest = Omit<WatchHistoryResponseItem, "id" | "created_at" | "updated_at">;
+
+/**
  * Server settings exposed through GET /api/v1/settings (subset used by M1).
  * GET /api/v1/settings 暴露的服务器设置 (M1 仅使用子集).
  */
@@ -262,7 +297,8 @@ export interface PlaybackURLResponse {
  * 两个字段都必填: episodeIndex 是主键, episodeName 用于切源重排后由 usePlayer 重新定位.
  */
 export interface EpisodeResumeIntent {
-  episodeIndex: number;
+	groupIndex: number;
+	episodeIndex: number;
   episodeName: string;
 }
 

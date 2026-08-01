@@ -98,6 +98,63 @@ describe("APIClient", () => {
     });
   });
 
+  it("builds watch history requests", async () => {
+    const historyItem = {
+      id: 1,
+      source_key: "source-a",
+      video_id: "video-a",
+      title: "Demo Show",
+      cover: "",
+      episode: "01",
+      group_index: 0,
+      episode_index: 0,
+      progress_sec: 90,
+      duration_sec: 1200,
+		completed: false,
+		event_time_ms: 1,
+      created_at: "",
+      updated_at: "",
+    };
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [historyItem] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(historyItem), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(historyItem), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: "watch history deleted" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: "watch history cleared" }), { status: 200 }));
+
+    const client = createAPIClient({ baseURL: "/", tokenStore: createMemoryTokenStore(), fetcher });
+
+    await client.listWatchHistory(12);
+    await client.getWatchHistory("Demo Show");
+    await client.saveWatchHistory({
+      source_key: "source-a",
+      video_id: "video-a",
+      title: "Demo Show",
+      cover: "",
+      episode: "01",
+      group_index: 0,
+      episode_index: 0,
+      progress_sec: 90,
+      duration_sec: 1200,
+		completed: false,
+		event_time_ms: 2,
+    });
+    await client.deleteWatchHistory("Demo Show");
+    await client.clearWatchHistory();
+
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+		"/api/v1/history?limit=12&completed=false",
+      "/api/v1/history/item?title=Demo+Show",
+      "/api/v1/history",
+      "/api/v1/history/item?title=Demo+Show",
+		expect.stringMatching(/^\/api\/v1\/history\?event_time_ms=\d+$/),
+	]);
+    expect((fetcher.mock.calls[2][1] as RequestInit).method).toBe("PUT");
+    expect((fetcher.mock.calls[3][1] as RequestInit).method).toBe("DELETE");
+    expect((fetcher.mock.calls[4][1] as RequestInit).method).toBe("DELETE");
+  });
+
   it("clears tokens on unauthorized responses", async () => {
     const store = createMemoryTokenStore({
       accessToken: "Expired",

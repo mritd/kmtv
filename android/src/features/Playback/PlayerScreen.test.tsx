@@ -220,10 +220,12 @@ test("Video onLoad clamps an over-duration resume position before seeking", asyn
     videoId: "v-a",
     title: destination.title,
     cover: "",
-    episode: "E1",
-    episodeIndex: 0,
+		episode: "E1",
+		groupIndex: 0,
+		episodeIndex: 0,
     progress: 700,
-    duration: 900,
+		duration: 900,
+		completed: false,
   });
   const detailAPI: DetailAPI = { detail: jest.fn().mockResolvedValue(detail) };
   const playbackAPI: PlaybackAPI = { playbackURL: jest.fn().mockResolvedValue({ mode: "proxy", url: "https://p/m3u8" }) };

@@ -32,14 +32,17 @@ struct PlayerView: View {
             // 播放前先加载详情, 让视频源 fallback 在 AVPlayer 启动前完成.
             if viewModel == nil, let client = appVM.apiClient {
                 let vm = PlayerViewModel(
-                    apiClient: client, modelContext: modelContext, serverURL: appVM.serverURL,
+					apiClient: client, modelContext: modelContext, serverURL: appVM.serverURL,
+					userID: Int64(appVM.currentUser?.id ?? 0),
                     sources: destination.sources, sourceKey: destination.sourceKey,
                     videoId: destination.videoId, title: destination.title,
                     coverHint: destination.coverHint,
                     initialEpisodeIndex: destination.resumeIntent?.episodeIndex
-                )
-                viewModel = vm
-                let ok = await vm.loadDetail(sourceKey: destination.sourceKey, videoId: destination.videoId)
+				)
+				viewModel = vm
+				await vm.loadRemoteWatchHistory()
+				let resumeVideoID = vm.currentVideoID.isEmpty ? destination.videoId : vm.currentVideoID
+				let ok = await vm.loadDetail(sourceKey: vm.currentSourceKey, videoId: resumeVideoID)
                 guard !Task.isCancelled else { return }
                 if !ok {
                     await vm.handlePlaybackError()

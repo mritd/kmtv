@@ -32,6 +32,8 @@ func TestNewStore(t *testing.T) {
 		"schema_migrations",
 		"auth_sessions",
 		"media_tokens",
+		"watch_history",
+		"watch_history_clear_state",
 	}
 	for _, table := range tables {
 		var name string

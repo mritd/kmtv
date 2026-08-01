@@ -32,13 +32,16 @@ struct DetailView: View {
             // 懒加载播放器模型, 确保同一个详情页实例只请求一次详情.
             if viewModel == nil, let client = appVM.apiClient {
                 let vm = PlayerViewModel(
-                    apiClient: client, modelContext: modelContext, serverURL: appVM.serverURL,
+					apiClient: client, modelContext: modelContext, serverURL: appVM.serverURL,
+					userID: Int64(appVM.currentUser?.id ?? 0),
                     sources: sources, sourceKey: sourceKey, videoId: videoId, title: title,
                     coverHint: coverHint,
                     initialEpisodeIndex: resumeIntent?.episodeIndex
-                )
-                viewModel = vm
-                let ok = await vm.loadDetail(sourceKey: sourceKey, videoId: videoId)
+				)
+				viewModel = vm
+				await vm.loadRemoteWatchHistory()
+				let resumeVideoID = vm.currentVideoID.isEmpty ? videoId : vm.currentVideoID
+				let ok = await vm.loadDetail(sourceKey: vm.currentSourceKey, videoId: resumeVideoID)
                 guard !Task.isCancelled else {
                     vm.cleanup()
                     return

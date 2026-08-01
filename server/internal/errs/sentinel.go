@@ -17,6 +17,14 @@ var (
 	// ErrInvalidUsername 表示用户名不符合校验规则.
 	ErrInvalidUsername = errors.New("invalid username")
 
+	// ErrInvalidRequest is returned when structured request data fails domain validation.
+	// ErrInvalidRequest 表示结构化请求数据未通过领域校验.
+	ErrInvalidRequest = errors.New("invalid request")
+
+	// ErrStaleWrite is returned when an older client event would overwrite newer history state.
+	// ErrStaleWrite 表示较旧的客户端事件会覆盖更新的历史状态.
+	ErrStaleWrite = errors.New("stale write")
+
 	// ErrInvalidExternalURL is returned when a user-provided external URL is not allowed.
 	// ErrInvalidExternalURL 表示用户提供的外部 URL 不被允许.
 	ErrInvalidExternalURL = errors.New("invalid external URL")

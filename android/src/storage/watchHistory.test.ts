@@ -19,10 +19,12 @@ function baseItem(partial: Partial<WatchHistoryItem> = {}): Omit<WatchHistoryIte
     videoId: "v",
     title: "T",
     cover: "/c.jpg",
-    episode: "EP1",
-    episodeIndex: 0,
-    progress: 0,
-    duration: 1000,
+		episode: "EP1",
+		groupIndex: 0,
+		episodeIndex: 0,
+		progress: 0,
+		duration: 1000,
+		completed: false,
     ...partial,
   };
 }
@@ -72,10 +74,17 @@ describe("watchHistory", () => {
     expect(loadWatchHistory(SERVER_A)).toEqual([]);
   });
 
-  it("namespaces by serverURL", () => {
+	it("namespaces by serverURL", () => {
     recordPlayProgress(SERVER_A, baseItem({ title: "OnA" }));
     recordPlayProgress(SERVER_B, baseItem({ title: "OnB" }));
     expect(loadWatchHistory(SERVER_A).map((i) => i.title)).toEqual(["OnA"]);
-    expect(loadWatchHistory(SERVER_B).map((i) => i.title)).toEqual(["OnB"]);
-  });
+		expect(loadWatchHistory(SERVER_B).map((i) => i.title)).toEqual(["OnB"]);
+	});
+
+	it("namespaces by user on the same server", () => {
+		recordPlayProgress(SERVER_A, baseItem({ title: "User A" }), 1);
+		recordPlayProgress(SERVER_A, baseItem({ title: "User B" }), 2);
+		expect(loadWatchHistory(SERVER_A, 10, 1).map((i) => i.title)).toEqual(["User A"]);
+		expect(loadWatchHistory(SERVER_A, 10, 2).map((i) => i.title)).toEqual(["User B"]);
+	});
 });

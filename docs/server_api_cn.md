@@ -388,6 +388,126 @@ data: {"message":"search failed"}
 
 常见错误: `400 MissingParam`, `404 NotFound`, `500 ServerError`.
 
+## Watch History
+
+观看历史接口要求真实登录用户. 当 `anonymous_access == "true"` 时, 匿名用户仍可浏览和播放,
+但这些接口会返回 `401 NotLoggedIn`, 因为没有可用于同步的用户记录.
+
+观看历史按 `(user_id, normalized title)` 去重. 服务端通过 trim 空白并转小写生成归一化标题.
+`source_key` 和 `video_id` 只保存为最近观看源的 payload, 用于续播和重新搜索交接, 不作为数据库身份.
+
+### `GET /history`
+
+受保护接口. 返回当前用户最近观看历史, 最新在前.
+
+查询参数:
+
+| Name    | Required | Default | 说明                         |
+|---------|----------|---------|------------------------------|
+| `limit` | No       | `10`    | 正整数条数, 最大 `100`       |
+| `completed` | No   | 全部    | 可选 `true`/`false`, 在 `limit` 前过滤 |
+
+成功 `200`:
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "source_key": "source.example",
+      "video_id": "123",
+      "title": "Movie",
+      "cover": "https://example.com/cover.jpg",
+      "episode": "Episode 1",
+      "group_index": 0,
+      "episode_index": 0,
+      "progress_sec": 120,
+      "duration_sec": 1800,
+	  "completed": false,
+	  "event_time_ms": 1783656000000,
+      "created_at": "2026-07-09T12:00:00Z",
+      "updated_at": "2026-07-09T12:05:00Z"
+    }
+  ]
+}
+```
+
+常见错误: `400 InvalidRequest`, `401 NotLoggedIn`, `500 ServerError`.
+
+### `PUT /history`
+
+受保护接口. 按标题 upsert 最新播放状态. 同一用户再次写入相同归一化标题时,
+仅当 `event_time_ms` 更新才会覆盖原记录. 客户端只在最终一集达到完成阈值后发送
+`completed=true`; 服务端不会根据任意一集的播放位置推断整部标题已完成.
+
+请求体最大 64 KiB. 标题最多 512 个 Unicode 字符, source key 与 video ID 最多 1024 个,
+分集名称最多 512 个, cover 值最多 8192 个.
+
+请求:
+
+```json
+{
+  "source_key": "source.example",
+  "video_id": "123",
+  "title": "Movie",
+  "cover": "https://example.com/cover.jpg",
+  "episode": "Episode 1",
+  "group_index": 0,
+  "episode_index": 0,
+  "progress_sec": 120,
+  "duration_sec": 1800,
+	"completed": false,
+	"event_time_ms": 1783656000000
+}
+```
+
+成功 `200`: 返回一条观看历史, 形状同 `GET /history.items[]`.
+
+常见错误: `400 InvalidRequest`, `401 NotLoggedIn`, `409 StaleWrite`, `500 ServerError`.
+
+### `GET /history/item`
+
+受保护接口. 按标题返回一条观看历史.
+
+查询参数:
+
+| Name    | Required | 说明     |
+|---------|----------|----------|
+| `title` | Yes      | 标题查询 |
+
+成功 `200`: 返回一条观看历史.
+
+常见错误: `400 MissingParam`, `401 NotLoggedIn`, `404 NotFound`, `500 ServerError`.
+
+### `DELETE /history/item`
+
+受保护接口. 按标题删除一条观看历史.
+
+查询参数同 `GET /history/item`.
+
+成功 `200`:
+
+```json
+{"message": "watch history deleted"}
+```
+
+常见错误: `400 MissingParam`, `401 NotLoggedIn`, `404 NotFound`, `500 ServerError`.
+
+### `DELETE /history`
+
+受保护接口. 清空当前用户的全部观看历史.
+
+可选查询参数 `event_time_ms` 用于记录清空事件, 防止更旧的在途 PUT 重新创建已删除记录.
+当前客户端始终发送该参数.
+
+成功 `200`:
+
+```json
+{"message": "watch history cleared"}
+```
+
+常见错误: `401 NotLoggedIn`, `500 ServerError`.
+
 ## Douban
 
 ### `GET /douban/categories`

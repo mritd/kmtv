@@ -55,6 +55,11 @@ var migrations = []migration{
 		name:    "extend_default_media_token_ttl",
 		up:      migrateExtendDefaultMediaTokenTTL,
 	},
+	{
+		version: 9,
+		name:    "add_watch_history",
+		up:      migrateAddWatchHistory,
+	},
 }
 
 // migrate applies schema changes in version order and records completed steps.
@@ -354,6 +359,43 @@ func migrateExtendDefaultMediaTokenTTL(tx *sql.Tx) error {
 	)
 	if err != nil {
 		return fmt.Errorf("extend default media token ttl: %w", err)
+	}
+	return nil
+}
+
+func migrateAddWatchHistory(tx *sql.Tx) error {
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS watch_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			title_key TEXT NOT NULL,
+			source_key TEXT NOT NULL DEFAULT '',
+			video_id TEXT NOT NULL DEFAULT '',
+			title TEXT NOT NULL,
+			cover TEXT NOT NULL DEFAULT '',
+			episode TEXT NOT NULL DEFAULT '',
+			group_index INTEGER NOT NULL DEFAULT 0,
+			episode_index INTEGER NOT NULL DEFAULT 0,
+			progress_sec REAL NOT NULL DEFAULT 0,
+			duration_sec REAL NOT NULL DEFAULT 0,
+			completed BOOLEAN NOT NULL DEFAULT 0,
+			event_time_ms INTEGER NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(user_id, title_key),
+			FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_watch_history_user_updated ON watch_history(user_id, updated_at DESC, id DESC)`,
+		`CREATE TABLE IF NOT EXISTS watch_history_clear_state (
+			user_id INTEGER PRIMARY KEY,
+			cleared_at_ms INTEGER NOT NULL,
+			FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+	}
+	for _, stmt := range statements {
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("exec watch history migration %.40q: %w", stmt, err)
+		}
 	}
 	return nil
 }

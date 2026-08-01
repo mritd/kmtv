@@ -218,3 +218,22 @@ Durable architectural decisions for the KMTV Go backend, native Apple clients, a
 - Contributors must preserve and extend, not strip, the documentation.
 - Code review must reject PRs that introduce new exports without bilingual JSDoc.
 - The coverage thresholds in `web/vitest.config.ts` must not be lowered without an ADR amendment.
+
+## ADR-015: User-Scoped Watch History With Ordered Events
+
+**Context:**
+- Watch history is synchronized across Web, Android, iOS, and tvOS while retaining a local offline cache.
+- Playback checkpoints can arrive out of order, and anonymous viewers do not have a server user row.
+- Episode completion is not equivalent to completing an episodic title.
+
+**Decision:**
+- Server rows are isolated by authenticated `user_id`; client caches are isolated by both server URL and user ID.
+- Anonymous viewers keep local history under user ID `0`; expected history 401 responses must never expire an anonymous session.
+- Every write carries `event_time_ms`; the server rejects writes older than the stored item or the latest clear event.
+- Clients request `completed=false` so filtering happens before the server applies the result limit.
+- Only clients that know the episode list may mark a title completed, and only when the final episode reaches the completion threshold.
+
+**Consequences:**
+- Logout/login and server switching cannot reuse another identity's local playback cache.
+- Clear operations need an event timestamp and must finish remotely before clients report success locally.
+- Playback startup must resolve remote history before selecting an initial episode or consuming a one-shot seek.
