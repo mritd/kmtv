@@ -207,14 +207,22 @@ KMTV_TEST_SERVER_URL=http://<mac-lan-ip>:8080 xcodebuild test ...
 
 ## Environment Variables
 
-| Variable               | Description                                                                 |
-|------------------------|-----------------------------------------------------------------------------|
-| `KMTV_INIT_SOURCE_URL` | Source subscription URL imported on first startup; creates a 86400-second auto-update subscription |
-| `KMTV_PUBLIC_BASE_URL` | Public external URL, higher priority than DB setting `public_base_url`       |
-| `KMTV_DB_PATH`         | Database path/DSN, lower priority than `--db-path`; set to `:memory:` for an in-memory database |
-| `KMTV_TEST_SERVER_URL` | Backend URL for Apple UI tests, default `http://localhost:8080`              |
+| Variable                     | Description                                                                                        |
+|----------------------------|--------------------------------------------------------------------------------------------------|
+| `KMTV_INIT_SOURCE_URL`       | Source subscription URL imported on first startup; creates a 86400-second auto-update subscription |
+| `KMTV_PUBLIC_BASE_URL`       | Public external URL, higher priority than DB setting `public_base_url`                             |
+| `KMTV_DB_PATH`               | Database path/DSN, lower priority than `--db-path`; set to `:memory:` for an in-memory database    |
+| `KMTV_TEST_SERVER_URL`       | Backend URL for Apple UI tests, default `http://localhost:8080`                                    |
+| `http_proxy` / `https_proxy` | Forward proxy for outbound requests; either case works                                             |
+| `no_proxy`                   | Comma-separated hosts to exclude from the proxy                                                    |
 
 > In-memory mode (`KMTV_DB_PATH=:memory:` or `--db-path :memory:`): data never touches disk, which suits low-spec disks where file locking is unreliable. It resets on every restart, so provide sources via `KMTV_INIT_SOURCE_URL` rather than adding them in the UI (UI changes do not persist).
+>
+> Proxy (`http_proxy` / `https_proxy`): applies to every server-side outbound request — media proxying, source scraping, the Douban API, subscription refresh, and image fetches. Use `no_proxy` to exclude hosts.
+>
+> It does not affect traffic in `direct` playback mode: those requests go from the browser straight to the CDN and never reach the server.
+>
+> With a proxy configured, SSRF protection for outbound targets is delegated to that proxy — the origin hostname is resolved proxy-side and the server only ever sees the proxy's address. Make sure the proxy has its own access control.
 
 ---
 

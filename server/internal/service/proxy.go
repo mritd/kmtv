@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -21,10 +22,120 @@ import (
 
 var lookupIPAddr = net.DefaultResolver.LookupIPAddr
 
-// ssrfSafeDialContext is a DialContext function that resolves DNS and blocks
-// connections to private/loopback IP addresses to prevent SSRF attacks.
-// ssrfSafeDialContext 是 DialContext 函数, 会先解析 DNS 并阻止连接私有或 loopback IP, 用于防止 SSRF.
+// Vars rather than consts so tests can shrink them; production never reassigns
+// these. Mirrors the existing lookupIPAddr injection seam at proxy.go:22.
+// 使用 var 而非 const 以便测试调小; 生产代码不会重新赋值.
+// 与 proxy.go:22 现有的 lookupIPAddr 注入方式一致.
+var (
+	// m3u8FetchTimeout bounds a manifest request end to end. The payload is
+	// small and already capped at 10 MB, and a manifest failure fails playback
+	// outright, so the value is deliberately generous.
+	// m3u8FetchTimeout 限制 manifest 请求的端到端总时长. 该响应体积小且已限制在
+	// 10 MB 以内, 而 manifest 拉取失败会直接导致播放失败, 故取值刻意放宽.
+	m3u8FetchTimeout = 60 * time.Second
+
+	// segmentIdleTimeout bounds how long a segment body may go silent. It is
+	// not a total-duration cap: a slow link keeps delivering bytes and resets
+	// the timer, while a stalled peer is released.
+	// segmentIdleTimeout 限制分片响应体的最长静默时间. 它不是总时长上限:
+	// 链路慢但仍在传输时会不断重置计时器, 只有卡死的对端才会被释放.
+	segmentIdleTimeout = 30 * time.Second
+)
+
+// proxyDecisionKey carries the single resolution of "proxy or direct" for one
+// request, so the transport and the dialer read the same answer.
+// proxyDecisionKey 保存单个请求 "走代理还是直连" 的唯一决策结果,
+// 使 transport 与 dialer 读到同一答案.
+type proxyDecisionKey struct{}
+
+// proxyDecision records the resolved proxy for a request; a nil url means direct.
+// proxyDecision 记录该请求解析出的代理; url 为 nil 表示直连.
+type proxyDecision struct {
+	url *url.URL
+}
+
+// errUnstampedRequest reports a request that never passed through
+// proxyDecisionTransport, and therefore carries no proxy decision.
+// errUnstampedRequest 表示请求未经过 proxyDecisionTransport, 因而没有代理决策.
+var errUnstampedRequest = errors.New("request was not routed through proxyDecisionTransport")
+
+// proxyDecisionTransport resolves the proxy exactly once per request and stamps
+// the result onto the context before delegating.
+//
+// The resolver is held here, not in Transport.Proxy, on purpose. net/http calls
+// Transport.Proxy itself during connect; if that were the real resolver it would
+// be evaluated a second time, and any resolver whose answer differed between the
+// two calls would leave the dialer trusting a stale decision — skipping the SSRF
+// check on a connection that actually went direct. Resolving once and replaying
+// the stored value makes divergence impossible by construction.
+//
+// Wrapping the transport rather than asking each call site to stamp is likewise
+// deliberate: an unstamped request fails closed, so a missed call site is a loud
+// failure instead of a silently disabled SSRF guard.
+//
+// proxyDecisionTransport 每个请求只解析一次代理, 并在委托前将结果写入 context.
+//
+// resolver 有意放在这里而非 Transport.Proxy: net/http 在建立连接时会自行调用
+// Transport.Proxy, 若那里放真实 resolver 就会被二次求值; 两次答案不一致时,
+// dialer 会据过期决策跳过 SSRF 检查, 而该连接实际是直连.
+// 只解析一次并回放存储值, 从结构上杜绝了不一致.
+//
+// 选择包装 transport 而非要求每个调用点自行标记同样是有意为之:
+// 未标记的请求会直接失败, 因此遗漏调用点会明确报错, 而不是静默关闭 SSRF 防护.
+type proxyDecisionTransport struct {
+	base     *http.Transport
+	resolver func(*http.Request) (*url.URL, error)
+}
+
+func (p *proxyDecisionTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	var decision proxyDecision
+	if p.resolver != nil {
+		proxyURL, err := p.resolver(req)
+		if err != nil {
+			return nil, fmt.Errorf("resolve proxy for %s: %w", req.URL.Redacted(), err)
+		}
+		decision.url = proxyURL
+	}
+	return p.base.RoundTrip(req.WithContext(context.WithValue(req.Context(), proxyDecisionKey{}, decision)))
+}
+
+// proxyDecisionFrom returns the decision stamped on ctx, or an error when absent.
+// proxyDecisionFrom 返回 ctx 上标记的决策, 不存在时返回错误.
+func proxyDecisionFrom(ctx context.Context) (proxyDecision, error) {
+	decision, ok := ctx.Value(proxyDecisionKey{}).(proxyDecision)
+	if !ok {
+		return proxyDecision{}, errUnstampedRequest
+	}
+	return decision, nil
+}
+
+// ssrfSafeDialContext resolves DNS and blocks connections to private/loopback
+// IP addresses to prevent SSRF.
+//
+// When the request is routed through the operator's forward proxy, the address
+// being dialed is that proxy — routinely loopback or private — so the IP check
+// is skipped. That decision must come from the context stamp, never from
+// matching the address: Go bypasses the proxy for loopback targets, so an
+// attacker targeting the proxy's own address produces an identical dial
+// address with the opposite meaning.
+//
+// ssrfSafeDialContext 会先解析 DNS 并阻止连接私有或 loopback IP, 用于防止 SSRF.
+//
+// 当请求经由运维配置的正向代理时, 拨号目标就是该代理 (通常位于 loopback 或
+// 私有网段), 因此跳过 IP 检查. 该判断必须来自 context 标记, 绝不能靠比对地址:
+// Go 对 loopback 目标会绕过代理, 攻击者以代理自身地址为目标时会产生完全相同的
+// 拨号地址, 含义却相反.
 func ssrfSafeDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	decision, err := proxyDecisionFrom(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("refusing to dial %s: %w", addr, err)
+	}
+	if decision.url != nil {
+		// Reaching the operator's proxy; it owns egress access control.
+		// 目标是运维配置的代理, 由代理自身负责出站访问控制.
+		return (&net.Dialer{}).DialContext(ctx, network, addr)
+	}
+
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address: %w", err)
@@ -50,6 +161,58 @@ func ssrfSafeDialContext(ctx context.Context, network, addr string) (net.Conn, e
 	return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
 }
 
+// newOutboundTransport builds the base transport shared by every outbound
+// client: proxy support, the SSRF dialer, and connection pooling.
+//
+// MaxIdleConnsPerHost is raised from Go's default of 2 because hls.js fetches
+// fragments concurrently; at the default, most requests cannot reuse a
+// connection and pay a fresh TCP + TLS handshake.
+//
+// newOutboundTransport 构建所有出站 client 共用的基础 transport:
+// 代理支持, SSRF dialer, 以及连接池.
+//
+// MaxIdleConnsPerHost 从 Go 默认的 2 上调, 因为 hls.js 会并发拉取分片;
+// 保持默认时大部分请求无法复用连接, 每次都要重新完成 TCP + TLS 握手.
+func newOutboundTransport() *http.Transport {
+	return &http.Transport{
+		// Replays the decision proxyDecisionTransport already made rather than
+		// resolving again, so this hook and the dialer can never disagree.
+		// 回放 proxyDecisionTransport 已做出的决策而非重新解析,
+		// 使该钩子与 dialer 不可能产生分歧.
+		Proxy: func(req *http.Request) (*url.URL, error) {
+			decision, err := proxyDecisionFrom(req.Context())
+			if err != nil {
+				return nil, err
+			}
+			return decision.url, nil
+		},
+		DialContext:           ssrfSafeDialContext,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   32,
+		IdleConnTimeout:       90 * time.Second,
+		ResponseHeaderTimeout: 15 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+	}
+}
+
+// newOutboundClient assembles the wrapped client every outbound path uses.
+// A zero timeout means no overall deadline.
+// newOutboundClient 组装所有出站路径共用的包装后 client.
+// timeout 为 0 表示不设总体超时.
+func newOutboundClient(timeout time.Duration, tlsConfig *tls.Config) *http.Client {
+	base := newOutboundTransport()
+	if tlsConfig != nil {
+		base.TLSClientConfig = tlsConfig
+	}
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &proxyDecisionTransport{
+			base:     base,
+			resolver: http.ProxyFromEnvironment,
+		},
+	}
+}
+
 // isBlockedProxyIP reports whether an IP is unsafe for outbound proxy dialing.
 // isBlockedProxyIP 判断 IP 是否不适合用于出站代理拨号.
 func isBlockedProxyIP(ip net.IP) bool {
@@ -61,15 +224,12 @@ func isBlockedProxyIP(ip net.IP) bool {
 		ip.IsMulticast()
 }
 
-// NewSSRFSafeClient creates an HTTP client that blocks connections to private/loopback IPs.
-// NewSSRFSafeClient 创建一个会阻止连接私有或 loopback IP 的 HTTP client.
+// NewSSRFSafeClient creates an HTTP client that blocks connections to
+// private/loopback IPs and honours the http_proxy environment variables.
+// NewSSRFSafeClient 创建一个会阻止连接私有或 loopback IP 的 HTTP client,
+// 并支持 http_proxy 环境变量.
 func NewSSRFSafeClient(timeout time.Duration) *http.Client {
-	return &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			DialContext: ssrfSafeDialContext,
-		},
-	}
+	return newOutboundClient(timeout, nil)
 }
 
 // ProxyService handles M3U8 rewriting and segment proxying.
@@ -136,32 +296,37 @@ func setProxyHeaders(dst *http.Request, clientHeaders http.Header) {
 // NewProxyService 创建一个新的 ProxyService.
 // 代理 client 会跳过 TLS 校验, 因为上游视频 CDN 经常存在证书过期或配置错误.
 func NewProxyService() *ProxyService {
-	return NewProxyServiceWithClient(newProxyClient(30 * time.Second))
+	return NewProxyServiceWithClient(newProxyClient())
 }
 
 // NewProxyServiceWithClient creates a ProxyService with an injected HTTP client.
 // NewProxyServiceWithClient 使用注入的 HTTP client 创建 ProxyService.
 func NewProxyServiceWithClient(client *http.Client) *ProxyService {
 	if client == nil {
-		client = newProxyClient(30 * time.Second)
+		client = newProxyClient()
 	}
 	return &ProxyService{
 		client: client,
 	}
 }
 
-// newProxyClient creates an HTTP client for proxying video content.
-// It skips TLS verification and blocks private IPs.
-// newProxyClient 创建用于代理视频内容的 HTTP client.
-// 它会跳过 TLS 校验并阻止私有 IP 连接.
-func newProxyClient(timeout time.Duration) *http.Client {
-	return &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			DialContext:     ssrfSafeDialContext,
-		},
-	}
+// newProxyClient creates the HTTP client used to fetch media.
+// It skips TLS verification (upstream CDNs frequently have broken certs),
+// blocks private IPs, and honours http_proxy.
+//
+// No Client.Timeout: that deadline covers reading the response body, which
+// would cut off a large segment on a slow link. Per-path bounds replace it —
+// FetchM3U8 applies its own context deadline, and ProxySegment wraps the body
+// in an idle-timeout reader.
+//
+// newProxyClient 创建用于拉取媒体的 HTTP client.
+// 它会跳过 TLS 校验 (上游 CDN 证书经常有问题), 阻止私有 IP, 并支持 http_proxy.
+//
+// 不设 Client.Timeout: 该超时涵盖读取 response body, 会在慢速链路上截断大分片.
+// 改为按路径分别限制 — FetchM3U8 自带 context 超时,
+// ProxySegment 则用空闲超时 reader 包装 body.
+func newProxyClient() *http.Client {
+	return newOutboundClient(0, &tls.Config{InsecureSkipVerify: true})
 }
 
 // ProbeLines tests each CDN line by sending a GET request to the first episode URL.
@@ -371,6 +536,13 @@ func RewriteM3U8(content, baseURL, proxyBase, sourceKey string, signer MediaURLS
 // FetchM3U8 拉取并重写 M3U8 manifest.
 // clientHeaders 会从浏览器请求转发到上游, 让请求更接近真实客户端.
 func (ps *ProxyService) FetchM3U8(ctx context.Context, targetURL, proxyBase, sourceKey string, clientHeaders http.Header, signer MediaURLSigner) (string, error) {
+	// The shared client carries no Client.Timeout, so bound this request here.
+	// Without it a trickling upstream could hold a goroutine indefinitely.
+	// 共享 client 不设 Client.Timeout, 故在此限制本次请求.
+	// 否则缓慢滴送数据的上游可能无限期占用一个 goroutine.
+	ctx, cancel := context.WithTimeout(ctx, m3u8FetchTimeout)
+	defer cancel()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("build M3U8 request: %w", err)
@@ -441,9 +613,14 @@ func (ps *ProxyService) ProxySegment(ctx context.Context, w http.ResponseWriter,
 	}
 	w.WriteHeader(resp.StatusCode)
 
-	// Limit proxied segment/key bodies to 512MB to cap memory and bandwidth abuse.
-	// 将代理分片或密钥响应限制为 512MB, 限制内存和带宽滥用.
-	if _, err := io.Copy(w, io.LimitReader(resp.Body, 512<<20)); err != nil {
+	// Limit proxied segment/key bodies to 512MB to cap memory and bandwidth
+	// abuse, and abort the transfer if upstream goes silent. The byte cap alone
+	// bounds size but not time.
+	// 将代理分片或密钥响应限制为 512MB, 限制内存和带宽滥用;
+	// 同时在上游静默时中断传输. 仅限制字节数无法限制时间.
+	body := newIdleTimeoutReader(resp.Body, segmentIdleTimeout)
+	defer func() { _ = body.Close() }()
+	if _, err := io.Copy(w, io.LimitReader(body, 512<<20)); err != nil {
 		logrus.WithError(err).WithField("url", targetURL).Error("proxy segment copy failed")
 	}
 }

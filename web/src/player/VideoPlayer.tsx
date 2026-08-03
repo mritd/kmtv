@@ -67,6 +67,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { choosePlaybackEngine } from "./playback";
+import { HLS_BUFFER_CONFIG } from "./hlsConfig";
 
 /**
  * VideoPlayer props.
@@ -127,7 +128,9 @@ export function VideoPlayer({ url }: { url: string | null }) {
           return;
         }
 
-        const hls = new Hls();
+        // Shared tuning; see hlsConfig.ts for the sizing rationale.
+        // 共享调优参数; 取值依据见 hlsConfig.ts.
+        const hls = new Hls(HLS_BUFFER_CONFIG);
         hls.loadSource(url);
         hls.attachMedia(video);
         hls.on(Hls.Events.ERROR, (_, data) => {

@@ -207,14 +207,22 @@ KMTV_TEST_SERVER_URL=http://<mac-lan-ip>:8080 xcodebuild test ...
 
 ## 环境变量
 
-| 变量                   | 说明                                                           |
-|------------------------|----------------------------------------------------------------|
-| `KMTV_INIT_SOURCE_URL` | 首次启动时导入的源订阅 URL, 自动建立 86400 秒间隔的更新订阅    |
-| `KMTV_PUBLIC_BASE_URL` | 对外公开访问地址, 优先级高于 DB 设置 `public_base_url`         |
-| `KMTV_DB_PATH`         | 数据库路径/DSN, 优先级低于 `--db-path`; 设为 `:memory:` 启用内存库 |
-| `KMTV_TEST_SERVER_URL` | Apple UI 测试连接的后端地址, 默认 `http://localhost:8080`      |
+| 变量                         | 说明                                                               |
+|----------------------------|------------------------------------------------------------------|
+| `KMTV_INIT_SOURCE_URL`       | 首次启动时导入的源订阅 URL, 自动建立 86400 秒间隔的更新订阅        |
+| `KMTV_PUBLIC_BASE_URL`       | 对外公开访问地址, 优先级高于 DB 设置 `public_base_url`             |
+| `KMTV_DB_PATH`               | 数据库路径/DSN, 优先级低于 `--db-path`; 设为 `:memory:` 启用内存库 |
+| `KMTV_TEST_SERVER_URL`       | Apple UI 测试连接的后端地址, 默认 `http://localhost:8080`          |
+| `http_proxy` / `https_proxy` | 出站请求使用的正向代理, 大小写均可                                 |
+| `no_proxy`                   | 排除在代理之外的主机, 逗号分隔                                     |
 
 > 内存模式 (`KMTV_DB_PATH=:memory:` 或 `--db-path :memory:`): 数据完全不落盘, 适合文件锁不可靠的低配磁盘; 重启即重置, 因此源应通过 `KMTV_INIT_SOURCE_URL` 注入, 而非在 UI 中手动添加 (UI 改动不会保留).
+>
+> 代理 (`http_proxy` / `https_proxy`): 覆盖服务端全部出站请求, 包括媒体代理, 搜索采集站, 豆瓣 API, 源订阅与图片拉取. 用 `no_proxy` 排除无需代理的主机.
+>
+> 该设置不影响播放模式为 `direct` 时的流量: 那些请求由浏览器直接发往 CDN, 不经过服务端.
+>
+> 配置代理后, 服务端针对出站目标的 SSRF 防护将由代理承担 - 目标域名在代理侧解析, 服务端只能看到代理地址. 请确保代理自身具备访问控制.
 
 ---
 

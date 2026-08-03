@@ -34,6 +34,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/shared/ui/Button";
+import { HLS_BUFFER_CONFIG } from "@/player/hlsConfig";
 
 import type { PlaybackState } from "./playbackState";
 
@@ -219,7 +220,9 @@ export function PlaybackPanel({
               return;
             }
 
-            const hls = new Hls();
+            // Shared tuning; see player/hlsConfig.ts for the sizing rationale.
+            // 共享调优参数; 取值依据见 player/hlsConfig.ts.
+            const hls = new Hls(HLS_BUFFER_CONFIG);
             hls.loadSource(url);
             hls.attachMedia(video);
             hls.on(Hls.Events.ERROR, (_, data) => {
