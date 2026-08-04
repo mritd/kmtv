@@ -53,6 +53,18 @@ describe("HLS_BUFFER_CONFIG", () => {
     expect("maxBufferSize" in HLS_BUFFER_CONFIG).toBe(false);
   });
 
+  // hls.js defaults preferManagedMediaSource to true, and ManagedMediaSource gives the
+  // buffer to WebKit — every length in this object becomes advisory the moment it is
+  // chosen. Measured on one stream: Safari held 34.8s of forward buffer under the
+  // default and 250.6s with it off; iPad went from ~35s to 159.6s.
+  // hls.js 的 preferManagedMediaSource 默认为 true, 而 ManagedMediaSource
+  // 把缓冲交给 WebKit — 一旦选中它, 本对象里的所有长度都沦为建议值.
+  // 单条流实测: Safari 在默认值下前向缓冲为 34.8s, 关闭后为 250.6s;
+  // iPad 从约 35s 提升到 159.6s.
+  it("refuses ManagedMediaSource wherever a full MediaSource exists", () => {
+    expect(HLS_BUFFER_CONFIG.preferManagedMediaSource).toBe(false);
+  });
+
   it("bounds the back buffer so it cannot starve the forward buffer of MSE quota", () => {
     expect(HLS_BUFFER_CONFIG.backBufferLength).toBe(60);
     expect(Number.isFinite(HLS_BUFFER_CONFIG.backBufferLength)).toBe(true);

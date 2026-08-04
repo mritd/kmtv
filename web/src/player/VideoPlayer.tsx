@@ -66,7 +66,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-import { choosePlaybackEngine, hasMediaSourceSupport } from "./playback";
+import { choosePlaybackEngine, hasManagedMediaSourceOnly, hasMediaSourceSupport } from "./playback";
 import { HLS_BUFFER_CONFIG } from "./hlsConfig";
 
 /**
@@ -99,6 +99,7 @@ export function VideoPlayer({ url }: { url: string | null }) {
     const engine = choosePlaybackEngine({
       canPlayNativeHLS,
       hlsSupported: hasMediaSourceSupport,
+      managedBufferOnly: hasManagedMediaSourceOnly,
     });
 
     if (engine === "native") {

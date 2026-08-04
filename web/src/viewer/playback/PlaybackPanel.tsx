@@ -35,7 +35,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/shared/ui/Button";
 import { HLS_BUFFER_CONFIG } from "@/player/hlsConfig";
-import { hasMediaSourceSupport } from "@/player/playback";
+import { choosePlaybackEngine, hasManagedMediaSourceOnly, hasMediaSourceSupport } from "@/player/playback";
 
 import type { PlaybackState } from "./playbackState";
 
@@ -193,23 +193,42 @@ export function PlaybackPanel({
         aspectRatio: true,
         customType: {
           m3u8: async (video, url) => {
+            // ArtPlayer awaits a macrotask before invoking this callback (urlMix in
+            // artplayer.mjs), so teardown can already have run: switching episodes or
+            // leaving the page destroys the player while this call is still queued.
+            // Without this guard the native branch below assigns video.src on a
+            // destroyed player, which starts a media load nothing will ever release.
+            // The guard also existed nowhere useful before, because the native branch
+            // was only reachable on browsers with no MediaSource at all — iPhone WebKit
+            // reaches it now.
+            // ArtPlayer 在调用此回调前会等待一个宏任务 (artplayer.mjs 的 urlMix),
+            // 因此拆卸可能已经执行: 切换剧集或离开页面会在此调用仍排队时销毁播放器.
+            // 缺少该守卫时, 下方的 native 分支会对已销毁的播放器赋值 video.src,
+            // 从而发起一个永远无人释放的媒体加载.
+            // 此前该守卫也谈不上有用, 因为 native 分支只在完全没有 MediaSource 的
+            // 浏览器上才可达 — 而 iPhone WebKit 现在会走到它.
+            if (disposed) {
+              return;
+            }
+
             const canPlayNativeHLS = () => video.canPlayType("application/vnd.apple.mpegurl") !== "";
 
-            // hls.js is preferred wherever MediaSource exists, because native playback
-            // exposes no buffer controls and would bypass HLS_BUFFER_CONFIG entirely.
-            // canPlayType can no longer single out Apple WebKit — Chrome 151 also answers
-            // "maybe" for the HLS MIME type — so native is now strictly the no-MediaSource
-            // fallback. See player/playback.ts for the full rationale.
-            // 只要存在 MediaSource 就优先 hls.js, 因为原生播放不暴露任何缓冲控制,
-            // 会完全绕过 HLS_BUFFER_CONFIG.
-            // canPlayType 已无法单独识别 Apple WebKit — Chrome 151 对 HLS MIME 同样返回
-            // "maybe" — 因此 native 现在严格作为无 MediaSource 时的兜底.
-            // 完整理由见 player/playback.ts.
-            if (!hasMediaSourceSupport()) {
-              if (canPlayNativeHLS()) {
-                video.src = url;
-                return;
-              }
+            // Delegate the choice to choosePlaybackEngine so this panel and VideoPlayer
+            // cannot drift apart; the rationale for the ordering lives there.
+            // 把选择委托给 choosePlaybackEngine, 使本面板与 VideoPlayer 不会各自漂移;
+            // 排序理由见该函数.
+            const engine = choosePlaybackEngine({
+              canPlayNativeHLS,
+              hlsSupported: hasMediaSourceSupport,
+              managedBufferOnly: hasManagedMediaSourceOnly,
+            });
+
+            if (engine === "native") {
+              video.src = url;
+              return;
+            }
+
+            if (engine === "unsupported") {
               if (!disposed) {
                 setPlayerError(t("player.errors.noHlsSupport"));
               }

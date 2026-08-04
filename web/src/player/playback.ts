@@ -6,11 +6,14 @@
  *   - Expose a capability-injection interface (PlaybackCapabilities) that allows the selection
  *     logic to be tested without a real browser environment.
  *     暴露能力注入接口 (PlaybackCapabilities), 允许在无真实浏览器环境下测试选择逻辑.
- *   - Implement the priority order: hls.js > native HLS > unsupported.
- *     实现优先级顺序: hls.js > 原生 HLS > 不支持.
+ *   - Implement the priority order: hls.js > native HLS > unsupported, except on
+ *     platforms where hls.js would not own the buffer (see choosePlaybackEngine).
+ *     实现优先级顺序: hls.js > 原生 HLS > 不支持, 但在 hls.js 无法掌控缓冲的平台上除外
+ *     (见 choosePlaybackEngine).
  *
  * Key exports / 主要导出:
- *   PlaybackEngine, PlaybackCapabilities, choosePlaybackEngine, hasMediaSourceSupport
+ *   PlaybackEngine, PlaybackCapabilities, choosePlaybackEngine, hasMediaSourceSupport,
+ *   hasManagedMediaSourceOnly
  *
  * Callers / 调用方:
  *   player/VideoPlayer.tsx, viewer/playback/PlaybackPanel.tsx
@@ -49,6 +52,12 @@ export interface PlaybackCapabilities {
   canPlayNativeHLS(): boolean;
   /** Returns true when hls.js MediaSource API is available. / hls.js MediaSource API 可用时返回 true. */
   hlsSupported(): boolean;
+  /**
+   * Returns true when the only MediaSource on offer is the managed variant, i.e. hls.js
+   * would run but WebKit, not our config, would decide how much to buffer.
+   * 仅提供 managed 变体时返回 true, 即 hls.js 能跑, 但决定缓冲量的是 WebKit 而非我们的配置.
+   */
+  managedBufferOnly(): boolean;
 }
 
 /**
@@ -57,6 +66,22 @@ export interface PlaybackCapabilities {
  *
  * Priority: hlsjs > native > unsupported. This is the order hls.js itself recommends.
  * 优先级: hlsjs > native > unsupported. 这也是 hls.js 官方推荐的顺序.
+ *
+ * The one exception is a platform whose only MediaSource is the managed variant, which
+ * in practice means iPhone WebKit. There hls.js runs, but ManagedMediaSource hands
+ * buffer control to WebKit: it fires `endstreaming`, hls.js calls pauseBuffering(), and
+ * HLS_BUFFER_CONFIG never binds. Measured on an iOS 18.7 simulator against the same
+ * stream: hls.js on ManagedMediaSource peaked at a 38.6s forward buffer and sawtoothed
+ * down to ~10s, while native playback reached 139.4s and held it. hls.js also forces
+ * `disableRemotePlayback` on that path, which switches AirPlay off. So where WebKit owns
+ * the buffer anyway, native both buffers more and keeps AirPlay.
+ * 唯一的例外是只提供 managed 变体的平台, 实际上就是 iPhone WebKit.
+ * 那里 hls.js 能跑, 但 ManagedMediaSource 把缓冲控制权交给了 WebKit:
+ * 它触发 `endstreaming`, hls.js 随之调用 pauseBuffering(), HLS_BUFFER_CONFIG 从未生效.
+ * 在 iOS 18.7 模拟器上以同一条流实测: hls.js 走 ManagedMediaSource 时前向缓冲
+ * 峰值 38.6s 并锯齿状回落到约 10s, 而原生播放达到 139.4s 并保持.
+ * 该路径下 hls.js 还会强制 `disableRemotePlayback`, 从而关闭 AirPlay.
+ * 因此在缓冲权本就归 WebKit 的地方, 原生既缓冲得更多, 又保住了 AirPlay.
  *
  * This used to prefer native, on the assumption that only Apple WebKit returns a
  * non-empty string from canPlayType("application/vnd.apple.mpegurl"). That is no
@@ -79,8 +104,15 @@ export interface PlaybackCapabilities {
  *          返回选择的 PlaybackEngine 变体.
  */
 export function choosePlaybackEngine(capabilities: PlaybackCapabilities): PlaybackEngine {
-  // hls.js first: it is the only path where buffer sizing is under our control.
-  // hls.js 优先: 只有这条路径的缓冲大小由我们控制.
+  // Where WebKit owns the buffer regardless, native buffers more and keeps AirPlay.
+  // 缓冲权无论如何都归 WebKit 时, 原生缓冲更多且保住 AirPlay.
+  if (capabilities.managedBufferOnly() && capabilities.canPlayNativeHLS()) {
+    return "native";
+  }
+
+  // hls.js next: on every other platform it is the only path where buffer sizing is
+  // under our control.
+  // 其次是 hls.js: 在其余所有平台上, 只有这条路径的缓冲大小由我们控制.
   if (capabilities.hlsSupported()) {
     return "hlsjs";
   }
@@ -118,4 +150,25 @@ export function hasMediaSourceSupport(): boolean {
   // 两者都无法通过带类型的 Window 接口访问.
   const scope = window as unknown as Record<string, unknown>;
   return typeof scope.MediaSource !== "undefined" || typeof scope.ManagedMediaSource !== "undefined";
+}
+
+/**
+ * hasManagedMediaSourceOnly reports whether ManagedMediaSource is the only backend on offer.
+ * hasManagedMediaSourceOnly 判断 ManagedMediaSource 是否是唯一可用的后端.
+ *
+ * This is a capability signature, not a user-agent guess: iPhone WebKit exposes
+ * ManagedMediaSource and no MediaSource, while iPad and macOS Safari expose both and
+ * desktop Chrome exposes only MediaSource. Confirmed on an iOS 18.7 simulator, where
+ * `typeof MediaSource` is "undefined" and `typeof ManagedMediaSource` is "function".
+ * 这是能力特征而非 UA 猜测: iPhone WebKit 暴露 ManagedMediaSource 而无 MediaSource,
+ * iPad 与 macOS Safari 两者都暴露, 桌面版 Chrome 只暴露 MediaSource.
+ * 已在 iOS 18.7 模拟器上确认: `typeof MediaSource` 为 "undefined",
+ * `typeof ManagedMediaSource` 为 "function".
+ */
+export function hasManagedMediaSourceOnly(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  const scope = window as unknown as Record<string, unknown>;
+  return typeof scope.MediaSource === "undefined" && typeof scope.ManagedMediaSource !== "undefined";
 }

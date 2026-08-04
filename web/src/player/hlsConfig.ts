@@ -73,4 +73,25 @@ export const HLS_BUFFER_CONFIG = {
   // 默认为 Infinity: 已播放内容不会释放, 会持续占用前向缓冲所需的配额.
   backBufferLength: 60,
   startFragPrefetch: true,
+  // hls.js defaults this to true, which picks ManagedMediaSource whenever it exists —
+  // including on iPad and macOS Safari, where a full MediaSource is also available.
+  // ManagedMediaSource hands the buffer to WebKit, so every length above becomes
+  // advisory: WebKit fires `endstreaming` and hls.js calls pauseBuffering(). Measured
+  // on the same stream, Safari peaked at a 34.8s forward buffer with the default and
+  // 250.6s with this set to false; iPad went from ~35s to 159.6s. It also stops hls.js
+  // forcing `disableRemotePlayback`, which had been switching AirPlay off.
+  // Platforms that own no other backend (iPhone WebKit) still get ManagedMediaSource,
+  // because hls.js falls back to it when MediaSource is absent — but those never reach
+  // here, since choosePlaybackEngine sends them to native playback.
+  // hls.js 该项默认为 true, 即只要存在 ManagedMediaSource 就选它 —
+  // 包括同时提供完整 MediaSource 的 iPad 与 macOS Safari.
+  // ManagedMediaSource 把缓冲交给 WebKit, 于是上面的长度设置全部沦为建议值:
+  // WebKit 触发 `endstreaming`, hls.js 随即调用 pauseBuffering().
+  // 同一条流实测: Safari 在默认值下前向缓冲峰值 34.8s, 设为 false 后为 250.6s;
+  // iPad 从约 35s 提升到 159.6s. 该设置还能避免 hls.js 强制 `disableRemotePlayback`,
+  // 后者此前一直在关闭 AirPlay.
+  // 没有其他后端的平台 (iPhone WebKit) 仍会拿到 ManagedMediaSource,
+  // 因为 MediaSource 缺席时 hls.js 会回退到它 — 但那些平台根本走不到这里,
+  // choosePlaybackEngine 已把它们导向原生播放.
+  preferManagedMediaSource: false,
 } as const;

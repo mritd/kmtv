@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   choosePlaybackEngine,
+  hasManagedMediaSourceOnly,
   hasMediaSourceSupport,
   type PlaybackCapabilities,
   type PlaybackEngine,
@@ -24,10 +25,11 @@ import {
 // ---------------------------------------------------------------------------
 
 /** Build a PlaybackCapabilities stub with controlled boolean flags. */
-function caps(native: boolean, hls: boolean): PlaybackCapabilities {
+function caps(native: boolean, hls: boolean, managedOnly = false): PlaybackCapabilities {
   return {
     canPlayNativeHLS: () => native,
     hlsSupported: () => hls,
+    managedBufferOnly: () => managedOnly,
   };
 }
 
@@ -72,6 +74,39 @@ describe("choosePlaybackEngine", () => {
     });
   });
 
+  describe("when ManagedMediaSource is the only backend", () => {
+    // iPhone WebKit. hls.js reports itself supported here, so the plain "hls.js wins"
+    // rule sent playback down a path where ManagedMediaSource gives WebKit the buffer:
+    // measured on an iOS 18.7 simulator, the forward buffer peaked at 38.6s and fell
+    // back to ~10s, against 139.4s held by native playback on the same stream. hls.js
+    // also forces disableRemotePlayback there, which turns AirPlay off.
+    // iPhone WebKit. hls.js 在这里报告自己可用, 于是 "hls.js 优先" 的简单规则
+    // 把播放送上了 ManagedMediaSource 让 WebKit 掌控缓冲的路径:
+    // 在 iOS 18.7 模拟器上实测, 前向缓冲峰值 38.6s 并回落到约 10s,
+    // 而同一条流的原生播放稳定在 139.4s. 该路径下 hls.js 还会强制
+    // disableRemotePlayback, 从而关闭 AirPlay.
+    it("prefers native playback even though hls.js reports itself supported", () => {
+      const engine = choosePlaybackEngine(caps(true, true, true));
+      expect(engine).toBe("native" satisfies PlaybackEngine);
+    });
+
+    it("still uses hls.js when the platform cannot play HLS natively", () => {
+      // Managed-only without native HLS is not a shipping platform today, but the
+      // fallback has to degrade to something playable rather than to "unsupported".
+      // 只有 managed 且无原生 HLS 的平台目前并不存在, 但兜底必须退到可播放的选项,
+      // 而不是退成 "unsupported".
+      const engine = choosePlaybackEngine(caps(false, true, true));
+      expect(engine).toBe("hlsjs" satisfies PlaybackEngine);
+    });
+
+    it("keeps hls.js on platforms that expose a full MediaSource as well", () => {
+      // iPad and macOS Safari expose both, and there hls.js keeps buffer control.
+      // iPad 与 macOS Safari 两者都暴露, 那里 hls.js 仍掌握缓冲控制权.
+      const engine = choosePlaybackEngine(caps(true, true, false));
+      expect(engine).toBe("hlsjs" satisfies PlaybackEngine);
+    });
+  });
+
   describe("capability probe isolation", () => {
     it("does not consult canPlayNativeHLS when hls.js wins", () => {
       // Verify the short-circuit: canPlayNativeHLS should not be called when hlsjs wins.
@@ -80,6 +115,7 @@ describe("choosePlaybackEngine", () => {
       const engine = choosePlaybackEngine({
         canPlayNativeHLS: () => { nativeCallCount++; return true; },
         hlsSupported: () => true,
+        managedBufferOnly: () => false,
       });
       expect(engine).toBe("hlsjs");
       expect(nativeCallCount).toBe(0);
@@ -90,6 +126,7 @@ describe("choosePlaybackEngine", () => {
       const engine = choosePlaybackEngine({
         canPlayNativeHLS: () => { nativeCallCount++; return true; },
         hlsSupported: () => false,
+        managedBufferOnly: () => false,
       });
       expect(engine).toBe("native");
       expect(nativeCallCount).toBe(1);
@@ -135,5 +172,56 @@ describe("hasMediaSourceSupport", () => {
     delete w.MediaSource;
     delete w.ManagedMediaSource;
     expect(hasMediaSourceSupport()).toBe(false);
+  });
+});
+
+describe("hasManagedMediaSourceOnly", () => {
+  const w = window as unknown as Record<string, unknown>;
+  const originalMediaSource = Object.getOwnPropertyDescriptor(window, "MediaSource");
+  const originalManaged = Object.getOwnPropertyDescriptor(window, "ManagedMediaSource");
+
+  function setGlobal(name: string, value: unknown) {
+    Object.defineProperty(window, name, { value, configurable: true, writable: true });
+  }
+
+  function restore(name: string, descriptor: PropertyDescriptor | undefined) {
+    if (descriptor) {
+      Object.defineProperty(window, name, descriptor);
+    } else {
+      delete w[name];
+    }
+  }
+
+  afterEach(() => {
+    restore("MediaSource", originalMediaSource);
+    restore("ManagedMediaSource", originalManaged);
+  });
+
+  it("reports true for the iPhone WebKit signature", () => {
+    // Confirmed on an iOS 18.7 simulator: typeof MediaSource is "undefined" and
+    // typeof ManagedMediaSource is "function".
+    // 已在 iOS 18.7 模拟器确认: typeof MediaSource 为 "undefined",
+    // typeof ManagedMediaSource 为 "function".
+    delete w.MediaSource;
+    setGlobal("ManagedMediaSource", function ManagedMediaSourceStub() {});
+    expect(hasManagedMediaSourceOnly()).toBe(true);
+  });
+
+  it("reports false when a full MediaSource is also present (iPad, macOS Safari)", () => {
+    setGlobal("MediaSource", function MediaSourceStub() {});
+    setGlobal("ManagedMediaSource", function ManagedMediaSourceStub() {});
+    expect(hasManagedMediaSourceOnly()).toBe(false);
+  });
+
+  it("reports false on browsers with no managed variant at all (Chrome)", () => {
+    setGlobal("MediaSource", function MediaSourceStub() {});
+    delete w.ManagedMediaSource;
+    expect(hasManagedMediaSourceOnly()).toBe(false);
+  });
+
+  it("reports false when neither exists", () => {
+    delete w.MediaSource;
+    delete w.ManagedMediaSource;
+    expect(hasManagedMediaSourceOnly()).toBe(false);
   });
 });
