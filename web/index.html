@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#07080a" />
+    <!--
+      SVG first for browsers that take it, .ico as the fallback that also answers
+      the unprompted /favicon.ico request. Both live in public/ so Vite copies
+      them to the dist root the server already serves files from.
+      SVG 优先供支持它的浏览器使用, .ico 作为回退, 同时应答浏览器自动发起的
+      /favicon.ico 请求. 两者都放在 public/ 下, 由 Vite 复制到 dist 根目录,
+      而服务端本就从那里提供静态文件.
+    -->
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>KMTV</title>
   </head>
   <body>
