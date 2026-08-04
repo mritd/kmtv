@@ -81,6 +81,8 @@ const viewer = {
     showLess: "Show less",
     sourcePickerHeading: "Sources",
     sourcePickerAria: "{{name}} · {{latency}}",
+    episodePickerHeading: "Episodes",
+    episodePlayAria: "Play {{name}}",
   },
   favorites: {
     title: "Favorites",

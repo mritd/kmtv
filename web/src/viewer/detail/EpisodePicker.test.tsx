@@ -2,14 +2,17 @@
  * EpisodePicker tests — selection UI for a flat episode list.
  * EpisodePicker 测试 — 平铺集数列表的选择 UI.
  *
- * Covers: empty list, rendering, current-item highlight, click selects, index boundary.
- * 覆盖: 空列表、渲染、当前项高亮、点击选择、索引边界.
+ * Covers: empty list, rendering, current-item highlight, click selects, index boundary,
+ * and that the heading and play labels come from the locale rather than the source.
+ * 覆盖: 空列表、渲染、当前项高亮、点击选择、索引边界,
+ * 以及标题与播放标签取自语言资源而非源码.
  */
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Episode } from "@/api/types";
+import i18n from "@/i18n";
 
 import { EpisodePicker } from "./EpisodePicker";
 
@@ -76,6 +79,20 @@ describe("EpisodePicker", () => {
       // aria-label contains the episode name so assistive technology announces the episode.
       // aria-label 包含集数名称, 使辅助技术能够播报集数.
       expect(screen.getByRole("button", { name: "播放 03" })).toHaveAttribute("aria-label", "播放 03");
+    });
+
+    it("takes the heading and play labels from the active locale", async () => {
+      // The heading was hardcoded as "选集" until it was noticed on screen — every English
+      // user had been reading it. The setup file resets the language before each test, so
+      // switching here does not leak into the assertions above.
+      // 标题此前一直硬编码为 "选集", 直到有人在界面上发现 — 所有英文用户看到的都是它.
+      // setup 文件会在每个测试前重置语言, 因此这里的切换不会影响上面的断言.
+      await i18n.changeLanguage("en");
+      render(<EpisodePicker episodes={episodes} selectedIndex={0} onSelect={vi.fn()} />);
+
+      expect(screen.getByRole("heading", { name: "Episodes" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Play 01" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "选集" })).not.toBeInTheDocument();
     });
 
     it("does not highlight any button when selectedIndex is out of bounds", () => {

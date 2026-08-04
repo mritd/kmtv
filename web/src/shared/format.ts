@@ -1,7 +1,14 @@
-// Shared pure formatting helpers for durations, health labels, and optional dates.
-// 共享纯函数: 格式化时长、健康状态标签和可选日期.
+// Shared pure formatting helpers for durations, health tones, and optional dates.
+// 共享纯函数: 格式化时长、健康状态色调和可选日期.
 //
-// Exports: Tone, formatDuration, formatSourceHealth, DATE_PLACEHOLDER, hasUsableDate,
+// These are pure and framework-free, so they cannot call useTranslation. That is the reason
+// they return codes and placeholders rather than words: any human-readable text they produced
+// would be a hardcoded translation. Callers hold the t() function and do the wording.
+// 这些函数是纯函数且不依赖框架, 因此无法调用 useTranslation.
+// 这正是它们返回码值与占位符而非文字的原因: 它们产出的任何可读文本都会是硬编码译文.
+// 调用方持有 t() 函数, 由调用方决定措辞.
+//
+// Exports: Tone, formatDuration, sourceHealthTone, DATE_PLACEHOLDER, hasUsableDate,
 //          formatDateTime, formatOptionalDate.
 // Callers: shared/ui/StatusState, admin panels, OptionalDate component.
 
@@ -10,10 +17,14 @@
 export type Tone = "default" | "muted" | "success" | "danger" | "warning";
 
 // formatDuration converts a millisecond number to a human-readable string.
-// formatDuration 将毫秒数转为可读字符串; 空值或非正数返回"未知".
+// Absent or non-positive input yields DATE_PLACEHOLDER — a dash carries "no value" in any
+// language, where the previous "未知" did not.
+// formatDuration 将毫秒数转为可读字符串.
+// 空值或非正数返回 DATE_PLACEHOLDER — 破折号在任何语言中都表示"无值",
+// 而此前的 "未知" 做不到.
 export function formatDuration(duration: number | undefined): string {
   if (!duration || duration <= 0) {
-    return "未知";
+    return DATE_PLACEHOLDER;
   }
   if (duration < 1000) {
     return `${Math.round(duration)}ms`;
@@ -21,21 +32,26 @@ export function formatDuration(duration: number | undefined): string {
   return `${(duration / 1000).toFixed(1)}s`;
 }
 
-// formatSourceHealth maps a backend health string to a localised label and tone.
-// formatSourceHealth 将后端健康状态字符串映射为本地化标签和色调.
-// Any unrecognised value falls through to the "未检测" muted default.
-// 未识别的值默认返回"未检测" muted.
-export function formatSourceHealth(health: string): { label: string; tone: Tone } {
+// sourceHealthTone maps a backend health string to the semantic colour for its status pill.
+// Any unrecognised value is "muted", the same tone as a source that has never been checked.
+// sourceHealthTone 将后端健康状态字符串映射为状态标签的语义颜色.
+// 未识别的值返回 "muted", 与从未检测过的来源同色.
+//
+// It returns only a tone: it used to return a Chinese label alongside it, which every caller
+// discarded — SourcesPanel destructures the tone and takes its wording from t("status.*").
+// 它只返回色调: 此前还会一并返回中文 label, 而所有调用方都将其丢弃 —
+// SourcesPanel 只解构 tone, 文案取自 t("status.*").
+export function sourceHealthTone(health: string): Tone {
   if (health === "healthy") {
-    return { label: "正常", tone: "success" };
+    return "success";
   }
   if (health === "unhealthy") {
-    return { label: "异常", tone: "danger" };
+    return "danger";
   }
   if (health === "checking") {
-    return { label: "检测中", tone: "warning" };
+    return "warning";
   }
-  return { label: "未检测", tone: "muted" };
+  return "muted";
 }
 
 // DATE_PLACEHOLDER is the plain-text fallback for callers that need a string instead of the

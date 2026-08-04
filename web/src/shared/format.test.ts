@@ -1,19 +1,29 @@
 import { describe, expect, it } from "vitest";
 
-import { DATE_PLACEHOLDER, formatDateTime, formatDuration, formatOptionalDate, formatSourceHealth, hasUsableDate } from "./format";
+import { DATE_PLACEHOLDER, formatDateTime, formatDuration, formatOptionalDate, hasUsableDate, sourceHealthTone } from "./format";
 
 describe("shared format helpers", () => {
   it("formats source durations", () => {
-    expect(formatDuration(undefined)).toBe("未知");
+    // A dash, not a word: these helpers are pure and cannot reach useTranslation, so any
+    // wording they returned would be a hardcoded translation. This used to return "未知".
+    // 用破折号而非文字: 这些纯函数无法访问 useTranslation, 因此它们返回的任何措辞
+    // 都会是硬编码译文. 此处此前返回 "未知".
+    expect(formatDuration(undefined)).toBe(DATE_PLACEHOLDER);
+    expect(formatDuration(0)).toBe(DATE_PLACEHOLDER);
     expect(formatDuration(412)).toBe("412ms");
     expect(formatDuration(1250)).toBe("1.3s");
   });
 
-  it("formats source health labels", () => {
-    expect(formatSourceHealth("healthy")).toEqual({ label: "正常", tone: "success" });
-    expect(formatSourceHealth("unhealthy")).toEqual({ label: "异常", tone: "danger" });
-    expect(formatSourceHealth("checking")).toEqual({ label: "检测中", tone: "warning" });
-    expect(formatSourceHealth("unknown")).toEqual({ label: "未检测", tone: "muted" });
+  it("maps source health to a tone and leaves the wording to the caller", () => {
+    // Tone only. The previous shape bundled a Chinese label that every caller threw away —
+    // SourcesPanel takes the tone and words it with t("status.*").
+    // 只返回色调. 此前的形态还捆绑了一个中文 label, 而所有调用方都会丢弃它 —
+    // SourcesPanel 取用色调, 措辞交由 t("status.*").
+    expect(sourceHealthTone("healthy")).toBe("success");
+    expect(sourceHealthTone("unhealthy")).toBe("danger");
+    expect(sourceHealthTone("checking")).toBe("warning");
+    expect(sourceHealthTone("unknown")).toBe("muted");
+    expect(sourceHealthTone("")).toBe("muted");
   });
 
   it("treats Go zero-time and empty as missing", () => {

@@ -3,8 +3,8 @@
  * editableSettingsSchema — 所有管理员可编辑系统设置的 schema 定义.
  *
  * Responsibilities / 职责:
- *   - Enumerate each setting key with display metadata (kind, label, constraints)
- *     以 kind/label/约束枚举每个设置项的展示元数据
+ *   - Enumerate each setting key with display metadata (kind, constraints); all text is i18n
+ *     以 kind/约束枚举每个设置项的展示元数据; 所有文案均走 i18n
  *   - Expose validatePublicBaseURL mirroring backend ValidatePublicBaseURL
  *     暴露与后端 ValidatePublicBaseURL 对等的前端校验函数
  *
@@ -47,15 +47,24 @@ export type EditableSettingKind = "text" | "number" | "boolean" | "url" | "enum"
  *
  * `allowEmpty: true` means the field may be submitted as an empty string (e.g. public_base_url).
  * allowEmpty: true 表示该字段可以提交为空字符串 (如 public_base_url).
+ *
+ * There is no `label` field, by design: the panel renders t(`settings.fields.${key}`) and
+ * option text comes from t(`settings.<i18nNamespace>.<value>`). Entries used to carry Chinese
+ * label strings that nothing ever read — the field label was dead outright, and the option
+ * label survived only as a defaultValue behind a key that locale-parity tests guarantee
+ * exists. Both were a hardcoded translation waiting to be rendered by mistake.
+ * 刻意没有 label 字段: 面板渲染的是 t(`settings.fields.${key}`),
+ * 选项文案来自 t(`settings.<i18nNamespace>.<value>`). 条目此前带着无人读取的中文 label —
+ * 字段 label 完全是死的, 选项 label 也只是某个由语言对齐测试保证存在的 key 背后的
+ * defaultValue. 两者都是等着被误渲染的硬编码译文.
  */
 export interface EditableSettingEntry {
   kind: EditableSettingKind;
   key: string;
-  label: string;
   min?: number;
   max?: number;
   step?: number;
-  options?: ReadonlyArray<{ value: string; label: string }>;
+  options?: ReadonlyArray<{ value: string }>;
   // i18nNamespace points to the sub-tree under `admin.settings.*` that holds
   // option labels for this enum entry; falls back to the raw value when missing.
   // i18nNamespace
@@ -72,53 +81,51 @@ export interface EditableSettingEntry {
  * Clamp 范围与 server/internal/runtime/settings.go 保持对齐 — 参见模块头注释.
  */
 export const editableSettingsSchema: ReadonlyArray<EditableSettingEntry> = [
-  { kind: "text", key: "site_name", label: "站点名称" },
-  { kind: "boolean", key: "anonymous_access", label: "匿名访问" },
-  { kind: "number", key: "health_check_interval", label: "健康检查间隔 (秒)", min: 60, step: 60 },
+  { kind: "text", key: "site_name" },
+  { kind: "boolean", key: "anonymous_access" },
+  { kind: "number", key: "health_check_interval", min: 60, step: 60 },
   // nsfw_filter_enabled is the site-wide NSFW filter: ON blocks NSFW for everyone;
   // OFF lets per-user allow_adult_content decide. Default ON, so NSFW is blocked by default.
   // nsfw_filter_enabled 是全站 NSFW 过滤开关: 开启即对所有人屏蔽 NSFW;
   // 关闭则交由用户级 allow_adult_content 决定. 默认开启, 故默认屏蔽 NSFW.
-  { kind: "boolean", key: "nsfw_filter_enabled", label: "NSFW 内容过滤 (全站)" },
+  { kind: "boolean", key: "nsfw_filter_enabled" },
   {
     kind: "enum",
     key: "douban_image_proxy",
-    label: "豆瓣图片代理",
     i18nNamespace: "doubanImageProxy",
     options: [
-      { value: "direct", label: "直连" },
-      { value: "server", label: "服务端代理" },
-      { value: "tencent", label: "腾讯 CDN" },
-      { value: "ali", label: "阿里 CDN" },
+      { value: "direct" },
+      { value: "server" },
+      { value: "tencent" },
+      { value: "ali" },
     ],
   },
   // search_concurrency: backend clamp(n, 1, 50) in SetSearchConcurrency
   // 后端 SetSearchConcurrency 执行 clamp(n, 1, 50)
-  { kind: "number", key: "search_concurrency", label: "搜索并发", min: 1, max: 50 },
+  { kind: "number", key: "search_concurrency", min: 1, max: 50 },
   // probe_concurrency: backend clamp(n, 1, 50) in SetProbeConcurrency
   // 后端 SetProbeConcurrency 执行 clamp(n, 1, 50)
-  { kind: "number", key: "probe_concurrency", label: "线路探测并发", min: 1, max: 50 },
+  { kind: "number", key: "probe_concurrency", min: 1, max: 50 },
   // probe_timeout: backend clamp(n, 1, 20) in SetProbeTimeout
   // 后端 SetProbeTimeout 执行 clamp(n, 1, 20)
-  { kind: "number", key: "probe_timeout", label: "探测超时 (秒)", min: 1, max: 20, step: 1 },
+  { kind: "number", key: "probe_timeout", min: 1, max: 20, step: 1 },
   // search_timeout: backend clamp(n, 1, 30) in SetSearchTimeout
   // 后端 SetSearchTimeout 执行 clamp(n, 1, 30)
-  { kind: "number", key: "search_timeout", label: "搜索超时 (秒)", min: 1, max: 30, step: 1 },
-  { kind: "url", key: "public_base_url", label: "公网访问 URL", allowEmpty: true },
+  { kind: "number", key: "search_timeout", min: 1, max: 30, step: 1 },
+  { kind: "url", key: "public_base_url", allowEmpty: true },
   // access_token_ttl: min:60 is a form-level convention; backend accepts any positive int
   // access_token_ttl: min:60 是表单层约定; 后端接受任何正整数
-  { kind: "number", key: "access_token_ttl", label: "AccessToken 有效期 (秒)", min: 60 },
+  { kind: "number", key: "access_token_ttl", min: 60 },
   // media_token_ttl: same convention as access_token_ttl
   // media_token_ttl: 与 access_token_ttl 相同约定
-  { kind: "number", key: "media_token_ttl", label: "媒体 Token 有效期 (秒)", min: 60 },
+  { kind: "number", key: "media_token_ttl", min: 60 },
   {
     kind: "enum",
     key: "playback_mode",
-    label: "播放模式",
     i18nNamespace: "playbackMode",
     options: [
-      { value: "direct", label: "直连" },
-      { value: "proxy", label: "代理" },
+      { value: "direct" },
+      { value: "proxy" },
     ],
   },
 ];

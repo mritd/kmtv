@@ -296,11 +296,14 @@ function InlineSettingField({
       );
     case "enum": {
       const ns = entry.i18nNamespace;
+      // The raw code (e.g. "direct") is the fallback when an entry declares no namespace or
+      // the key is absent. It reads worse than a translated label but is at least neutral —
+      // the previous fallback was a Chinese string baked into the schema.
+      // 未声明命名空间或 key 缺失时, 回退到原始码值 (如 "direct").
+      // 它不如翻译后的标签好看, 但至少是中立的 — 此前的回退是写死在 schema 里的中文.
       const opts = (entry.options ?? []).map((opt) => ({
         value: opt.value,
-        label: ns
-          ? t(`settings.${ns}.${opt.value}` as never, { defaultValue: opt.label })
-          : opt.label,
+        label: ns ? t(`settings.${ns}.${opt.value}` as never, { defaultValue: opt.value }) : opt.value,
       }));
       return <Select value={value} options={opts} onChange={onChange} ariaLabel={entry.key} />;
     }

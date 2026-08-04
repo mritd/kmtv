@@ -23,7 +23,7 @@ import { useTranslation } from "react-i18next";
 
 import { useCheckSourceMutation, useSourcesQuery } from "@/api/adminHooks";
 import type { Source } from "@/api/types";
-import { formatSourceHealth } from "@/shared/format";
+import { sourceHealthTone } from "@/shared/format";
 import { Button } from "@/shared/ui/Button";
 import { OptionalDate } from "@/shared/ui/OptionalDate";
 import { StatusState } from "@/shared/ui/StatusState";
@@ -170,11 +170,11 @@ export function SourcesPanel() {
       </div>
       <div className="admin-table">
         {sortedSources.map((source) => {
-          const health = formatSourceHealth(source.health);
+          const tone = sourceHealthTone(source.health);
           const healthLabel =
-            health.tone === "success"
+            tone === "success"
               ? t("status.healthy")
-              : health.tone === "danger"
+              : tone === "danger"
                 ? t("status.unhealthy")
                 : source.health === "checking"
                   ? t("status.checking")
@@ -195,7 +195,7 @@ export function SourcesPanel() {
                   {source.enabled ? t("status.enabled") : t("status.disabled")}
                 </span>
                 <span
-                  className={`status-pill ${checking ? "status-pill-checking" : `tone-${health.tone}`}`}
+                  className={`status-pill ${checking ? "status-pill-checking" : `tone-${tone}`}`}
                 >
                   {healthLabel}
                 </span>

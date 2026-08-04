@@ -102,6 +102,31 @@ describe("SystemSettingsPanel", () => {
       expect(screen.getAllByRole("spinbutton").length).toBeGreaterThan(0);
     });
 
+    it("words enum options from the locale, not from the stored code", async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      // Read-only first: the stored value is the code "tencent".
+      // 先看只读态: 存储的值是码值 "tencent".
+      await screen.findByText("搜索并发");
+      expect(screen.getByText("腾讯 CDN")).toBeInTheDocument();
+      expect(screen.queryByText("tencent")).toBeNull();
+
+      // Then the edit-mode listbox, which is the path that used to fall back to a Chinese
+      // `label` baked into editableSettingsSchema. That fallback is gone — the schema now
+      // carries codes only, and anything user-facing must come through t().
+      // 再看编辑态的 listbox, 这条路径此前会回退到写死在 editableSettingsSchema 里的中文 label.
+      // 该回退已移除 — schema 现在只带码值, 任何面向用户的文案都必须经由 t() 取得.
+      await user.click(screen.getByRole("button", { name: "编辑" }));
+      await user.click(screen.getByRole("button", { name: "douban_image_proxy" }));
+
+      const options = screen.getAllByRole("option").map((el) => el.textContent);
+      expect(options).toContain("直连");
+      expect(options).toContain("服务端代理");
+      expect(options).not.toContain("direct");
+      expect(options).not.toContain("server");
+    });
+
     it("restores original values when 'cancel' is clicked", async () => {
       const user = userEvent.setup();
       renderPanel();

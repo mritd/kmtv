@@ -81,6 +81,8 @@ const viewer = {
     showLess: "收起",
     sourcePickerHeading: "视频源",
     sourcePickerAria: "{{name}} · {{latency}}",
+    episodePickerHeading: "选集",
+    episodePlayAria: "播放 {{name}}",
   },
   favorites: {
     title: "收藏",

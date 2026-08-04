@@ -99,6 +99,7 @@ function AdminModalBody({ payload, onClose }: { payload: AdminModalPayload; onCl
           title={t("source.deleteTitle")}
           description={t("source.deleteConfirm", { name: payload.source.name })}
           confirmLabel={sources.remove.isPending ? t("source.deletePending") : t("source.deleteButton")}
+          cancelLabel={t("formActions.cancel")}
           onCancel={onClose}
           onConfirm={() =>
             sources.remove.mutate(payload.source.id, {
@@ -138,6 +139,7 @@ function AdminModalBody({ payload, onClose }: { payload: AdminModalPayload; onCl
           title={t("subscription.deleteTitle")}
           description={t("subscription.deleteConfirm", { url: payload.subscription.url })}
           confirmLabel={subscriptions.remove.isPending ? t("subscription.deletePending") : t("subscription.deleteButton")}
+          cancelLabel={t("formActions.cancel")}
           onCancel={onClose}
           onConfirm={() =>
             subscriptions.remove.mutate(payload.subscription.id, {
@@ -171,6 +173,7 @@ function AdminModalBody({ payload, onClose }: { payload: AdminModalPayload; onCl
           title={t("user.deleteTitle")}
           description={t("user.deleteConfirm", { username: payload.user.username })}
           confirmLabel={users.remove.isPending ? t("user.deletePending") : t("user.deleteButton")}
+          cancelLabel={t("formActions.cancel")}
           onCancel={onClose}
           onConfirm={() =>
             users.remove.mutate(payload.user.id, {

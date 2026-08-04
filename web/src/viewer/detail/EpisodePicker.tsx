@@ -15,12 +15,9 @@
  *   viewer/detail/DetailPage.tsx — provides the episodes array from the current source detail
  *   viewer/playback/PlaybackPanel.tsx (fe-7 scope) — reads shared Episode type but does NOT call EpisodePicker
  *
- * Note: The section heading "选集" is a hardcoded Chinese string that was not wired through i18n
- * in the original implementation. Adding a new i18n key for it would be Tier 1 free, but is out of
- * scope for this refactor wave (behaviour-preserving only).
- * 注: "选集" 标题在原始实现中未走 i18n. 为其新增 i18n key 属 Tier 1 自由操作,
- * 但超出本轮 refactor 范围 (仅行为保留).
  */
+import { useTranslation } from "react-i18next";
+
 import type { Episode } from "@/api/types";
 
 /**
@@ -44,9 +41,10 @@ export function EpisodePicker({
   selectedIndex: number;
   onSelect(index: number, episode: Episode): void;
 }) {
+  const { t } = useTranslation("viewer");
   return (
     <section className="detail-control-panel">
-      <h2>选集</h2>
+      <h2>{t("detail.episodePickerHeading")}</h2>
       <div className="episode-grid">
         {episodes.map((episode, index) => (
           <button
@@ -56,7 +54,7 @@ export function EpisodePicker({
             key={`${episode.name}-${index}`}
             type="button"
             onClick={() => onSelect(index, episode)}
-            aria-label={`播放 ${episode.name}`}
+            aria-label={t("detail.episodePlayAria", { name: episode.name })}
           >
             {episode.name}
           </button>
