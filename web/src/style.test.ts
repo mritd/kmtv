@@ -261,7 +261,7 @@ describe("global styles", () => {
     const latencyWarnCss = cssBlock(css, ".source-latency-warn");
     const latencyBadCss = cssBlock(css, ".source-latency-bad");
 
-    expect(sourcePickerCss).toContain("grid-template-columns: repeat(auto-fit, minmax(min(100%, 148px), 1fr))");
+    expect(sourcePickerCss).toContain("grid-template-columns: repeat(auto-fit, minmax(min(100%, 176px), 1fr))");
     expect(sourcePickerCss).not.toContain("grid-template-columns: 1fr");
     expect(sourceButtonCss).toContain("display: grid");
     expect(sourceButtonCss).toContain("border-radius: 10px");
@@ -270,6 +270,25 @@ describe("global styles", () => {
     expect(latencyGoodCss).toContain("#54d86a");
     expect(latencyWarnCss).toContain("#f6c453");
     expect(latencyBadCss).toContain("#fb4667");
+  });
+
+  // The column floor decides how many columns auto-fit packs in, so a floor below
+  // what one chip needs does not merely crowd the row — it silently clips every
+  // name. That is how a 148px floor shipped: chips whose badge read "1.7s" fit and
+  // hid the six beside them reading "227ms". Widths measured in Chrome at the
+  // inherited 16px system-ui, not estimated.
+  // 列宽下限决定 auto-fit 排几列, 因此下限低于单个按钮所需宽度时不只是排得挤,
+  // 而是会静默截断每一个名称. 148px 的下限正是这样混过去的:
+  // 徽标为 "1.7s" 的按钮放得下, 掩盖了旁边六个 "227ms" 的按钮.
+  // 各宽度由 Chrome 在继承的 16px system-ui 下实测, 非估算.
+  it("floors the source column at the width one chip actually needs", () => {
+    const css = readFileSync("src/style.css", "utf8");
+    const floorPx = Number(cssBlock(css, ".source-picker").match(/minmax\(min\(100%, (\d+)px\)/)?.[1]);
+    const typicalNamePx = 80; // "🎬" plus four CJK characters
+    const widestBadgePx = 57; // "227ms"; a latency past 1s collapses to the narrower "1.7s"
+    const chipChromePx = 36; // padding 12px x2, border 1px x2, column gap 10px
+
+    expect(floorPx).toBeGreaterThanOrEqual(typicalNamePx + widestBadgePx + chipChromePx);
   });
 
   it("keeps the hero title wide enough without an oversized desktop cap", () => {

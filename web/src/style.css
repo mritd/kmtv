@@ -1752,8 +1752,24 @@ select:focus {
   gap: 8px;
 }
 
+/*
+ * 176px is the width a source chip needs to show its whole name, measured in
+ * Chrome rather than guessed: a typical name ("🎬" plus four CJK characters) is
+ * 80px, the widest latency badge ("227ms" — anything over a second collapses to
+ * "1.7s") is 57px, and the chip's own padding, border and column gap add 36px.
+ * At the previous 148px floor auto-fit packed one extra column at 1280px,
+ * 1836px and 2560px, leaving the name 66px and clipping every chip whose badge
+ * was in milliseconds; the seconds-badge chips fit and hid the problem.
+ * Names longer than four characters still ellipsize, which is the intent.
+ * 176px 是来源按钮完整显示名称所需的宽度, 由 Chrome 实测而非估算得出:
+ * 常见名称 ("🎬" 加四个汉字) 占 80px, 最宽的延迟徽标 ("227ms" — 超过一秒会
+ * 收窄成 "1.7s") 占 57px, 按钮自身的内边距, 边框与列间距再占 36px.
+ * 此前 148px 的下限让 auto-fit 在 1280px, 1836px 与 2560px 三档各多排一列,
+ * 名称只剩 66px, 凡是毫秒徽标的按钮全被截断; 秒级徽标的按钮放得下, 掩盖了问题.
+ * 超过四个字的名称仍会省略号截断, 这是预期行为.
+ */
 .source-picker {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 148px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 176px), 1fr));
 }
 
 .source-button {
