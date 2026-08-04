@@ -7,6 +7,7 @@
  *   - Build the APIClient and QueryClient with stable identities across renders — 构建在渲染间保持稳定引用的 APIClient 和 QueryClient
  *   - Layer ThemeProvider → APIProvider → QueryClientProvider → AuthProvider → BrowserRouter — 叠加各 Provider 层
  *   - Mount SessionExpiredBridge for toast notifications on 401/logout — 挂载 SessionExpiredBridge 以显示 401/登出 Toast
+ *   - Mount ScrollToTop so entering a route starts at the top of the page — 挂载 ScrollToTop, 使进入路由时从页面顶部开始
  *   - Gate rendering via BootGate (hides children while AuthStatus is "probing") — 通过 BootGate 屏蔽渲染 (AuthStatus 为 probing 时隐藏子树)
  *
  * Key exports / 主要导出:
@@ -32,6 +33,7 @@ import { ToastContainer, useSessionExpiredToast } from "@/shared/ui/Toast";
 
 import { AppRoutes } from "./AppRoutes";
 import { BootGate } from "./BootGate";
+import { ScrollToTop } from "./ScrollToTop";
 
 // defaultTokenStore is a module-level singleton that attaches the cross-tab storage
 // listener exactly once per page lifetime. Defining it at module scope prevents the
@@ -96,6 +98,7 @@ export function AppShell({
         <QueryClientProvider client={queryClient}>
           <AuthProvider api={api} tokenStore={tokenStore} queryClient={queryClient}>
             <BrowserRouter>
+              <ScrollToTop />
               <SessionExpiredBridge />
               <BootGate>
                 <AppRoutes />
