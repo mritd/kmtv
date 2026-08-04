@@ -66,7 +66,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-import { choosePlaybackEngine } from "./playback";
+import { choosePlaybackEngine, hasMediaSourceSupport } from "./playback";
 import { HLS_BUFFER_CONFIG } from "./hlsConfig";
 
 /**
@@ -89,17 +89,16 @@ export function VideoPlayer({ url }: { url: string | null }) {
     }
 
     setError(null);
-    // Probe engine capabilities at runtime; canPlayType is the standard browser API
-    // for HLS MIME type negotiation (returns "" when unsupported).
-    // 运行时探测引擎能力; canPlayType 是 HLS MIME 类型协商的标准浏览器 API
-    // (不支持时返回 "").
+    // Probe engine capabilities at runtime. hasMediaSourceSupport stands in for
+    // Hls.isSupported() because the engine must be chosen before the bundle is imported;
+    // the real check still runs below and falls back to native if it disagrees.
+    // 运行时探测引擎能力. hasMediaSourceSupport 是 Hls.isSupported() 的替身,
+    // 因为引擎必须在 bundle 导入之前选定; 真正的检查仍在下方运行,
+    // 结果不一致时回退到原生播放.
+    const canPlayNativeHLS = () => video.canPlayType("application/vnd.apple.mpegurl") !== "";
     const engine = choosePlaybackEngine({
-      canPlayNativeHLS: () => video.canPlayType("application/vnd.apple.mpegurl") !== "",
-      // hlsSupported is always true here; the actual Hls.isSupported() check runs inside the
-      // dynamic import to avoid importing the 300 KB bundle when native HLS is available.
-      // hlsSupported 此处始终为 true; 实际的 Hls.isSupported() 检查在动态 import 内部运行,
-      // 以避免在原生 HLS 可用时引入 300 KB 的包.
-      hlsSupported: () => true,
+      canPlayNativeHLS,
+      hlsSupported: hasMediaSourceSupport,
     });
 
     if (engine === "native") {
@@ -122,8 +121,14 @@ export function VideoPlayer({ url }: { url: string | null }) {
           return;
         }
         if (!Hls.isSupported()) {
-          // MediaSource API unavailable — browser cannot play HLS via hls.js.
-          // MediaSource API 不可用 — 浏览器无法通过 hls.js 播放 HLS.
+          // The cheap probe said MediaSource exists but hls.js rejected it (e.g. required
+          // codecs unsupported). Native HLS is the remaining option before giving up.
+          // 廉价探针认为 MediaSource 存在, 但 hls.js 判定不可用 (例如缺少所需编解码器).
+          // 放弃之前还剩原生 HLS 这一条路.
+          if (canPlayNativeHLS()) {
+            video.src = url;
+            return;
+          }
           setError("This browser cannot play HLS streams.");
           return;
         }
@@ -141,6 +146,16 @@ export function VideoPlayer({ url }: { url: string | null }) {
           }
         });
         cleanup = () => hls.destroy();
+      }).catch(() => {
+        // The bundle itself failed to load (offline / CDN outage). Without this the
+        // rejection is unhandled and the player stays blank with no explanation.
+        // Mirrors the try/catch around the same import in PlaybackPanel.tsx.
+        // bundle 自身加载失败 (离线/CDN 中断). 缺少此处理时该 rejection 无人接手,
+        // 播放器会一直空白且没有任何提示.
+        // 与 PlaybackPanel.tsx 中同一个 import 的 try/catch 保持一致.
+        if (!disposed) {
+          setError("Failed to load the player. Check your connection and retry.");
+        }
       });
 
       return () => {

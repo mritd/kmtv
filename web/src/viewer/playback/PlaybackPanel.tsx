@@ -35,6 +35,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/shared/ui/Button";
 import { HLS_BUFFER_CONFIG } from "@/player/hlsConfig";
+import { hasMediaSourceSupport } from "@/player/playback";
 
 import type { PlaybackState } from "./playbackState";
 
@@ -192,10 +193,26 @@ export function PlaybackPanel({
         aspectRatio: true,
         customType: {
           m3u8: async (video, url) => {
-            // Safari (and WKWebView on iOS/tvOS) supports HLS natively; skip hls.js when canPlayType returns a non-empty string.
-            // Safari (及 iOS/tvOS 上的 WKWebView) 原生支持 HLS; canPlayType 返回非空字符串时跳过 hls.js.
-            if (video.canPlayType("application/vnd.apple.mpegurl") !== "") {
-              video.src = url;
+            const canPlayNativeHLS = () => video.canPlayType("application/vnd.apple.mpegurl") !== "";
+
+            // hls.js is preferred wherever MediaSource exists, because native playback
+            // exposes no buffer controls and would bypass HLS_BUFFER_CONFIG entirely.
+            // canPlayType can no longer single out Apple WebKit — Chrome 151 also answers
+            // "maybe" for the HLS MIME type — so native is now strictly the no-MediaSource
+            // fallback. See player/playback.ts for the full rationale.
+            // 只要存在 MediaSource 就优先 hls.js, 因为原生播放不暴露任何缓冲控制,
+            // 会完全绕过 HLS_BUFFER_CONFIG.
+            // canPlayType 已无法单独识别 Apple WebKit — Chrome 151 对 HLS MIME 同样返回
+            // "maybe" — 因此 native 现在严格作为无 MediaSource 时的兜底.
+            // 完整理由见 player/playback.ts.
+            if (!hasMediaSourceSupport()) {
+              if (canPlayNativeHLS()) {
+                video.src = url;
+                return;
+              }
+              if (!disposed) {
+                setPlayerError(t("player.errors.noHlsSupport"));
+              }
               return;
             }
 
@@ -214,8 +231,14 @@ export function PlaybackPanel({
               return;
             }
             if (!Hls.isSupported()) {
-              // Browser has neither native HLS nor MediaSource API support (rare, but seen in some embedded webviews).
-              // 浏览器既不支持原生 HLS 也不支持 MediaSource API (少见, 但某些嵌入式 webview 存在).
+              // MediaSource exists but hls.js rejected it (e.g. required codecs missing).
+              // Fall back to native HLS before surfacing an error.
+              // MediaSource 存在但 hls.js 判定不可用 (例如缺少所需编解码器).
+              // 报错之前先回退到原生 HLS.
+              if (canPlayNativeHLS()) {
+                video.src = url;
+                return;
+              }
               setPlayerError(t("player.errors.noHlsSupport"));
               return;
             }

@@ -26,16 +26,38 @@ describe("HLS_BUFFER_CONFIG", () => {
     expect(HLS_BUFFER_CONFIG.startFragPrefetch).toBe(true);
   });
 
-  it("raises maxBufferSize for master-playlist sources where the bitrate branch runs", () => {
-    expect(HLS_BUFFER_CONFIG.maxBufferSize).toBe(200 * 1000 * 1000);
+  // maxBufferSize is the governing lever once hls.js has a bitrate to divide by,
+  // which is almost immediately: these sources serve a master playlist declaring
+  // BANDWIDTH, and level.maxBitrate also picks up the measured realBitrate.
+  // maxBufferSize 在 hls.js 拿到可用于相除的码率后就是主控杆, 而这几乎是立刻发生的:
+  // 这些源返回的是声明了 BANDWIDTH 的 master playlist,
+  // 且 level.maxBitrate 还会采纳实测得到的 realBitrate.
+  it("sizes maxBufferSize to cover a full episode so only the browser quota binds", () => {
+    expect(HLS_BUFFER_CONFIG.maxBufferSize).toBe(400 * 1000 * 1000);
+
+    // A measured 2797s episode at 948 kbps needs 332 MB. The size term must ask for
+    // at least the whole episode, otherwise this config — not the browser — is the
+    // limit on browsers whose quota would have allowed more.
+    // 实测: 2797s 的剧集在 948 kbps 下需要 332 MB. 体积项必须至少要求整集,
+    // 否则在配额本可支持更多的浏览器上, 限制就来自本配置而非浏览器.
+    const measuredEpisodeBytes = (2797 * 948_000) / 8;
+    expect(HLS_BUFFER_CONFIG.maxBufferSize).toBeGreaterThan(measuredEpisodeBytes);
   });
 
-  // hls.js applies Math.min(maxBufLen, maxMaxBufferLength) unconditionally,
-  // so a maxMaxBufferLength below maxBufferLength would silently clamp it.
-  // hls.js 无条件执行 Math.min(maxBufLen, maxMaxBufferLength),
-  // 因此 maxMaxBufferLength 低于 maxBufferLength 会静默夹住后者.
-  it("keeps maxMaxBufferLength above maxBufferLength so it never silently clamps", () => {
-    expect(HLS_BUFFER_CONFIG.maxMaxBufferLength).toBe(600);
+  // hls.js applies Math.min(maxBufLen, maxMaxBufferLength) unconditionally, so this
+  // ceiling must stay clear of the largest target the size term can ask for —
+  // otherwise it silently caps low-bitrate sources before the browser quota does.
+  // hls.js 无条件执行 Math.min(maxBufLen, maxMaxBufferLength), 因此该上限必须高于
+  // 体积项可能要求的最大目标, 否则会在浏览器配额生效之前就静默截断低码率源.
+  it("keeps maxMaxBufferLength clear of the size-derived target so it never silently clamps", () => {
+    expect(HLS_BUFFER_CONFIG.maxMaxBufferLength).toBe(3600);
     expect(HLS_BUFFER_CONFIG.maxMaxBufferLength).toBeGreaterThan(HLS_BUFFER_CONFIG.maxBufferLength);
+
+    // A 1 Mbps source — the low end this project sees — derives 8 * maxBufferSize /
+    // bitrate seconds from the size term. The ceiling must not cut that down.
+    // 1 Mbps (本项目所见的低端码率) 下, 体积项推导出 8 * maxBufferSize / bitrate 秒.
+    // 上限不得将其截断.
+    const lowBitrateTarget = (8 * HLS_BUFFER_CONFIG.maxBufferSize) / 1_000_000;
+    expect(HLS_BUFFER_CONFIG.maxMaxBufferLength).toBeGreaterThanOrEqual(lowBitrateTarget);
   });
 });
