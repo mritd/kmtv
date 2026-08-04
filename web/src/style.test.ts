@@ -201,6 +201,49 @@ describe("global styles", () => {
     expect(tabletCss).toContain(".video-result-copy {\n    width: 100%;\n  }");
   });
 
+  it("keeps every player-sized box on one shared width cap", () => {
+    const css = readFileSync("src/style.css", "utf8");
+    // Regression guard: the skeleton, the pre-playback placeholder and the player occupy
+    // the same slot in the same container, so a cap applied to only some of them resizes
+    // the panel the moment one is swapped for the next. Asserting they share ONE rule is
+    // the point — three separate rules with equal values would drift apart silently.
+    // 回归防护: 骨架屏, 起播前占位块与播放器占据同一容器的同一位置,
+    // 只给其中一部分加上限, 会在替换的瞬间改变面板大小.
+    // 断言它们共用同一条规则才是关键 — 三条取值相同的独立规则会悄悄漂移.
+    const capRule = css.match(/@media \(min-width: 921px\) \{[\s\S]*?\n\}/)?.[0] ?? "";
+
+    expect(capRule).toContain(".player,");
+    expect(capRule).toContain(".player-placeholder,");
+    expect(capRule).toContain(".detail-skeleton .detail-skeleton-player");
+    expect(capRule).toContain("margin-inline: auto");
+    // Floor first: below a 162px-tall viewport the calc() goes negative, and because
+    // max-width rejects negative lengths a bare calc() computes to 0 and the player
+    // disappears outright. Verified in Chrome by forcing the negative case.
+    // 下限优先: 视口高度低于 162px 时 calc() 为负, 而 max-width 不接受负长度,
+    // 裸 calc() 会被算成 0, 播放器直接消失. 已在 Chrome 中强制该场景验证.
+    expect(capRule).toContain("max(320px, calc((100vh - var(--player-viewport-chrome)) * 16 / 9))");
+    // Scoped ABOVE the single-column breakpoint on purpose: the chrome constant was
+    // measured on desktop, and applying it to a landscape phone caps a ~776px column
+    // at ~405px.
+    // 刻意限定在单列断点之上: 该常量是在桌面量的,
+    // 用于横屏手机会把约 776px 的单列压到约 405px.
+    expect(css).not.toMatch(/^\.player \{[^}]*max-width/m);
+  });
+
+  it("gives the detail page a wider measure than the shared page cap", () => {
+    const css = readFileSync("src/style.css", "utf8");
+    // The video is the content, so the detail page opts out of the shared 1720px measure.
+    // Scoped rather than raising .page itself, which also drives home, search, favorites,
+    // account and admin.
+    // 视频本身就是内容, 因此详情页不使用共用的 1720px 版心.
+    // 采用作用域限定而非抬高 .page, 后者还驱动着首页, 搜索, 收藏, 账号与管理页.
+    const pageCss = cssBlock(css, ".page");
+    const detailPageCss = cssBlock(css, ".page.detail-page");
+
+    expect(pageCss).toContain("width: min(100%, 1720px)");
+    expect(detailPageCss).toContain("width: min(100%, 2400px)");
+  });
+
   it("keeps player status pills out of native video controls", () => {
     const css = readFileSync("src/style.css", "utf8");
     const pillsCss = cssBlock(css, ".player-state-pills");

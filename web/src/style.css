@@ -18,6 +18,17 @@
   --danger: #fb7185;
   --success: #86efac;
   --warning: #facc15;
+  /*
+   * Vertical space the viewport owes to everything other than the video, used to
+   * keep the player from pushing its own controls off-screen on short wide
+   * displays. Measured on the detail page, not estimated: sticky top nav 72px,
+   * page top padding 26px, and 64px for the source / proxy chip row plus panel
+   * padding below the video.
+   * 视口中除视频以外必须让出的垂直空间, 用于避免播放器在又宽又矮的屏幕上
+   * 把自己的控制条顶出屏外. 该值在详情页实测而非估算:
+   * 吸顶导航 72px, 页面上内边距 26px, 视频下方的源/代理标签行与面板内边距 64px.
+   */
+  --player-viewport-chrome: 162px;
 }
 
 @property --hero-slide-edge-fade {
@@ -412,6 +423,20 @@ select:focus {
   width: min(100%, 1720px);
   margin: 0 auto;
   padding: 26px clamp(18px, 4vw, 54px) 76px;
+}
+
+/*
+ * The detail page earns a wider measure than the rest of the app because the
+ * video is the content — at the shared 1720px cap a 2560px display left 840px
+ * of empty gutter and the player sat at 1055px. Deliberately scoped rather than
+ * raising the shared cap, which would also reflow the home, search, favorites,
+ * account and admin layouts.
+ * 详情页比其余页面用更宽的版心, 因为视频本身就是内容 — 在共用的 1720px 上限下,
+ * 2560px 显示器会空出 840px 边距, 播放器只有 1055px.
+ * 刻意限定作用域而非抬高共用上限, 后者会连带影响首页, 搜索, 收藏, 账号与管理页的排布.
+ */
+.page.detail-page {
+  width: min(100%, 2400px);
 }
 
 .ui-button {
@@ -1562,6 +1587,51 @@ select:focus {
   background: #000;
 }
 
+/*
+ * Cap the player's width by the height the viewport can actually spare, so a
+ * wide but short display (21:9 at 1080p, or a maximised-width window dragged
+ * short) shrinks the player instead of pushing the transport controls below the
+ * fold. Capping width rather than height keeps the box a true 16:9 — a height
+ * cap would leave the box wider than the frame and letterbox it.
+ *
+ * All three player-sized boxes are listed together on purpose: the skeleton, the
+ * pre-playback placeholder and the player itself occupy the same slot in the
+ * same container, so any of them sized differently produces a layout jump at the
+ * moment it is swapped for the next.
+ *
+ * Scoped above the single-column breakpoint because --player-viewport-chrome was
+ * measured on the desktop detail page. Applying it to a landscape phone would
+ * cap an ~776px column at ~405px and leave the video marooned between gutters,
+ * where full width followed by the player's own fullscreen control is what a
+ * viewer expects.
+ *
+ * The max() floor matters: below a 162px-tall viewport the calc() goes negative,
+ * and max-width rejects negative lengths, so the bare calc() would compute to 0
+ * and make the player vanish outright rather than degrade.
+ *
+ * 用视口实际能让出的高度来限制播放器宽度, 使又宽又矮的显示器 (1080p 的 21:9,
+ * 或宽度最大化后被拖矮的窗口) 缩小播放器, 而不是把控制条挤到首屏之外.
+ * 限制宽度而非高度是为了让盒子保持真正的 16:9 — 限制高度会让盒子比画面更宽, 产生黑边.
+ *
+ * 三个播放器尺寸的盒子刻意写在一起: 骨架屏, 起播前占位块与播放器本身占据同一容器的
+ * 同一位置, 其中任何一个尺寸不同, 都会在被下一个替换的瞬间造成版面跳动.
+ *
+ * 限定在单列断点之上, 因为 --player-viewport-chrome 是在桌面详情页量的.
+ * 用它约束横屏手机会把约 776px 的单列内容压到约 405px, 让视频困在两侧留白之间,
+ * 而观众在那里期望的是铺满宽度, 再用播放器自带的全屏控件.
+ *
+ * max() 下限不可省: 视口高度低于 162px 时 calc() 为负, 而 max-width 不接受负长度,
+ * 裸 calc() 会被计算为 0, 播放器将直接消失而非优雅降级.
+ */
+@media (min-width: 921px) {
+  .player,
+  .player-placeholder,
+  .detail-skeleton .detail-skeleton-player {
+    max-width: max(320px, calc((100vh - var(--player-viewport-chrome)) * 16 / 9));
+    margin-inline: auto;
+  }
+}
+
 .artplayer-host {
   overflow: hidden;
 }
@@ -1571,9 +1641,25 @@ select:focus {
   height: 100%;
 }
 
+/*
+ * Matches .player's geometry so swapping the placeholder for the real player
+ * does not resize the panel; the shared width cap lives in the min-width: 921px
+ * block next to .player. The previous min(52vw, 620px) capped the placeholder at
+ * 620px while the widened player renders at 848px on a 2560px display, which
+ * jumped the page by 228px the moment playback started.
+ * min-height guards the opposite end: at phone widths 16:9 alone is too short
+ * for the play mark and its caption.
+ * 几何尺寸与 .player 一致, 使占位块换成真实播放器时面板不会改变大小;
+ * 共用的宽度上限写在 .player 旁边的 min-width: 921px 块里.
+ * 此前的 min(52vw, 620px) 把占位块限制在 620px, 而放宽后的播放器在 2560px
+ * 显示器上是 848px, 起播瞬间页面会跳动 228px.
+ * min-height 守住另一端: 手机宽度下仅靠 16:9 不足以容纳播放标记及其文案.
+ */
 .player-placeholder {
   display: grid;
-  min-height: min(52vw, 620px);
+  aspect-ratio: 16 / 9;
+  min-height: 180px;
+  width: 100%;
   place-items: center;
   background:
     radial-gradient(ellipse at 50% 116%, var(--ambient), transparent 42%),
