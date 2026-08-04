@@ -60,10 +60,20 @@ struct PlayerView: View {
         }
         #if os(iOS)
         .fullScreenCover(isPresented: $isFullScreen) {
-            if let player = viewModel?.player {
-                FullScreenPlayerRepresentable(player: player)
-                    .ignoresSafeArea()
-                    .background(.black)
+            if let vm = viewModel, let player = vm.player {
+                ZStack(alignment: .top) {
+                    FullScreenPlayerRepresentable(player: player)
+                        .ignoresSafeArea()
+                        .background(.black)
+                    // Layered over AVPlayerViewController rather than inside it: its own
+                    // transport bar has no loaded indicator, and its view hierarchy is not
+                    // ours to add one to.
+                    //
+                    // 叠加在 AVPlayerViewController 之上而非置入其中:
+                    // 它自带的控制条没有已加载指示, 而其视图层级也不由我们添加.
+                    BufferBadge(secondsAhead: vm.bufferedAheadSeconds, isWaiting: vm.isBuffering)
+                        .padding(.top, 28)
+                }
             }
         }
         #endif
@@ -294,6 +304,7 @@ struct PlayerView: View {
                     get: { vm.duration > 0 ? vm.currentTime / vm.duration : 0 },
                     set: { vm.currentTime = $0 * max(vm.duration, 1) }
                 ),
+                buffered: vm.bufferedFraction,
                 onDragStart: { vm.isSeeking = true },
                 onDragEnd: { ratio in
                     vm.seek(to: ratio * max(vm.duration, 1))
@@ -417,8 +428,64 @@ struct PlayerView: View {
 /// A thin progress slider with small round thumb, matching typical video player style.
 /// Drag updates the visual position immediately; actual seek happens on drag end.
 /// 带小圆形滑块的细进度条, 拖动时立即更新视觉位置, 松手后执行真实 seek.
-private struct CustomSlider: View {
+/// Fullscreen readout of how many seconds are buffered ahead of the playhead.
+///
+/// 全屏下显示播放头之前已缓冲秒数的文字提示.
+///
+/// It stays on screen while the player is waiting for media, which is when a viewer is
+/// staring at a stalled picture wanting to know whether anything is arriving. Otherwise it
+/// appears briefly as the buffer crosses each band and then gets out of the way — a readout
+/// that refreshed on every sample would never leave the screen.
+///
+/// 播放器正在等待媒体数据时该提示持续显示, 那正是观众盯着卡住的画面
+/// 想知道数据是否还在到达的时刻. 其余情况下, 它在缓冲每跨越一个区间时短暂出现随即让开 —
+/// 若每次采样都刷新, 这个提示将永远不会从画面上消失.
+struct BufferBadge: View {
+    let secondsAhead: TimeInterval
+    let isWaiting: Bool
+
+    @State private var shown = true
+    @State private var hideTask: Task<Void, Never>?
+
+    var body: some View {
+        Text(String(localized: "Buffered \(Int(secondsAhead))s"))
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.black.opacity(0.55), in: Capsule())
+            .opacity(isWaiting || shown ? 1 : 0)
+            .animation(.easeInOut(duration: 0.3), value: shown)
+            .animation(.easeInOut(duration: 0.3), value: isWaiting)
+            // The badge must never intercept a tap meant for the controls underneath.
+            //
+            // 该提示绝不能拦截本应传给下方控件的点击.
+            .allowsHitTesting(false)
+            .accessibilityIdentifier("bufferBadge")
+            .onAppear { showBriefly() }
+            .onChange(of: PlayerViewModel.bufferBadgeBand(secondsAhead)) { _, _ in showBriefly() }
+            .onDisappear { hideTask?.cancel() }
+    }
+
+    private func showBriefly() {
+        shown = true
+        hideTask?.cancel()
+        hideTask = Task {
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            shown = false
+        }
+    }
+}
+
+// Internal rather than private so a test can render it: the buffered track is three
+// overlapping capsules, and layer order and width are only observable in pixels.
+//
+// 使用 internal 而非 private 以便测试渲染它: 已缓冲轨道由三条重叠的胶囊构成,
+// 其层叠顺序与宽度只能在像素层面观察到.
+struct CustomSlider: View {
     @Binding var value: Double // 0...1
+    var buffered: Double = 0 // 0...1
     var onDragStart: () -> Void = {}
     var onDragEnd: (Double) -> Void = { _ in }
 
@@ -441,6 +508,15 @@ private struct CustomSlider: View {
                 Capsule()
                     .fill(Color.white.opacity(0.3))
                     .frame(height: 3)
+
+                // Buffered track, between the background and the played fill so the played
+                // portion still reads as the brightest thing on the bar.
+                //
+                // 已缓冲轨道, 位于背景与已播放填充之间,
+                // 使已播放部分仍是进度条上最亮的一层.
+                Capsule()
+                    .fill(Color.white.opacity(0.5))
+                    .frame(width: max(0, width * CGFloat(max(0, min(1, buffered)))), height: 3)
 
                 // Track fill.
                 // 已播放进度.

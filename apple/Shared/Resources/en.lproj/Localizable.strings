@@ -145,6 +145,7 @@
 
 /* Playback Settings */
 "Playback" = "Playback";
+"Buffered %llds" = "Buffered %llds";
 "Skip Intro" = "Skip Intro";
 "Skip Outro" = "Skip Outro";
 

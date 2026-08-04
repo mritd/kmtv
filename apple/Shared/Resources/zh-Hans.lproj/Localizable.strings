@@ -145,6 +145,7 @@
 
 /* Playback Settings */
 "Playback" = "播放设置";
+"Buffered %llds" = "已缓冲 %llds";
 "Skip Intro" = "跳过片头";
 "Skip Outro" = "跳过片尾";
 
