@@ -30,7 +30,15 @@ final class HomeViewModelTests: XCTestCase {
                 updatedAt: nil
             )
         ])
-        let vm = HomeViewModel(apiClient: api, modelContext: container.mainContext, serverURL: "https://kmtv.example")
+        // The history seeded above is served by the API fake, and loadRemoteWatchHistory()
+        // only asks the API when a user is signed in — userID 0 falls back to the local
+        // store, which nothing populates here.
+        //
+        // 上面预置的历史记录由 API fake 提供, 而 loadRemoteWatchHistory()
+        // 只在用户已登录时才请求 API — userID 为 0 时会回退读取本地库,
+        // 而这里没有任何代码向本地库写入.
+        let vm = HomeViewModel(apiClient: api, modelContext: container.mainContext,
+                               serverURL: "https://kmtv.example", userID: 1)
 
         await vm.load()
 
