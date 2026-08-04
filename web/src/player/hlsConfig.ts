@@ -20,53 +20,54 @@
  * HLS_BUFFER_CONFIG 保存 hls.js 配置中与缓冲相关的部分.
  *
  * Sizing rationale / 取值依据:
- *   hls.js computes its forward target as
+ *   hls.js computes its forward target as (base-stream-controller.ts getMaxBufferLength)
  *     levelBitrate ? min(max(8 * maxBufferSize / levelBitrate, maxBufferLength), maxMaxBufferLength)
  *                  : min(maxBufferLength, maxMaxBufferLength)
- *   (base-stream-controller.ts getMaxBufferLength). The bitrate passed in is
- *   `level.maxBitrate` = max(realBitrate, bitrate), and `realBitrate` is MEASURED from
- *   completed downloads (abr-controller.ts). So even for the bare fragment lists these
- *   sources serve — no BANDWIDTH declared, bitrate 0 — the zero branch only applies to
- *   the first few fragments. After that `maxBufferSize` is the governing lever, not
- *   `maxBufferLength`.
- *   hls.js 的前向目标计算如上 (base-stream-controller.ts 的 getMaxBufferLength).
- *   传入的码率是 `level.maxBitrate` = max(realBitrate, bitrate), 而 `realBitrate` 由
- *   已完成的下载实测得出 (abr-controller.ts). 因此即便本项目的源返回未声明 BANDWIDTH,
- *   bitrate 为 0 的裸分片列表, 零值分支也只在最初几个分片生效.
- *   之后真正起控制作用的是 `maxBufferSize` 而非 `maxBufferLength`.
+ *   where levelBitrate is `level.maxBitrate` = max(realBitrate, bitrate).
+ *   hls.js 的前向目标计算如上 (base-stream-controller.ts 的 getMaxBufferLength),
+ *   其中 levelBitrate 为 `level.maxBitrate` = max(realBitrate, bitrate).
  *
- *   The real ceiling is the browser's SourceBuffer quota (~150 MB of video in Chrome,
- *   not raisable from a page), so these values are set so that quota — not this config —
- *   is what binds. Overshooting it is safe and self-correcting: on QuotaExceededError
- *   hls.js calls reduceMaxBufferLength, which lowers config.maxMaxBufferLength by at
- *   most half per round until it converges on what the browser actually allows.
- *   真正的天花板是浏览器的 SourceBuffer 配额 (Chrome 视频约 150 MB, 页面侧无法调高),
- *   因此这些值的设定目标是让配额而非本配置成为约束. 超出配额是安全且可自我修正的:
- *   遇到 QuotaExceededError 时 hls.js 会调用 reduceMaxBufferLength,
- *   每轮最多减半 config.maxMaxBufferLength, 直至收敛到浏览器实际允许的水平.
+ *   For this project's sources levelBitrate is normally 0, so the ZERO branch is what
+ *   runs and `maxBufferLength` is the only lever — `maxBufferSize` never participates:
+ *     - the playlists are bare fragment lists with no EXT-X-STREAM-INF, so bitrate is 0;
+ *     - realBitrate would fix that, but it is only ever assigned under
+ *       `config.abrMaxWithRealBitrate`, which hls.js defaults to false (config.ts:432).
+ *   Verified live: with maxBufferLength at 300 the forward buffer sat at exactly 301s.
+ *   本项目的源通常 levelBitrate 为 0, 因此实际走的是零值分支,
+ *   `maxBufferLength` 是唯一的杆, `maxBufferSize` 完全不参与:
+ *     - 这些 playlist 是不含 EXT-X-STREAM-INF 的裸分片列表, 故 bitrate 为 0;
+ *     - realBitrate 本可弥补, 但它仅在 `config.abrMaxWithRealBitrate` 下赋值,
+ *       而 hls.js 该项默认为 false (config.ts:432).
+ *   线上实测验证: maxBufferLength 为 300 时前向缓冲恰好停在 301s.
+ *
+ *   So both length values are set to the same generous target and `maxBufferSize` is
+ *   omitted entirely, since a byte budget provably cannot bind while the length floor
+ *   equals the ceiling. The real limit is then the browser's SourceBuffer quota
+ *   (~150 MB of video in Chrome, not raisable from a page). Overshooting it is safe:
+ *   on QuotaExceededError hls.js calls reduceMaxBufferLength, which lowers
+ *   config.maxMaxBufferLength toward the buffer it actually achieved, converging in a
+ *   couple of rounds. That path only reduces the ceiling — it does not flush the
+ *   buffer unless the playhead itself is unbuffered (base-stream-controller.ts:2044).
+ *   因此两个长度值取相同的宽松目标, 并完全省去 `maxBufferSize`:
+ *   当长度下限等于上限时, 字节预算可被证明永远无法生效.
+ *   真正的限制随之变成浏览器的 SourceBuffer 配额 (Chrome 视频约 150 MB, 页面侧无法调高).
+ *   超出配额是安全的: 遇到 QuotaExceededError 时 hls.js 会调用 reduceMaxBufferLength,
+ *   将 config.maxMaxBufferLength 下调至实际达成的缓冲量, 一般两轮内收敛.
+ *   该路径只下调上限, 除非播放头本身未被缓冲, 否则不会 flush 缓冲
+ *   (base-stream-controller.ts:2044).
  */
 export const HLS_BUFFER_CONFIG = {
-  maxBufferLength: 300,
-  // Deliberately far above any reachable buffer: this is an unconditional
-  // Math.min ceiling, so a tighter value silently caps the buffer on low-bitrate
-  // sources long before the browser's quota is reached. At 1 Mbps the size term
-  // alone asks for 1600s, which the previous 600 clamped away — leaving roughly
-  // half the quota unused. 3600s covers a feature-length episode end to end.
-  // 刻意设得远高于任何可达缓冲: 这是一个无条件的 Math.min 上限,
-  // 取值偏紧会在远未触及浏览器配额时就静默截断低码率源的缓冲.
-  // 1 Mbps 下仅体积项就要求 1600s, 而此前的 600 会将其砍掉, 白白浪费约一半配额.
-  // 3600s 足以覆盖一部完整长度的剧集.
+  // 3600s covers a feature-length episode end to end, so the browser's quota — not
+  // this number — is what stops the buffer. Both values are equal on purpose: the
+  // floor has to reach the ceiling for the zero-bitrate branch to target the whole
+  // episode, and maxMaxBufferLength is the field hls.js itself walks down on quota
+  // errors, so it must start at the ambition rather than at a guess.
+  // 3600s 足以覆盖一部完整长度的剧集, 从而让浏览器配额而非这个数字成为缓冲的终点.
+  // 两个值刻意相等: 零码率分支要瞄准整集, 下限就必须够到上限;
+  // 而 maxMaxBufferLength 正是 hls.js 在配额出错时自行下调的字段,
+  // 因此它应当从目标值起步, 而不是从一个猜测值起步.
+  maxBufferLength: 3600,
   maxMaxBufferLength: 3600,
-  // Sized to cover a whole episode wherever the browser's quota permits, so the
-  // quota is the only thing that ever binds. Measured against a representative
-  // source: 2797s at 948 kbps measured (584 kbps declared) = 332 MB for the full
-  // episode. Chrome caps a video SourceBuffer near 150 MB, so it self-limits to
-  // roughly 21 minutes; browsers with a larger quota get correspondingly more.
-  // 取值以覆盖整集为目标, 只要浏览器配额允许, 从而让配额成为唯一约束.
-  // 基于一个有代表性的源实测: 2797s, 实测码率 948 kbps (声明 584 kbps),
-  // 整集需 332 MB. Chrome 的视频 SourceBuffer 约 150 MB 封顶, 因此会自行限制在
-  // 约 21 分钟; 配额更大的浏览器可获得相应更多的缓冲.
-  maxBufferSize: 400 * 1000 * 1000,
   // Default is Infinity: played media is never released and permanently
   // consumes quota the forward buffer needs.
   // 默认为 Infinity: 已播放内容不会释放, 会持续占用前向缓冲所需的配额.
