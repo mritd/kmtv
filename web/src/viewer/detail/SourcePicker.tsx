@@ -6,7 +6,7 @@
  *   - Render a list of source buttons sorted by probe latency (fastest first) — 渲染按探测延迟排序 (最快优先) 的来源按钮列表
  *   - Highlight the selected source with aria-pressed — 通过 aria-pressed 高亮所选来源
  *   - Show a latency badge with colour-coded tier (good/warn/bad/unknown) — 显示分级色彩 (好/中/差/未知) 的延迟徽标
- *   - Collapse sources beyond the first 8 behind a "show more" toggle — 超过 8 个来源时折叠并显示"显示更多"切换
+ *   - Collapse sources beyond the first 9 behind a "show more" toggle — 超过 9 个来源时折叠并显示"显示更多"切换
  *   - Call onSelect with the source key when the user clicks a source — 用户点击来源时以来源 key 调用 onSelect
  *
  * Key exports / 主要导出:
@@ -25,8 +25,13 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 // visibleSourceLimit caps the number of source buttons shown before the "show more" toggle appears.
+// It is three full rows of the sidebar grid, which fits three chips per row on a desktop
+// viewport (see .source-picker in style.css). A limit that does not divide by the column
+// count leaves a ragged last row and hides sources that had room to render.
 // visibleSourceLimit 限制"显示更多"切换出现前显示的来源按钮数量.
-const visibleSourceLimit = 8;
+// 它等于侧栏网格的三整行, 桌面视口下每行三个 (见 style.css 的 .source-picker).
+// 若该上限无法被列数整除, 最后一行会参差不齐, 并把本可显示的来源藏起来.
+const visibleSourceLimit = 9;
 
 /**
  * SourcePickerStatus represents the loading/fetch state of a single source's detail.
@@ -70,9 +75,9 @@ export interface SourcePickerItem {
  * SourcePicker 渲染详情页侧边栏的来源选择列表.
  *
  * Sources are sorted fastest-first by durationMs (undefined/zero treated as unknown/slowest).
- * When more than 8 sources exist, a toggle collapses the overflow.
+ * When more than 9 sources exist, a toggle collapses the overflow.
  * 来源按 durationMs 由快到慢排序 (undefined/0 视为未知/最慢).
- * 超过 8 个来源时折叠溢出部分, 提供切换按钮.
+ * 超过 9 个来源时折叠溢出部分, 提供切换按钮.
  *
  * @param sources - The list of source items to display — 要显示的来源条目列表
  * @param selectedKey - The key of the currently active source — 当前活动来源的 key

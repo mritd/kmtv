@@ -202,9 +202,9 @@ describe("DetailPage", () => {
     expect(screen.getByText("未知")).toHaveClass("source-latency-unknown");
   });
 
-  it("collapses source items after the first eight and can expand them", async () => {
+  it("collapses source items after the first nine and can expand them", async () => {
     const user = userEvent.setup();
-    const sources = Array.from({ length: 10 }, (_, index) => ({
+    const sources = Array.from({ length: 12 }, (_, index) => ({
       key: `source-${index + 1}`,
       name: `Source ${index + 1}`,
       durationMs: 500 + index,
@@ -213,18 +213,18 @@ describe("DetailPage", () => {
 
     render(<SourcePicker sources={sources} selectedKey="source-1" onSelect={() => undefined} />);
 
-    expect(screen.getByRole("button", { name: "Source 8 · 507ms" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Source 9 · 508ms" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Source 9 · 508ms" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Source 10 · 509ms" })).toBeNull();
     expect(screen.getByRole("button", { name: "显示更多" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "显示更多" }));
 
-    expect(screen.getByRole("button", { name: "Source 9 · 508ms" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Source 10 · 509ms" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "收起" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "收起" }));
 
-    expect(screen.queryByRole("button", { name: "Source 9 · 508ms" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Source 10 · 509ms" })).toBeNull();
   });
 
   it("resolves playback URL after selecting an episode", async () => {

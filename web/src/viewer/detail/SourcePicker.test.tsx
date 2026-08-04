@@ -129,21 +129,26 @@ describe("SourcePicker", () => {
     });
   });
 
-  describe("overflow collapse (more than 8 sources)", () => {
-    // Build 10 sources with stable latency so sort order is deterministic.
-    // 构建 10 个延迟稳定的来源以保证排序确定性.
-    const manySources: SourcePickerItem[] = Array.from({ length: 10 }, (_, i) => ({
+  describe("overflow collapse (more than 9 sources)", () => {
+    // Build 12 sources with stable latency so sort order is deterministic.
+    // 构建 12 个延迟稳定的来源以保证排序确定性.
+    const manySources: SourcePickerItem[] = Array.from({ length: 12 }, (_, i) => ({
       key: `source-${i + 1}`,
       name: `Source ${i + 1}`,
       durationMs: 100 + i,
       status: "ready" as const,
     }));
 
-    it("collapses items beyond the first 8 and shows a toggle", () => {
+    // The limit is three full rows of the desktop grid. Keeping it a multiple of the
+    // column count is what stops the collapse from hiding a source that had room on
+    // screen — at 8 the third row rendered two chips and hid the ninth.
+    // 该上限是桌面网格的三整行. 保持它是列数的整数倍, 才能避免折叠掉屏幕上原本放得下的来源 —
+    // 取 8 时第三行只排两个, 却把第九个藏了起来.
+    it("collapses items beyond the first 9 and shows a toggle", () => {
       render(<SourcePicker sources={manySources} selectedKey="source-1" onSelect={vi.fn()} />);
 
-      expect(screen.getByRole("button", { name: "Source 8 · 107ms" })).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Source 9 · 108ms" })).toBeNull();
+      expect(screen.getByRole("button", { name: "Source 9 · 108ms" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Source 10 · 109ms" })).toBeNull();
       expect(screen.getByRole("button", { name: "显示更多" })).toBeInTheDocument();
     });
 
@@ -153,8 +158,8 @@ describe("SourcePicker", () => {
 
       await user.click(screen.getByRole("button", { name: "显示更多" }));
 
-      expect(screen.getByRole("button", { name: "Source 9 · 108ms" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Source 10 · 109ms" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Source 12 · 111ms" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "收起" })).toBeInTheDocument();
     });
 
@@ -165,19 +170,19 @@ describe("SourcePicker", () => {
       await user.click(screen.getByRole("button", { name: "显示更多" }));
       await user.click(screen.getByRole("button", { name: "收起" }));
 
-      expect(screen.queryByRole("button", { name: "Source 9 · 108ms" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Source 10 · 109ms" })).toBeNull();
       expect(screen.getByRole("button", { name: "显示更多" })).toBeInTheDocument();
     });
 
-    it("does not show the toggle when exactly 8 sources are present", () => {
-      const eightSources = manySources.slice(0, 8);
-      render(<SourcePicker sources={eightSources} selectedKey="source-1" onSelect={vi.fn()} />);
+    it("does not show the toggle when exactly 9 sources are present", () => {
+      const nineSources = manySources.slice(0, 9);
+      render(<SourcePicker sources={nineSources} selectedKey="source-1" onSelect={vi.fn()} />);
 
       expect(screen.queryByRole("button", { name: "显示更多" })).toBeNull();
       expect(screen.queryByRole("button", { name: "收起" })).toBeNull();
-      // All 8 source buttons are visible.
-      // 全部 8 个来源按钮可见.
-      expect(screen.getAllByRole("button").filter((b) => b.classList.contains("source-button"))).toHaveLength(8);
+      // All 9 source buttons are visible.
+      // 全部 9 个来源按钮可见.
+      expect(screen.getAllByRole("button").filter((b) => b.classList.contains("source-button"))).toHaveLength(9);
     });
   });
 });
