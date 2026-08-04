@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -15,6 +16,30 @@ import (
 	"github.com/mritd/kmtv/internal/service"
 	"github.com/mritd/kmtv/internal/store"
 )
+
+// syncBuffer is a bytes.Buffer safe to read while logrus writes to it.
+// prepareServer imports initial sources on a background goroutine that logs,
+// so a test reading captured output races that goroutine: logrus serialises
+// its own writes but knows nothing about a reader on the other side.
+// syncBuffer 是可在 logrus 写入期间安全读取的 bytes.Buffer.
+// prepareServer 会在后台 goroutine 中导入初始源并打日志, 因此测试读取捕获的
+// 输出时会与该 goroutine 竞争: logrus 只串行化自身的写入, 无从得知另一侧的读取方.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 func TestSeedSourcesFromURL(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +110,7 @@ func TestPrepareServerCreatesDefaultAdminAndRoutes(t *testing.T) {
 
 func TestPrepareServerLogsVersionWithoutDuplicatePrefix(t *testing.T) {
 	t.Setenv(consts.EnvInitSourceURL, "")
-	var logs bytes.Buffer
+	var logs syncBuffer
 	oldOutput := logrus.StandardLogger().Out
 	logrus.SetOutput(&logs)
 	t.Cleanup(func() { logrus.SetOutput(oldOutput) })
@@ -348,7 +373,7 @@ func TestChooseDBPath(t *testing.T) {
 func TestPrepareServerInMemoryLogsEphemeral(t *testing.T) {
 	t.Setenv(consts.EnvInitSourceURL, "")
 
-	var logs bytes.Buffer
+	var logs syncBuffer
 	oldOutput := logrus.StandardLogger().Out
 	logrus.SetOutput(&logs)
 	t.Cleanup(func() { logrus.SetOutput(oldOutput) })

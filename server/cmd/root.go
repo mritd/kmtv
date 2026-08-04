@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -131,7 +132,16 @@ func prepareServer(databasePath string, frontendFS embed.FS) (*store.Store, func
 		cleanup()
 		return nil, nil, nil, fmt.Errorf("start source service: %w", err)
 	}
+	// Seeding runs in the background because it performs a network fetch, but it
+	// holds the store and the source service for the whole time. Joining it here
+	// stops cleanup from closing those out from under an import still in flight,
+	// and bounds the goroutine's lifetime to prepareServer's caller.
+	// 初始导入涉及网络请求, 因此放在后台执行, 但它全程持有 store 与 source service.
+	// 在此 join 可避免 cleanup 在导入仍在进行时将两者关闭,
+	// 同时把该 goroutine 的生命周期限制在 prepareServer 调用方之内.
+	var seeding sync.WaitGroup
 	cleanup = func() {
+		seeding.Wait()
 		sourceSvc.Stop()
 		_ = s.Close()
 	}
@@ -153,7 +163,11 @@ func prepareServer(databasePath string, frontendFS embed.FS) (*store.Store, func
 	}
 
 	if freshDB {
-		go seedInitialSourcesFromEnv(s, sourceSvc)
+		seeding.Add(1)
+		go func() {
+			defer seeding.Done()
+			seedInitialSourcesFromEnv(s, sourceSvc)
+		}()
 	}
 
 	// Setup Gin engine and register routes.
