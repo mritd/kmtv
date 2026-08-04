@@ -1555,9 +1555,34 @@ select:focus {
   font-size: 0.9rem;
 }
 
+/*
+ * The sidebar's upper bound is the width at which the source picker holds exactly
+ * three chips: 3 × 176px + 2 × 8px gap = 544px of grid, plus the 36px padding and
+ * 2px border of the .detail-control-panel wrapping it = 582px. Measured in Chrome,
+ * not derived — at 581px the picker drops to two columns and the chips inflate to
+ * 267px each, which is both wider per chip and taller overall.
+ * A plain fr ratio has no ceiling, so the sidebar kept growing with the display:
+ * 598px at 1920, 629px at 2012, 812px at 2560, where nine sources wrap to four
+ * columns and strand one on the last row. Capping it hands every further pixel to
+ * the player (1612px → 1842px at 2560) and makes the three-rows-of-three layout
+ * that visibleSourceLimit = 9 documents true at every width above 1920 rather than
+ * only near 2000px.
+ * The 33% keeps the previous proportions below the cap, and the 330px floor is
+ * carried over from the minmax it replaces.
+ * 侧栏宽度上限取自"来源列表恰好排下三列"的宽度: 3 × 176px + 2 × 8px 间距 = 544px 网格,
+ * 加上包裹它的 .detail-control-panel 的 36px 内边距与 2px 边框 = 582px.
+ * 该值由 Chrome 实测而非推算 — 581px 时列表塌成两列, 每个按钮反而胖到 267px,
+ * 单个更宽, 整体更高.
+ * 纯 fr 比例没有上限, 侧栏会随显示器一直变宽: 1920 下 598px, 2012 下 629px,
+ * 2560 下 812px, 此时九个来源会排成四列并在末行剩下一个.
+ * 加上限后多出的像素全部归播放器 (2560 下 1612px → 1842px), 并使
+ * visibleSourceLimit = 9 注释所描述的"三列三行"在 1920 以上的每个宽度都成立,
+ * 而非只在 2000px 附近成立.
+ * 33% 维持上限以下的原有比例, 330px 下限沿用被替换的 minmax.
+ */
 .detail-player-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(330px, 0.78fr);
+  grid-template-columns: minmax(0, 1fr) clamp(330px, 33%, 582px);
   gap: 26px;
   align-items: start;
 }
@@ -1723,7 +1748,18 @@ select:focus {
   padding: 0 18px 18px;
 }
 
-.detail-sidebar,
+/*
+ * .detail-sidebar is deliberately absent here. It only ever contains
+ * .detail-control-panel cards, which carry this same border, background and 18px
+ * padding, so giving it the card treatment too drew a card inside a card and spent
+ * 38px of width (18px padding either side plus 1px border either side) on the
+ * duplicate inset. It stays a layout container — the grid and gap it gets above are
+ * the whole of its job.
+ * .detail-sidebar 刻意不在此列. 它内部只装 .detail-control-panel 卡片,
+ * 而那些卡片本就带着同样的边框, 背景与 18px 内边距, 所以让侧栏也变成卡片
+ * 会画出"卡中卡", 并把 38px 宽度 (左右各 18px 内边距加左右各 1px 边框) 花在重复的内缩上.
+ * 它保持为布局容器 — 上方给它的网格与间距就是它的全部职责.
+ */
 .detail-copy,
 .detail-control-panel,
 .admin-panel,
@@ -2674,10 +2710,6 @@ select:focus {
 .detail-skeleton .detail-copy .skeleton { display: block; margin-bottom: 8px; }
 .detail-skeleton .source-picker .skeleton,
 .detail-skeleton .episode-grid .skeleton { display: block; }
-.detail-skeleton-episode-section {
-  display: grid;
-  gap: 8px;
-}
 
 .admin-table-skeleton .admin-row {
   /* Inherits .admin-row flex from the real page. */

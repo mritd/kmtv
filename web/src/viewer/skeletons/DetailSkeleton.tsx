@@ -65,21 +65,33 @@ export function DetailSkeleton() {
           </p>
         </section>
       </div>
+      {/*
+        Both blocks sit in .detail-control-panel because the real sidebar wraps its
+        heading + grid in one, and .detail-sidebar itself is a bare layout container.
+        The heading placeholder is a sibling of the grid, not a cell inside it — as a
+        child of .source-picker it consumed a chip slot and pushed the sources down.
+        两个区块都放在 .detail-control-panel 中, 因为真实侧栏正是用它包裹标题与网格,
+        而 .detail-sidebar 本身只是一个不带样式的布局容器.
+        标题占位是网格的兄弟节点而非其中一格 — 作为 .source-picker 的子元素时
+        它会占掉一个按钮格位并把来源整体下推.
+      */}
       <aside className="detail-sidebar" aria-hidden="true">
-        <div className="source-picker">
+        <section className="detail-control-panel">
           <Skeleton width="40%" height="1rem" />
-          {Array.from({ length: 4 }).map((_, idx) => (
-            <Skeleton key={idx} height="38px" />
-          ))}
-        </div>
-        <div className="detail-skeleton-episode-section">
+          <div className="source-picker">
+            {Array.from({ length: 4 }).map((_, idx) => (
+              <Skeleton key={idx} height="38px" />
+            ))}
+          </div>
+        </section>
+        <section className="detail-control-panel">
           <Skeleton width="36%" height="1rem" />
           <div className="episode-grid detail-skeleton-episodes">
             {Array.from({ length: 12 }).map((_, idx) => (
               <Skeleton key={idx} height="34px" />
             ))}
           </div>
-        </div>
+        </section>
       </aside>
     </section>
   );

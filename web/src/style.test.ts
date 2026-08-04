@@ -244,6 +244,55 @@ describe("global styles", () => {
     expect(detailPageCss).toContain("width: min(100%, 2400px)");
   });
 
+  it("caps the detail sidebar at the width three source chips need", () => {
+    const css = readFileSync("src/style.css", "utf8");
+    const gridCss = cssBlock(css, ".detail-player-grid");
+
+    // 582px is measured, not chosen: 3 chips x 176px + 2 gaps x 8px = 544px of picker,
+    // plus the 36px padding and 2px border of the .detail-control-panel around it.
+    // An open-ended fr instead let the sidebar track the display — 812px at 2560,
+    // where nine sources wrap to four columns and strand one on the last row.
+    // 582px 是实测值而非拍脑袋: 3 个按钮 x 176px + 2 个间距 x 8px = 544px 列表宽度,
+    // 加上外层 .detail-control-panel 的 36px 内边距与 2px 边框.
+    // 换成没有上限的 fr 会让侧栏随显示器变宽 — 2560 下达到 812px,
+    // 此时九个来源排成四列并在末行剩下一个.
+    expect(gridCss).toContain("clamp(330px, 33%, 582px)");
+    expect(gridCss).not.toMatch(/minmax\(\s*330px/);
+
+    // The cap is only worth having while the sidebar is a column; below the
+    // single-column breakpoint the grid collapses to 1fr and the cap is moot.
+    // 上限只在侧栏仍是一列时有意义; 单列断点以下网格塌成 1fr, 上限自然失效.
+    const singleColumnCss = css.match(/@media \(max-width: 920px\) \{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(singleColumnCss).toContain(".detail-player-grid,");
+  });
+
+  it("does not draw a card around the cards in the detail sidebar", () => {
+    const css = readFileSync("src/style.css", "utf8");
+
+    // .detail-sidebar holds only .detail-control-panel cards, which already carry the
+    // border, background and 18px padding. Listing the sidebar alongside them nested a
+    // card in a card and spent 38px of width on the duplicate inset.
+    // .detail-sidebar 只装 .detail-control-panel 卡片, 而卡片本就带边框, 背景与 18px 内边距.
+    // 把侧栏也列进去会形成"卡中卡", 并把 38px 宽度花在重复的内缩上.
+    // The character class stops at the comment's closing */, so a comment that merely
+    // mentions .detail-sidebar cannot satisfy or break this assertion.
+    // 字符类会在注释结束的 */ 处停下, 因此仅在注释中提到 .detail-sidebar 既不会满足
+    // 也不会破坏该断言.
+    const cardRuleSelectors = css.match(/([.\w\s,-]+)\{\s*\n\s*border: 1px solid var\(--border\);\s*\n\s*border-radius: 16px;/)?.[1] ?? "";
+
+    expect(cardRuleSelectors).toContain(".detail-control-panel");
+    expect(cardRuleSelectors).not.toContain(".detail-sidebar");
+
+    // It keeps the grid + gap that make it a layout container, and nothing else.
+    // 它保留使其成为布局容器的网格与间距, 仅此而已.
+    // Anchored on .detail-main: several unrelated rules share the display/gap pair,
+    // and an unanchored match lands on the first of them (.result-list).
+    // 锚定在 .detail-main 上: 另有若干无关规则共用同样的 display/gap 组合,
+    // 不加锚点会匹配到其中第一条 (.result-list).
+    const layoutRuleSelectors = css.match(/\.detail-main,[.\w\s,-]*\{\s*\n\s*display: grid;\s*\n\s*gap: 16px;/)?.[0] ?? "";
+    expect(layoutRuleSelectors).toContain(".detail-sidebar");
+  });
+
   it("keeps player status pills out of native video controls", () => {
     const css = readFileSync("src/style.css", "utf8");
     const pillsCss = cssBlock(css, ".player-state-pills");
