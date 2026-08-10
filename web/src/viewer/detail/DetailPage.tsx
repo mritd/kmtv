@@ -46,6 +46,7 @@ import { Link, useLocation, useParams } from "react-router-dom";
 import type { DetailResponse, Episode, SearchResult, SourceResult, WatchHistoryItem } from "@/api/types";
 import { useAPI } from "@/api/context";
 import { useDetailQuery } from "@/api/viewerHooks";
+import { useAuth } from "@/auth/AuthContext";
 import { StatusState } from "@/shared/ui/StatusState";
 import { decodeDetailToken } from "@/storage/detailRoute";
 import {
@@ -130,6 +131,7 @@ interface DetailPageContentProps {
 function DetailPageContent({ sourceKey: source, videoId: id }: DetailPageContentProps) {
   const location = useLocation();
   const api = useAPI();
+  const auth = useAuth();
   const { t } = useTranslation("viewer");
   const currentRouteID = sourceKeyID(source, id);
   const [bundleState, setBundleState] = useState(() => initialBundleState(source, id, location.state));
@@ -140,7 +142,7 @@ function DetailPageContent({ sourceKey: source, videoId: id }: DetailPageContent
   const recoveryAttemptedRoute = useRef<string | null>(null);
   const recoveryGeneration = useRef(0);
   const pendingEpisodeSelection = useRef<{ sourceKey: string; videoID: string; episodeIndex: number } | null>(null);
-	const [remoteHistoryState, setRemoteHistoryState] = useState<{ title: string; item: WatchHistoryItem | null } | null>(null);
+  const [remoteHistoryState, setRemoteHistoryState] = useState<{ title: string; item: WatchHistoryItem | null } | null>(null);
   const currentRouteIDRef = useRef(currentRouteID);
   currentRouteIDRef.current = currentRouteID;
   const bundle = bundleState.bundle;
@@ -211,7 +213,7 @@ function DetailPageContent({ sourceKey: source, videoId: id }: DetailPageContent
     recoveryGeneration.current += 1;
     recoveryAttemptedRoute.current = null;
     pendingEpisodeSelection.current = null;
-		setRemoteHistoryState(null);
+    setRemoteHistoryState(null);
     backgroundLoadingIDs.current.clear();
     dispatch({ type: "reset" });
   }, [source, id, location.state, dispatch]);
@@ -227,35 +229,36 @@ function DetailPageContent({ sourceKey: source, videoId: id }: DetailPageContent
     });
   }, [currentSourceKey, currentVideoID, detail.data]);
 
-	useEffect(() => {
-		const title = currentDetail?.title?.trim();
-		if (!title) {
-			setRemoteHistoryState({ title: "", item: null });
-			return;
-		}
-		setRemoteHistoryState(null);
+  useEffect(() => {
+    const title = currentDetail?.title?.trim();
+    if (!title || !auth.isAuthenticated) {
+      setRemoteHistoryState({ title: title ?? "", item: null });
+      return;
+    }
+    setRemoteHistoryState(null);
     let cancelled = false;
     void api
       .getWatchHistory(title)
       .then((item) => {
         if (!cancelled) {
-					setRemoteHistoryState({ title, item });
+          setRemoteHistoryState({ title, item });
         }
       })
       .catch(() => {
         if (!cancelled) {
-					setRemoteHistoryState({ title, item: null });
+          setRemoteHistoryState({ title, item: null });
         }
       });
     return () => {
       cancelled = true;
     };
-	}, [api, currentDetail?.title]);
-	const currentHistoryTitle = currentDetail?.title?.trim() ?? "";
-	const remoteHistoryPending = currentHistoryTitle !== "" && remoteHistoryState?.title !== currentHistoryTitle;
-	const remoteHistory = remoteHistoryState?.title === currentHistoryTitle ? remoteHistoryState.item : null;
+  }, [api, auth.isAuthenticated, currentDetail?.title]);
+  const currentHistoryTitle = currentDetail?.title?.trim() ?? "";
+  const remoteHistoryPending =
+    auth.isAuthenticated && currentHistoryTitle !== "" && remoteHistoryState?.title !== currentHistoryTitle;
+  const remoteHistory = remoteHistoryState?.title === currentHistoryTitle ? remoteHistoryState.item : null;
 
-	useEffect(() => {
+  useEffect(() => {
     if (!detail.isError) {
       return;
     }
@@ -375,11 +378,11 @@ function DetailPageContent({ sourceKey: source, videoId: id }: DetailPageContent
     }
   }, [api, backgroundSourceSignature, bundle, currentSourceID]);
 
-	useEffect(() => {
-		if (remoteHistoryPending) {
-			return;
-		}
-		const pendingSelection = pendingEpisodeSelection.current;
+  useEffect(() => {
+    if (remoteHistoryPending) {
+      return;
+    }
+    const pendingSelection = pendingEpisodeSelection.current;
     if (pendingSelection?.sourceKey === currentSourceKey && pendingSelection.videoID === currentVideoID) {
       const detailStatus = bundle.details[sourceKeyID(currentSourceKey, currentVideoID)]?.status;
       if (detailStatus !== "ready") {
@@ -416,7 +419,7 @@ function DetailPageContent({ sourceKey: source, videoId: id }: DetailPageContent
       return;
     }
     resolvePlaybackEpisode(groupIndex, 0, episode, currentSourceKey);
-	}, [bundle.details, currentSourceKey, currentVideoID, groups, remoteHistory, remoteHistoryPending, state.selectedEpisode, state.status]);
+  }, [bundle.details, currentSourceKey, currentVideoID, groups, remoteHistory, remoteHistoryPending, state.selectedEpisode, state.status]);
 
   async function resolvePlaybackEpisode(
     groupIndex: number,
@@ -522,7 +525,7 @@ function DetailPageContent({ sourceKey: source, videoId: id }: DetailPageContent
             onPositionChange={(positionSec, durationSec) => {
               setPlaybackPosition(currentSourceKey, currentVideoID, state.groupIndex, state.episodeIndex, positionSec, durationSec);
               const title = displayDetail?.title?.trim();
-              if (!title) return;
+              if (!title || !auth.isAuthenticated) return;
               void api
                 .saveWatchHistory({
                   source_key: currentSourceKey,
@@ -530,15 +533,16 @@ function DetailPageContent({ sourceKey: source, videoId: id }: DetailPageContent
                   title,
                   cover: displayDetail?.cover ?? "",
                   episode: state.selectedEpisode?.name ?? "",
-					group_index: state.groupIndex,
-					episode_index: state.episodeIndex,
-					progress_sec: positionSec,
-					duration_sec: durationSec,
-					completed: state.episodeIndex === (groups[state.groupIndex]?.length ?? 0) - 1
-						&& playbackCompleted(positionSec, durationSec),
-					event_time_ms: Date.now(),
-				})
-				.then((item) => setRemoteHistoryState({ title, item }))
+                  group_index: state.groupIndex,
+                  episode_index: state.episodeIndex,
+                  progress_sec: positionSec,
+                  duration_sec: durationSec,
+                  completed:
+                    state.episodeIndex === (groups[state.groupIndex]?.length ?? 0) - 1 &&
+                    playbackCompleted(positionSec, durationSec),
+                  event_time_ms: Date.now(),
+                })
+                .then((item) => setRemoteHistoryState({ title, item }))
                 .catch(() => undefined);
             }}
           />

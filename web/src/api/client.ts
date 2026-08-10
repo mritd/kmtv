@@ -206,9 +206,10 @@ export function createAPIClient(options: APIClientOptions): APIClient {
 
   async function request<T>(
     path: string,
-    init: RequestInit & { bodyJSON?: RequestBody } = {},
+    init: RequestInit & { bodyJSON?: RequestBody; requiresAuth?: boolean } = {},
   ): Promise<T> {
-    const headers = new Headers(init.headers);
+    const { bodyJSON, requiresAuth = false, ...requestInit } = init;
+    const headers = new Headers(requestInit.headers);
     const snapshot = tokenStore.get();
     // sentAccessToken captures the specific token this request carried, so a 401
     // can only clear the store when the live snapshot still matches. A stale 401
@@ -217,18 +218,26 @@ export function createAPIClient(options: APIClientOptions): APIClient {
     // 捕获本次请求使用的具体 token, 401 仅在当前快照仍然匹配时才清除, 避免陈旧 401 抹掉新登录.
     const sentAccessToken = snapshot?.accessToken ?? null;
 
+    // Watch-history endpoints require a real user. Refuse locally when no token exists
+    // so anonymous playback cannot create a repeating stream of guaranteed 401 requests.
+    // 观看历史端点要求真实用户. 没有 token 时在本地拒绝,
+    // 避免匿名播放持续发送必然返回 401 的请求.
+    if (requiresAuth && !sentAccessToken) {
+      throw new APIError(401, undefined, "Authentication required");
+    }
+
     if (sentAccessToken) {
       headers.set("Authorization", `Bearer ${sentAccessToken}`);
     }
 
-    let body = init.body;
-    if (init.bodyJSON !== undefined) {
+    let body = requestInit.body;
+    if (bodyJSON !== undefined) {
       headers.set("Content-Type", "application/json");
-      body = JSON.stringify(init.bodyJSON);
+      body = JSON.stringify(bodyJSON);
     }
 
     const response = await fetcher(toAPIURL(baseURL, path), {
-      ...init,
+      ...requestInit,
       headers,
       body,
     });
@@ -354,26 +363,27 @@ export function createAPIClient(options: APIClientOptions): APIClient {
         method: "POST",
         bodyJSON: { url, source },
       }),
-	listWatchHistory: (limit = 10) => {
-		const params = new URLSearchParams({ limit: String(limit), completed: "false" });
-      return request<WatchHistoryResponse>(`/history?${params.toString()}`);
+    listWatchHistory: (limit = 10) => {
+      const params = new URLSearchParams({ limit: String(limit), completed: "false" });
+      return request<WatchHistoryResponse>(`/history?${params.toString()}`, { requiresAuth: true });
     },
     getWatchHistory: (title) => {
       const params = new URLSearchParams({ title });
-      return request<WatchHistoryItem>(`/history/item?${params.toString()}`);
+      return request<WatchHistoryItem>(`/history/item?${params.toString()}`, { requiresAuth: true });
     },
     saveWatchHistory: (payload) =>
       request<WatchHistoryItem>("/history", {
         method: "PUT",
         bodyJSON: payload,
+        requiresAuth: true,
       }),
     async deleteWatchHistory(title) {
       const params = new URLSearchParams({ title });
-      await request<MessageResponse>(`/history/item?${params.toString()}`, { method: "DELETE" });
+      await request<MessageResponse>(`/history/item?${params.toString()}`, { method: "DELETE", requiresAuth: true });
     },
-	async clearWatchHistory() {
-		const params = new URLSearchParams({ event_time_ms: String(Date.now()) });
-		await request<MessageResponse>(`/history?${params.toString()}`, { method: "DELETE" });
+    async clearWatchHistory() {
+      const params = new URLSearchParams({ event_time_ms: String(Date.now()) });
+      await request<MessageResponse>(`/history?${params.toString()}`, { method: "DELETE", requiresAuth: true });
     },
     listSources: () => request<SourcesResponse>("/admin/sources"),
     createSource: (source) => request<Source>("/admin/sources", { method: "POST", bodyJSON: source }),

@@ -9,10 +9,12 @@
  *   - Fetch paginated search results — 获取分页搜索结果
  *   - Fetch video detail records — 获取视频详情记录
  *   - Resolve playback URLs via mutation — 通过 mutation 解析播放 URL
+ *   - Fetch and clear scoped watch history — 获取并清空作用域隔离的观看历史
  *
  * Key exports / 主要导出:
  *   useDoubanHomeQuery, useCategoriesQuery, useDoubanRecommendInfiniteQuery,
- *   useSearchQuery, useDetailQuery, usePlaybackURLMutation, RECOMMEND_PAGE_SIZE
+ *   useSearchQuery, useDetailQuery, usePlaybackURLMutation, useWatchHistoryQuery,
+ *   useClearWatchHistoryMutation, RECOMMEND_PAGE_SIZE, WATCH_HISTORY_LIMIT
  *
  * Callers / 调用方:
  *   viewer/home/HomePage.tsx, viewer/categories/CategoriesPage.tsx,
@@ -25,10 +27,11 @@
  *   ["douban-recommend", kind, tag, format, region]   — filtered recommendation pages
  *   ["search", query]                                 — paginated search by query string
  *   ["detail", source, id]                            — detail by source key + video id
+ *   ["watch-history", serverOrigin, userID, limit]    — user-scoped resumable history
  * Tier 4 锁定 — 调用方和测试依赖这些精确 key, 不得更改.
  */
 
-import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { DoubanRecommendFilter, Episode } from "./types";
 import { useAPI } from "./context";
@@ -41,6 +44,36 @@ import { useAPI } from "./context";
  * 当某页返回少于此数量时, 表示列表结束 (无更多页).
  */
 export const RECOMMEND_PAGE_SIZE = 20;
+
+/**
+ * WATCH_HISTORY_LIMIT — number of incomplete watch-history rows shown on the home rail.
+ * WATCH_HISTORY_LIMIT — 首页继续观看栏请求的未完成观看历史条数.
+ *
+ * The value is part of the React Query key contract so future callers do not accidentally
+ * share cache entries between differently sized history requests.
+ * 该值属于 React Query key 契约的一部分, 避免未来不同数量的历史请求意外共享缓存.
+ */
+export const WATCH_HISTORY_LIMIT = 10;
+
+/**
+ * WatchHistoryScope identifies the server and authenticated user that own a history cache.
+ * WatchHistoryScope
+ * 标识拥有一份观看历史缓存的服务端与已认证用户.
+ *
+ * `userID <= 0` represents anonymous or not-yet-resolved identities and must keep the
+ * `/history` query disabled even when an outer auth flag is stale during identity changes.
+ * `userID <= 0` 代表匿名或尚未解析的身份, 即使外层 auth 标志在身份切换时短暂陈旧,
+ * 也必须禁用 `/history` 查询.
+ */
+export interface WatchHistoryScope {
+  serverOrigin: string;
+  userID: number;
+  isAuthenticated: boolean;
+}
+
+function watchHistoryQueryKey(scope: WatchHistoryScope) {
+  return ["watch-history", scope.serverOrigin, scope.userID, WATCH_HISTORY_LIMIT] as const;
+}
 
 /**
  * RecommendFilterKey — the four filter fields that uniquely identify a recommendation list.
@@ -170,4 +203,57 @@ export function useDetailQuery(source: string, id: string) {
 export function usePlaybackURLMutation(source: string) {
   const api = useAPI();
   return useMutation({ mutationFn: (episode: Episode) => api.playbackURL(episode.url, source) });
+}
+
+/**
+ * useWatchHistoryQuery fetches incomplete watch history for one authenticated server/user scope.
+ * useWatchHistoryQuery
+ * 为一个已认证的服务端/用户作用域获取未完成观看历史.
+ *
+ * The key includes server origin, user ID, and limit so logout/login, server switching, and
+ * late responses from a previous identity cannot populate the active user's cache entry.
+ * key 包含 server origin、用户 ID 与 limit, 因此退出/登录、切换服务端以及上一身份的迟到响应
+ * 都无法填充当前用户的缓存条目.
+ */
+export function useWatchHistoryQuery(scope: WatchHistoryScope) {
+  const api = useAPI();
+  return useQuery({
+    queryKey: watchHistoryQueryKey(scope),
+    queryFn: () => api.listWatchHistory(WATCH_HISTORY_LIMIT),
+    enabled: scope.isAuthenticated && scope.userID > 0,
+    retry: 1,
+  });
+}
+
+/**
+ * useClearWatchHistoryMutation clears server history and empties only the exact scoped cache.
+ * useClearWatchHistoryMutation
+ * 清空服务端观看历史, 并且只置空精确作用域对应的缓存.
+ *
+ * The mutation cancels the exact read query before DELETE so an older GET cannot backfill
+ * the cache after clear succeeds; success writes an empty response only to the same key.
+ * mutation 在 DELETE 前取消精确读取查询, 防止旧 GET 在清空成功后回填缓存;
+ * 成功后仅向同一个 key 写入空响应.
+ */
+export function useClearWatchHistoryMutation(scope: WatchHistoryScope) {
+  const api = useAPI();
+  const queryClient = useQueryClient();
+  const queryKey = watchHistoryQueryKey(scope);
+
+  return useMutation({
+    onMutate: async () => {
+      // Capture the key at invocation time. Mutation options may update while DELETE is pending
+      // if the authenticated identity changes, but this clear must finish against its starter.
+      // 在调用时固定 key. DELETE pending 期间认证身份可能变化并更新 mutation options,
+      // 但本次清空必须始终作用于发起它的身份.
+      await queryClient.cancelQueries({ queryKey, exact: true });
+      return { queryKey };
+    },
+    mutationFn: async () => {
+      await api.clearWatchHistory();
+    },
+    onSuccess: (_data, _variables, context) => {
+      queryClient.setQueryData(context.queryKey, { items: [] });
+    },
+  });
 }

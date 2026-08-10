@@ -5,6 +5,8 @@
  * Responsibilities / 职责:
  *   - Fetch Douban home sections via useDoubanHomeQuery (react-query key ["douban-home"])
  *     — 通过 useDoubanHomeQuery 获取豆瓣首页分区 (react-query key ["douban-home"])
+ *   - Fetch authenticated watch history via useWatchHistoryQuery without affecting recommendation states
+ *     — 通过 useWatchHistoryQuery 获取已认证观看记录, 且不影响推荐内容状态
  *   - Show HomeSkeleton while loading, StatusState on error, EmptyState when sections are empty
  *     — 加载中展示 HomeSkeleton, 出错展示 StatusState, 分区为空展示 EmptyState
  *   - Derive hero candidates via selectHeroCandidates and pass to HomeHero
@@ -13,6 +15,8 @@
  *     — 将每个分区渲染为带 stagger 入场动画的水平海报 rail
  *   - Navigate to /search?q=<title> when a poster tile is clicked
  *     — 点击海报砖块时导航至 /search?q=<title>
+ *   - Navigate continue-watching cards through aggregate search instead of stored source detail routes
+ *     — 继续观看卡片通过聚合搜索重新进入, 不直接跳转到已存储来源详情
  *   - Respect the user's prefers-reduced-motion preference by disabling stagger variants
  *     — 通过禁用 stagger variants 尊重用户的 prefers-reduced-motion 偏好
  *
@@ -25,6 +29,8 @@
  * React Query key contract (TIER 4 LOCKED):
  *   ["douban-home"] — consumed by useDoubanHomeQuery; do not change.
  *   ["douban-home"] — 由 useDoubanHomeQuery 消费; 不得更改.
+ *   ["watch-history", serverOrigin, userID, 10] — consumed by useWatchHistoryQuery; do not change.
+ *   ["watch-history", serverOrigin, userID, 10] — 由 useWatchHistoryQuery 消费; 不得更改.
  *
  * STAGGER_CAP bounds the staggered list-entrance animation so arbitrarily long rails
  * do not produce proportionally long delays for items beyond the cap.
@@ -36,15 +42,19 @@ import { motion, useReducedMotion } from "motion/react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
-import { useDoubanHomeQuery } from "@/api/viewerHooks";
+import type { WatchHistoryItem } from "@/api/types";
+import { useClearWatchHistoryMutation, useDoubanHomeQuery, useWatchHistoryQuery } from "@/api/viewerHooks";
 import { Button } from "@/shared/ui/Button";
 import { EmptyState } from "@/shared/ui/EmptyState";
 import { PosterImage } from "@/shared/ui/PosterImage";
 import { StatusState } from "@/shared/ui/StatusState";
+import { toast } from "@/shared/ui/Toast";
 import { staggerChild, staggerParent } from "@/animation/motionPresets";
+import { useAuth } from "@/auth/AuthContext";
 
 import { HomeSkeleton } from "@/viewer/skeletons/HomeSkeleton";
 
+import { ContinueWatchingRail } from "./ContinueWatchingRail";
 import { HomeHero } from "./HomeHero";
 import { selectHeroCandidates } from "./heroCandidates";
 import { translateRailName } from "./railLabel";
@@ -75,26 +85,37 @@ function formatRailRating(rate?: string) {
  * Data flow:
  *   useDoubanHomeQuery → sections → selectHeroCandidates → HomeHero
  *                                  → poster rails (staggered motion.div list)
+ *   useAuth → scoped useWatchHistoryQuery → ContinueWatchingRail
  *
  * Loading state: renders aria-busy="true" main + HomeSkeleton (Suspense-compatible shape).
  * Error state: renders HomeHero (empty candidates) + StatusState in the content area.
  * Empty state: renders HomeHero (empty candidates) + EmptyState in the content area.
- * Success state: renders HomeHero with candidates + full poster rail grid.
+ * Success state: renders HomeHero with candidates + optional continue rail + full poster rail grid.
  *
  * 数据流:
  *   useDoubanHomeQuery → sections → selectHeroCandidates → HomeHero
  *                                  → 海报 rail (stagger motion.div 列表)
+ *   useAuth → 作用域化 useWatchHistoryQuery → ContinueWatchingRail
  *
  * 加载状态: 渲染 aria-busy="true" main + HomeSkeleton.
  * 错误状态: 渲染空 candidates 的 HomeHero + 内容区 StatusState.
  * 空数据状态: 渲染空 candidates 的 HomeHero + 内容区 EmptyState.
- * 成功状态: 渲染带候选项的 HomeHero + 完整海报 rail 网格.
+ * 成功状态: 渲染带候选项的 HomeHero + 可选继续观看 rail + 完整海报 rail 网格.
  */
 export function HomePage() {
   const navigate = useNavigate();
   const { t } = useTranslation("viewer");
+  const auth = useAuth();
   const query = useDoubanHomeQuery();
+  const historyScope = {
+    serverOrigin: window.location.origin,
+    userID: auth.user?.id ?? 0,
+    isAuthenticated: auth.isAuthenticated,
+  };
+  const historyQuery = useWatchHistoryQuery(historyScope);
+  const clearHistoryMutation = useClearWatchHistoryMutation(historyScope);
   const sections = useMemo(() => query.data?.sections ?? [], [query.data?.sections]);
+  const historyItems = historyQuery.isSuccess ? historyQuery.data.items : [];
   const heroCandidates = useMemo(() => selectHeroCandidates(sections), [sections]);
   // When the user prefers reduced motion, stagger variants resolve to instant.
   // 用户偏好减少动画时, stagger 立即完成.
@@ -114,6 +135,22 @@ export function HomePage() {
     navigate(`/search?q=${encodeURIComponent(title)}`);
   }
 
+  function searchHistoryItem(item: WatchHistoryItem) {
+    const params = new URLSearchParams({ q: item.title });
+    navigate(`/search?${params.toString()}`);
+  }
+
+  function clearHistory() {
+    clearHistoryMutation.mutate(undefined, {
+      onError: (error) => {
+        toast.error({
+          title: t("home.continueWatching.clearErrorTitle"),
+          description: error instanceof Error ? error.message : undefined,
+        });
+      },
+    });
+  }
+
   if (query.isLoading) {
     return (
       <main className="home-page" aria-busy="true" aria-label={t("home.loading")}>
@@ -127,6 +164,13 @@ export function HomePage() {
       <HomeHero candidates={heroCandidates} onSearchTitle={searchTitle} onFallbackSearch={() => navigate("/search")} />
 
       <div className="home-content">
+        <ContinueWatchingRail
+          items={historyItems}
+          onSelect={searchHistoryItem}
+          onClear={clearHistory}
+          isClearing={clearHistoryMutation.isPending}
+        />
+
         {query.isError ? (
           <StatusState
             title={t("home.errorTitle")}

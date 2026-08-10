@@ -1,13 +1,19 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PlaybackState } from "./playbackState";
 import { PlaybackPanel } from "./PlaybackPanel";
 
 const artplayerMock = vi.hoisted(() => {
-  const instances: Array<{ option: Record<string, unknown>; on: ReturnType<typeof vi.fn>; destroy: ReturnType<typeof vi.fn> }> = [];
+  const instances: Array<{
+    option: Record<string, unknown>;
+    on: ReturnType<typeof vi.fn>;
+    destroy: ReturnType<typeof vi.fn>;
+    currentTime: number;
+    duration: number;
+  }> = [];
   const ArtPlayer = vi.fn(function (this: unknown, option: Record<string, unknown>) {
-    const instance = { option, on: vi.fn(), destroy: vi.fn() };
+    const instance = { option, on: vi.fn(), destroy: vi.fn(), currentTime: 0, duration: 0 };
     instances.push(instance);
     return instance;
   });
@@ -27,6 +33,10 @@ const readyState: PlaybackState = {
 };
 
 describe("PlaybackPanel", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("mounts ArtPlayer instead of native video controls when playback URL is ready", async () => {
     const { container } = render(<PlaybackPanel state={readyState} sourceName="🎬iKun资源" onPlaying={vi.fn()} onRetry={vi.fn()} />);
 
@@ -60,6 +70,42 @@ describe("PlaybackPanel", () => {
     rerender(<PlaybackPanel state={{ ...readyState, url: "https://proxy.example/2.m3u8" }} onPlaying={vi.fn()} onRetry={vi.fn()} />);
 
     expect(artplayerMock.instances[0]?.destroy).toHaveBeenCalledWith(false);
+  });
+
+  it("persists playback position at most once per thirty seconds and flushes on teardown", async () => {
+    vi.useFakeTimers();
+    const onPositionChange = vi.fn();
+    const instanceIndex = artplayerMock.instances.length;
+    const view = render(
+      <PlaybackPanel
+        state={readyState}
+        onPlaying={vi.fn()}
+        onRetry={vi.fn()}
+        onPositionChange={onPositionChange}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const instance = artplayerMock.instances[instanceIndex];
+    expect(instance).toBeDefined();
+    instance.currentTime = 10;
+    instance.duration = 120;
+
+    act(() => {
+      vi.advanceTimersByTime(29_999);
+    });
+    expect(onPositionChange).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(onPositionChange).toHaveBeenCalledTimes(1);
+
+    instance.currentTime = 20;
+    view.unmount();
+    expect(onPositionChange).toHaveBeenLastCalledWith(20, 120);
   });
 
   // ArtPlayer defers customType by a macrotask — its url setter awaits sleep() before

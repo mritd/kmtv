@@ -6,6 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SearchResult, WatchHistoryItem } from "@/api/types";
 import { APIProvider } from "@/api/context";
+import { createMemoryTokenStore } from "@/api/tokenStore";
+import type { TokenStore } from "@/api/tokenStore";
+import { AuthProvider } from "@/auth/AuthContext";
 import { detailRoutePath } from "@/storage/detailRoute";
 import { bundleFromSearchResult, restoreSourceBundle, saveSourceBundle, sourceBundleStorageKey, upsertSourceBundleDetail } from "@/storage/sourceBundles";
 import { createTestAPI } from "@/test/testAPI";
@@ -56,17 +59,27 @@ const threeSourceResult: SearchResult = {
 
 type DetailEntry = string | { pathname: string; state?: unknown };
 
-function renderDetail(api = createTestAPI(), initialEntry: DetailEntry = DETAIL_A) {
+function authenticatedTokenStore(): TokenStore {
+  return createMemoryTokenStore({
+    accessToken: "DetailTestToken",
+    expiresAt: "2099-01-01T00:00:00Z",
+    user: { id: 1, username: "admin", role: "admin" },
+  });
+}
+
+function renderDetail(api = createTestAPI(), initialEntry: DetailEntry = DETAIL_A, tokenStore = authenticatedTokenStore()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <APIProvider value={api}>
-      <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={[initialEntry]}>
-          <Routes>
-            <Route path="/detail/:token" element={<DetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
+      <AuthProvider api={api} tokenStore={tokenStore} queryClient={client}>
+        <QueryClientProvider client={client}>
+          <MemoryRouter initialEntries={[initialEntry]}>
+            <Routes>
+              <Route path="/detail/:token" element={<DetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>
+      </AuthProvider>
     </APIProvider>,
   );
 }
@@ -122,52 +135,75 @@ describe("DetailPage", () => {
     window.localStorage.clear();
   });
 
-	afterEach(() => {
+  afterEach(() => {
     window.localStorage.clear();
     vi.restoreAllMocks();
-	});
+  });
 
-	it("waits for remote history before selecting the initial episode", async () => {
-		const history = deferred<WatchHistoryItem>();
-		const getWatchHistory = vi.fn(() => history.promise);
-		const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
-		const api = createTestAPI({
-			detail: async () => ({
-				id: "video-a",
-				title: "Demo Show",
-				episodes: [[
-					{ name: "01", url: "https://cdn.example/1.m3u8" },
-					{ name: "02", url: "https://cdn.example/2.m3u8" },
-				]],
-			}),
-			getWatchHistory,
-			playbackURL,
-		});
-		renderDetail(api);
+  it("waits for remote history before selecting the initial episode", async () => {
+    const history = deferred<WatchHistoryItem>();
+    const getWatchHistory = vi.fn(() => history.promise);
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    const api = createTestAPI({
+      detail: async () => ({
+        id: "video-a",
+        title: "Demo Show",
+        episodes: [[
+          { name: "01", url: "https://cdn.example/1.m3u8" },
+          { name: "02", url: "https://cdn.example/2.m3u8" },
+        ]],
+      }),
+      getWatchHistory,
+      playbackURL,
+    });
+    renderDetail(api);
 
-		await waitFor(() => expect(getWatchHistory).toHaveBeenCalledWith("Demo Show"));
-		expect(playbackURL).not.toHaveBeenCalled();
-		await act(async () => {
-			history.resolve({
-				id: 1,
-				source_key: "source-a",
-				video_id: "video-a",
-				title: "Demo Show",
-				cover: "",
-				episode: "02",
-				group_index: 0,
-				episode_index: 1,
-				progress_sec: 45,
-				duration_sec: 120,
-				completed: false,
-				event_time_ms: 1,
-				created_at: "",
-				updated_at: "",
-			});
-		});
+    await waitFor(() => expect(getWatchHistory).toHaveBeenCalledWith("Demo Show"));
+    expect(playbackURL).not.toHaveBeenCalled();
+    await act(async () => {
+      history.resolve({
+        id: 1,
+        source_key: "source-a",
+        video_id: "video-a",
+        title: "Demo Show",
+        cover: "",
+        episode: "02",
+        group_index: 0,
+        episode_index: 1,
+        progress_sec: 45,
+        duration_sec: 120,
+        completed: false,
+        event_time_ms: 1,
+        created_at: "",
+        updated_at: "",
+      });
+    });
 
-		await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/2.m3u8", "source-a"));
-	});
+    await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/2.m3u8", "source-a"));
+  });
+
+  it("does not call remote history endpoints for anonymous viewers", async () => {
+    const getWatchHistory = vi.fn();
+    const saveWatchHistory = vi.fn();
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    const api = createTestAPI({
+      me: async () => ({ id: 0, username: "anonymous", role: "user" }),
+      detail: async () => ({
+        id: "video-a",
+        title: "Demo Show",
+        episodes: [[{ name: "01", url: "https://cdn.example/1.m3u8" }]],
+      }),
+      getWatchHistory,
+      saveWatchHistory,
+      playbackURL,
+    });
+
+    renderDetail(api, DETAIL_A, createMemoryTokenStore());
+
+    await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/1.m3u8", "source-a"));
+    expect(getWatchHistory).not.toHaveBeenCalled();
+    expect(saveWatchHistory).not.toHaveBeenCalled();
+  });
 
   it("renders the invalid-token status when the route token cannot be decoded", () => {
     renderDetail(createTestAPI(), "/detail/0OIl-invalid");
@@ -504,11 +540,13 @@ describe("DetailPage", () => {
 
     render(
       <APIProvider value={api}>
-        <QueryClientProvider client={client}>
-          <MemoryRouter initialEntries={[DETAIL_A]}>
-            <SameRouteStateHarness sourceBundle={bundleFromSearchResult(stateResult)} />
-          </MemoryRouter>
-        </QueryClientProvider>
+        <AuthProvider api={api} tokenStore={authenticatedTokenStore()} queryClient={client}>
+          <QueryClientProvider client={client}>
+            <MemoryRouter initialEntries={[DETAIL_A]}>
+              <SameRouteStateHarness sourceBundle={bundleFromSearchResult(stateResult)} />
+            </MemoryRouter>
+          </QueryClientProvider>
+        </AuthProvider>
       </APIProvider>,
     );
 
@@ -707,11 +745,13 @@ describe("DetailPage", () => {
 
     render(
       <APIProvider value={api}>
-        <QueryClientProvider client={client}>
-          <MemoryRouter initialEntries={[{ pathname: DETAIL_A, state: { sourceBundle: bundleFromSearchResult(multiSourceResult) } }]}>
-            <RouteChangeHarness />
-          </MemoryRouter>
-        </QueryClientProvider>
+        <AuthProvider api={api} tokenStore={authenticatedTokenStore()} queryClient={client}>
+          <QueryClientProvider client={client}>
+            <MemoryRouter initialEntries={[{ pathname: DETAIL_A, state: { sourceBundle: bundleFromSearchResult(multiSourceResult) } }]}>
+              <RouteChangeHarness />
+            </MemoryRouter>
+          </QueryClientProvider>
+        </AuthProvider>
       </APIProvider>,
     );
 
@@ -754,11 +794,13 @@ describe("DetailPage", () => {
 
     render(
       <APIProvider value={api}>
-        <QueryClientProvider client={client}>
-          <MemoryRouter initialEntries={[{ pathname: DETAIL_A, state: { sourceBundle: bundleFromSearchResult(multiSourceResult) } }]}>
-            <SameRouteStateHarness sourceBundle={nextBundle} />
-          </MemoryRouter>
-        </QueryClientProvider>
+        <AuthProvider api={api} tokenStore={authenticatedTokenStore()} queryClient={client}>
+          <QueryClientProvider client={client}>
+            <MemoryRouter initialEntries={[{ pathname: DETAIL_A, state: { sourceBundle: bundleFromSearchResult(multiSourceResult) } }]}>
+              <SameRouteStateHarness sourceBundle={nextBundle} />
+            </MemoryRouter>
+          </QueryClientProvider>
+        </AuthProvider>
       </APIProvider>,
     );
 
@@ -792,11 +834,13 @@ describe("DetailPage", () => {
 
     render(
       <APIProvider value={api}>
-        <QueryClientProvider client={client}>
-          <MemoryRouter initialEntries={[{ pathname: DETAIL_A, state: { sourceBundle: bundleFromSearchResult(multiSourceResult) } }]}>
-            <SameRouteStateHarness sourceBundle={bundleFromSearchResult(multiSourceResult)} />
-          </MemoryRouter>
-        </QueryClientProvider>
+        <AuthProvider api={api} tokenStore={authenticatedTokenStore()} queryClient={client}>
+          <QueryClientProvider client={client}>
+            <MemoryRouter initialEntries={[{ pathname: DETAIL_A, state: { sourceBundle: bundleFromSearchResult(multiSourceResult) } }]}>
+              <SameRouteStateHarness sourceBundle={bundleFromSearchResult(multiSourceResult)} />
+            </MemoryRouter>
+          </QueryClientProvider>
+        </AuthProvider>
       </APIProvider>,
     );
 
@@ -1078,11 +1122,13 @@ describe("DetailPage", () => {
 
     render(
       <APIProvider value={api}>
-        <QueryClientProvider client={client}>
-          <MemoryRouter initialEntries={[{ pathname: DETAIL_A, state: { sourceBundle: bundleFromSearchResult(multiSourceResult) } }]}>
-            <RouteChangeHarness />
-          </MemoryRouter>
-        </QueryClientProvider>
+        <AuthProvider api={api} tokenStore={authenticatedTokenStore()} queryClient={client}>
+          <QueryClientProvider client={client}>
+            <MemoryRouter initialEntries={[{ pathname: DETAIL_A, state: { sourceBundle: bundleFromSearchResult(multiSourceResult) } }]}>
+              <RouteChangeHarness />
+            </MemoryRouter>
+          </QueryClientProvider>
+        </AuthProvider>
       </APIProvider>,
     );
 
@@ -1228,11 +1274,13 @@ describe("DetailPage", () => {
 
     render(
       <APIProvider value={api}>
-        <QueryClientProvider client={client}>
-          <MemoryRouter initialEntries={[DETAIL_A]}>
-            <NavHarness />
-          </MemoryRouter>
-        </QueryClientProvider>
+        <AuthProvider api={api} tokenStore={authenticatedTokenStore()} queryClient={client}>
+          <QueryClientProvider client={client}>
+            <MemoryRouter initialEntries={[DETAIL_A]}>
+              <NavHarness />
+            </MemoryRouter>
+          </QueryClientProvider>
+        </AuthProvider>
       </APIProvider>,
     );
 

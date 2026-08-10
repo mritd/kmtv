@@ -6,7 +6,7 @@
  *   - Mount and destroy ArtPlayer dynamically (see ADR-013) — 动态挂载和销毁 ArtPlayer (见 ADR-013)
  *   - Delegate HLS demuxing to hls.js when native HLS is unavailable — 原生 HLS 不可用时委托 hls.js 解码
  *   - Seek to persisted resume position after "video:loadedmetadata" — 元数据加载后 seek 到持久化恢复点
- *   - Throttle position saves (every 5 s) + flush on tab-hide / component teardown — 节流位置保存 (每 5 秒) + tab 隐藏/组件卸载时 flush
+ *   - Throttle position saves (every 30 s) + flush on tab-hide / component teardown — 节流位置保存 (每 30 秒) + tab 隐藏/组件卸载时 flush
  *   - Surface HLS bundle-load / hls.js unsupported / fatal-error banners — 展示 HLS bundle 加载 / hls.js 不支持 / 致命错误横幅
  *   - Show placeholder when no URL is ready; resolving/idle copy differs — 无 URL 时显示占位符; resolving/idle 文案不同
  *   - Show state pills (source name + mode chip) — 显示状态 pill (源名称 + 模式 chip)
@@ -44,11 +44,11 @@ import type { PlaybackState } from "./playbackState";
  * POSITION_SAVE_INTERVAL_MS — 持久化播放进度的节流间隔.
  *
  * timeupdate fires ~4 Hz but we only need a coarse resume point;
- * 5 seconds is granular enough without hammering localStorage.
+ * 30 seconds limits remote checkpoint traffic while teardown still flushes the latest position.
  * timeupdate 约 4 Hz 触发, 但只需粗粒度恢复点;
- * 5 秒间隔既足够精细又不会频繁写 localStorage.
+ * 30 秒间隔限制远端检查点流量, 同时卸载时仍会补写最新位置.
  */
-const POSITION_SAVE_INTERVAL_MS = 5000;
+const POSITION_SAVE_INTERVAL_MS = 30_000;
 
 /**
  * RESUME_MIN_SEC — minimum persisted position required to apply an initial seek.
@@ -154,7 +154,7 @@ export function PlaybackPanel({
     const artSlot: { player: import("artplayer").default | null } = { player: null };
 
     // Final-save handlers fire on tab hide / page unload so we don't lose progress when the user closes the tab.
-    // pagehide / visibilitychange 在关闭 tab 时触发, 避免 5 秒间隔尚未到时丢进度.
+    // pagehide / visibilitychange 在关闭 tab 时触发, 避免 30 秒间隔尚未到时丢进度.
     function flushNow() {
       const cb = onPositionChangeRef.current;
       const art = artSlot.player;

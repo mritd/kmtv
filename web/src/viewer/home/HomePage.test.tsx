@@ -1,11 +1,29 @@
+/**
+ * HomePage.test — integration coverage for recommendations, authenticated history, and home navigation.
+ * HomePage.test — 推荐内容, 已认证观看记录和首页导航的集成测试.
+ *
+ * Responsibilities / 职责:
+ *   - Exercise HomePage through real QueryClient, AuthProvider, APIProvider, and router boundaries
+ *     — 通过真实 QueryClient, AuthProvider, APIProvider 和 router 边界验证 HomePage
+ *   - Guard recommendation, carousel, history, clear, error, and navigation behavior
+ *     — 守护推荐, 轮播, 历史, 清空, 错误与导航行为
+ *
+ * Callers / 调用方:
+ *   Vitest test runner — Vitest 测试运行器
+ */
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitForElementToBeRemoved, within } from "@testing-library/react";
+import { act, render, screen, waitFor, waitForElementToBeRemoved, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { DoubanHomeSection } from "@/api/types";
+import type { APIClient } from "@/api/client";
+import type { AuthSnapshot, DoubanHomeSection, WatchHistoryItem } from "@/api/types";
 import { APIProvider } from "@/api/context";
+import { createMemoryTokenStore } from "@/api/tokenStore";
+import { AuthProvider } from "@/auth/AuthContext";
+import { useToastStore } from "@/shared/ui/Toast";
 import { createTestAPI } from "@/test/testAPI";
 
 import { HomePage } from "./HomePage";
@@ -27,16 +45,55 @@ function makeItems(prefix: string, itemCount: number) {
   }));
 }
 
-function renderHome(sections: DoubanHomeSection[] = [{ name: "热门电影", items: makeItems("Movie", 18) }]) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function makeHistoryItem(overrides: Partial<WatchHistoryItem> = {}): WatchHistoryItem {
+  const index = overrides.id ?? 1;
+  return {
+    id: index,
+    source_key: `source-${index}`,
+    video_id: `video-${index}`,
+    title: `History Show ${index}`,
+    cover: "",
+    episode: `Episode ${index}`,
+    group_index: 0,
+    episode_index: index - 1,
+    progress_sec: 180,
+    duration_sec: 600,
+    completed: false,
+    event_time_ms: 1_808_000_000_000 + index,
+    created_at: "2026-08-09T00:00:00Z",
+    updated_at: "2026-08-09T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function makeAuthSnapshot(userID = 42): AuthSnapshot {
+  return {
+    accessToken: "test-access-token",
+    expiresAt: "2099-01-01T00:00:00Z",
+    user: { id: userID, username: "viewer", role: "user" },
+  };
+}
+
+function renderHome(
+  sections: DoubanHomeSection[] = [{ name: "热门电影", items: makeItems("Movie", 18) }],
+  options: { apiOverrides?: Partial<APIClient>; authenticated?: boolean } = {},
+) {
+  const api = createTestAPI({
+    doubanHome: async () => ({ sections }),
+    ...options.apiOverrides,
+  });
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const tokenStore = createMemoryTokenStore(options.authenticated === false ? null : makeAuthSnapshot());
 
   return render(
-    <APIProvider value={createTestAPI({ doubanHome: async () => ({ sections }) })}>
+    <APIProvider value={api}>
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={["/"]}>
-          <LocationDisplay />
-          <HomePage />
-        </MemoryRouter>
+        <AuthProvider api={api} tokenStore={tokenStore} queryClient={queryClient}>
+          <MemoryRouter initialEntries={["/"]}>
+            <LocationDisplay />
+            <HomePage />
+          </MemoryRouter>
+        </AuthProvider>
       </QueryClientProvider>
     </APIProvider>,
   );
@@ -51,15 +108,19 @@ function renderHome(sections: DoubanHomeSection[] = [{ name: "热门电影", ite
 // 注意: QueryClient 默认 retry 为 false, 但 useDoubanHomeQuery 内部设置了 retry: 1 覆盖默认值.
 // error 测试使用 5 秒的 waitForElementToBeRemoved 超时以适应 query 在进入错误状态前的单次重试.
 function renderHomeError() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const api = createTestAPI({ doubanHome: async () => { throw new Error("network failure"); } });
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const tokenStore = createMemoryTokenStore(makeAuthSnapshot());
 
   return render(
-    <APIProvider value={createTestAPI({ doubanHome: async () => { throw new Error("network failure"); } })}>
+    <APIProvider value={api}>
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={["/"]}>
-          <LocationDisplay />
-          <HomePage />
-        </MemoryRouter>
+        <AuthProvider api={api} tokenStore={tokenStore} queryClient={queryClient}>
+          <MemoryRouter initialEntries={["/"]}>
+            <LocationDisplay />
+            <HomePage />
+          </MemoryRouter>
+        </AuthProvider>
       </QueryClientProvider>
     </APIProvider>,
   );
@@ -72,6 +133,7 @@ async function waitForHome() {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
+  useToastStore.setState({ items: [] });
 });
 
 describe("HomePage", () => {
@@ -515,6 +577,110 @@ describe("HomePage", () => {
     await user.click(screen.getByRole("button", { name: /Test Movie/ }));
 
     expect(screen.getByTestId("location").textContent).toBe("/search?q=Test%20Movie");
+  });
+
+  it("renders authenticated continue-watching items before recommendation rails", async () => {
+    renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }], {
+      apiOverrides: {
+        listWatchHistory: async () => ({ items: [makeHistoryItem({ title: "Resume Me", episode: "第 2 集" })] }),
+      },
+    });
+
+    await waitForHome();
+
+    const historySection = await screen.findByRole("region", { name: "继续观看" });
+    expect(within(historySection).getByRole("button", { name: "Resume Me, 第 2 集" })).toBeInTheDocument();
+    const allSections = Array.from(document.querySelectorAll("section.rail-section"));
+    expect(allSections[0]).toBe(historySection);
+    expect(screen.getByRole("list", { name: "热门电影" })).toBeInTheDocument();
+  });
+
+  it("does not request or render continue watching for anonymous viewers", async () => {
+    const listWatchHistory = vi.fn(async () => ({ items: [makeHistoryItem()] }));
+    renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }], {
+      authenticated: false,
+      apiOverrides: {
+        me: async () => ({ id: 0, username: "anonymous", role: "user" }),
+        listWatchHistory,
+      },
+    });
+
+    await waitForHome();
+    await waitFor(() => expect(screen.getByRole("list", { name: "热门电影" })).toBeInTheDocument());
+
+    expect(listWatchHistory).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region", { name: "继续观看" })).toBeNull();
+  });
+
+  it("keeps recommendations usable when history fails", async () => {
+    renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }], {
+      apiOverrides: {
+        listWatchHistory: async () => { throw new Error("history unavailable"); },
+      },
+    });
+
+    await waitForHome();
+
+    expect(await screen.findByRole("list", { name: "热门电影" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "继续观看" })).toBeNull();
+    expect(screen.queryByText("推荐暂时不可用")).toBeNull();
+  });
+
+  it("navigates continue-watching cards to encoded aggregate search", async () => {
+    const user = userEvent.setup();
+    renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }], {
+      apiOverrides: {
+        listWatchHistory: async () => ({ items: [makeHistoryItem({ title: "世界的主人 & Friends", episode: "EP 1" })] }),
+      },
+    });
+
+    await waitForHome();
+    await user.click(await screen.findByRole("button", { name: "世界的主人 & Friends, EP 1" }));
+
+    expect(screen.getByTestId("location").textContent).toBe("/search?q=%E4%B8%96%E7%95%8C%E7%9A%84%E4%B8%BB%E4%BA%BA+%26+Friends");
+  });
+
+  it("clears confirmed continue-watching history and removes the rail", async () => {
+    const user = userEvent.setup();
+    const clearWatchHistory = vi.fn(async () => undefined);
+    renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }], {
+      apiOverrides: {
+        listWatchHistory: async () => ({ items: [makeHistoryItem({ title: "Clear Me" })] }),
+        clearWatchHistory,
+      },
+    });
+
+    await waitForHome();
+    expect(await screen.findByRole("region", { name: "继续观看" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "清空观看记录" }));
+    await user.click(screen.getByRole("button", { name: "清空" }));
+
+    await waitFor(() => expect(clearWatchHistory).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "继续观看" })).toBeNull());
+  });
+
+  it("keeps history visible and reports an error when clearing fails", async () => {
+    const user = userEvent.setup();
+    renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }], {
+      apiOverrides: {
+        listWatchHistory: async () => ({ items: [makeHistoryItem({ title: "Keep Me" })] }),
+        clearWatchHistory: async () => { throw new Error("server unavailable"); },
+      },
+    });
+
+    await waitForHome();
+    expect(await screen.findByRole("region", { name: "继续观看" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "清空观看记录" }));
+    await user.click(screen.getByRole("button", { name: "清空" }));
+
+    await waitFor(() => expect(useToastStore.getState().items).toHaveLength(1));
+    expect(useToastStore.getState().items[0]).toMatchObject({
+      tone: "error",
+      title: "无法清空观看记录",
+      description: "server unavailable",
+    });
+    expect(screen.getByRole("region", { name: "继续观看" })).toBeInTheDocument();
   });
 
   // ---- poster tile without year ----

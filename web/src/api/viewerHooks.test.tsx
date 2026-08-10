@@ -1,19 +1,41 @@
+/**
+ * viewerHooks.test — focused React Query hook coverage for viewer-facing API resources.
+ * viewerHooks.test — 面向观看者 API 资源的 React Query hooks 聚焦测试.
+ *
+ * Responsibilities / 职责:
+ *   - Verify query enablement, key shape, pagination, and mutation boundaries — 验证查询启用、key 形态、分页与 mutation 边界
+ *   - Guard user-scoped watch-history cache isolation — 守护用户作用域观看历史缓存隔离
+ *
+ * Callers / 调用方:
+ *   Vitest test runner — Vitest 测试运行器
+ *
+ * ADR locks / ADR 锁定:
+ *   ADR-014 requires bilingual module documentation for TypeScript files under web/src.
+ *   ADR-015 requires server-origin and user-ID isolation for watch history.
+ *   ADR-014 要求 web/src 下的 TypeScript 文件具备双语模块文档.
+ *   ADR-015 要求观看历史按 server origin 与用户 ID 隔离.
+ */
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createTestAPI } from "@/test/testAPI";
-import type { DoubanItem, DoubanRecommendFilter } from "./types";
+import type { DoubanItem, DoubanRecommendFilter, WatchHistoryItem, WatchHistoryResponse } from "./types";
 import { APIProvider } from "./context";
 import {
   RECOMMEND_PAGE_SIZE,
+  WATCH_HISTORY_LIMIT,
+  type WatchHistoryScope,
+  useClearWatchHistoryMutation,
   useCategoriesQuery,
   useDetailQuery,
   useDoubanHomeQuery,
   useDoubanRecommendInfiniteQuery,
   usePlaybackURLMutation,
   useSearchQuery,
+  useWatchHistoryQuery,
 } from "./viewerHooks";
 
 // makeItems builds a page of `n` placeholder Douban items with sequential ids offset by `start`.
@@ -21,6 +43,41 @@ import {
 // 构造一页 n 条占位豆瓣条目, id 从 start 起递增.
 function makeItems(n: number, start = 0): DoubanItem[] {
   return Array.from({ length: n }, (_, i) => ({ id: String(start + i), title: `Item ${start + i}` }));
+}
+
+// makeHistoryItem builds a minimal server-synchronized watch-history entry.
+// makeHistoryItem
+// 构造一条最小的服务端同步观看历史记录.
+function makeHistoryItem(title: string): WatchHistoryItem {
+  return {
+    id: 1,
+    source_key: "source-a",
+    video_id: "video-a",
+    title,
+    cover: "",
+    episode: "EP1",
+    group_index: 0,
+    episode_index: 0,
+    progress_sec: 120,
+    duration_sec: 1200,
+    completed: false,
+    event_time_ms: 1000,
+    created_at: "2026-08-09T00:00:00Z",
+    updated_at: "2026-08-09T00:00:00Z",
+  };
+}
+
+// deferred creates a manually resolved Promise for query race tests.
+// deferred
+// 为 query race 测试创建一个手动 resolve 的 Promise.
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 // makeWrapper creates a minimal QueryClient + APIProvider wrapper for hook tests.
@@ -37,6 +94,21 @@ function makeWrapper(api = createTestAPI()) {
       </QueryClientProvider>
     );
   };
+}
+
+// makeHarness creates a wrapper plus its QueryClient when tests need cache assertions.
+// makeHarness
+// 当测试需要断言缓存时, 创建 wrapper 及其 QueryClient.
+function makeHarness(api = createTestAPI()) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>
+      <APIProvider value={api}>{children}</APIProvider>
+    </QueryClientProvider>
+  );
+  return { queryClient, wrapper };
 }
 
 describe("useDoubanHomeQuery", () => {
@@ -259,5 +331,160 @@ describe("usePlaybackURLMutation", () => {
     result.current.mutate({ name: "EP1", url: "https://cdn.example/ep1.m3u8" });
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.error).toBeInstanceOf(Error);
+  });
+});
+
+describe("useWatchHistoryQuery", () => {
+  const scope = { serverOrigin: "https://kmtv.example", userID: 42, isAuthenticated: true };
+
+  it("requests ten incomplete items under a server and user scoped key", async () => {
+    let capturedLimit: number | undefined;
+    const api = createTestAPI({
+      listWatchHistory: async (limit) => {
+        capturedLimit = limit;
+        return { items: [makeHistoryItem("Demo Show")] };
+      },
+    });
+    const { queryClient, wrapper } = makeHarness(api);
+    const { result } = renderHook(() => useWatchHistoryQuery(scope), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(capturedLimit).toBe(WATCH_HISTORY_LIMIT);
+    expect(queryClient.getQueryData(["watch-history", scope.serverOrigin, scope.userID, WATCH_HISTORY_LIMIT])).toEqual({
+      items: [makeHistoryItem("Demo Show")],
+    });
+  });
+
+  it.each([
+    ["anonymous", { serverOrigin: "https://kmtv.example", userID: 0, isAuthenticated: false }],
+    ["stale authenticated flag with anonymous user ID", { serverOrigin: "https://kmtv.example", userID: 0, isAuthenticated: true }],
+    ["negative user ID", { serverOrigin: "https://kmtv.example", userID: -1, isAuthenticated: true }],
+  ] satisfies [string, WatchHistoryScope][])("is disabled for %s", async (_name, disabledScope) => {
+    const listWatchHistory = vi.fn(async () => ({ items: [makeHistoryItem("Should Not Load")] }));
+    const api = createTestAPI({ listWatchHistory });
+    const { result } = renderHook(() => useWatchHistoryQuery(disabledScope), { wrapper: makeWrapper(api) });
+
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(result.current.data).toBeUndefined();
+    expect(listWatchHistory).not.toHaveBeenCalled();
+  });
+
+  it("keeps late responses isolated to the identity that started them", async () => {
+    const first = deferred<WatchHistoryResponse>();
+    const second = deferred<WatchHistoryResponse>();
+    const listWatchHistory = vi
+      .fn<() => Promise<WatchHistoryResponse>>()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const api = createTestAPI({ listWatchHistory });
+    const { queryClient, wrapper } = makeHarness(api);
+    const initialScope = { serverOrigin: "https://kmtv.example", userID: 1, isAuthenticated: true };
+    const nextScope = { serverOrigin: "https://kmtv.example", userID: 2, isAuthenticated: true };
+    const { result, rerender } = renderHook(({ activeScope }) => useWatchHistoryQuery(activeScope), {
+      initialProps: { activeScope: initialScope },
+      wrapper,
+    });
+
+    await waitFor(() => expect(listWatchHistory).toHaveBeenCalledTimes(1));
+    rerender({ activeScope: nextScope });
+    await waitFor(() => expect(listWatchHistory).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      second.resolve({ items: [makeHistoryItem("New User Show")] });
+      await second.promise;
+    });
+    await waitFor(() => expect(result.current.data?.items[0].title).toBe("New User Show"));
+
+    await act(async () => {
+      first.resolve({ items: [makeHistoryItem("Old User Show")] });
+      await first.promise;
+    });
+
+    expect(queryClient.getQueryData(["watch-history", "https://kmtv.example", 1, WATCH_HISTORY_LIMIT])).toEqual({
+      items: [makeHistoryItem("Old User Show")],
+    });
+    expect(queryClient.getQueryData(["watch-history", "https://kmtv.example", 2, WATCH_HISTORY_LIMIT])).toEqual({
+      items: [makeHistoryItem("New User Show")],
+    });
+    expect(result.current.data?.items[0].title).toBe("New User Show");
+  });
+});
+
+describe("useClearWatchHistoryMutation", () => {
+  const scope = { serverOrigin: "https://kmtv.example", userID: 42, isAuthenticated: true };
+  const queryKey = ["watch-history", scope.serverOrigin, scope.userID, WATCH_HISTORY_LIMIT] as const;
+
+  it("cancels the exact scoped read before DELETE and empties only that cache entry", async () => {
+    const staleRead = deferred<WatchHistoryResponse>();
+    const events: string[] = [];
+    const api = createTestAPI({
+      listWatchHistory: async () => {
+        events.push("get");
+        return staleRead.promise;
+      },
+      clearWatchHistory: async () => {
+        events.push("delete");
+      },
+    });
+    const { queryClient, wrapper } = makeHarness(api);
+    const otherKey = ["watch-history", "https://kmtv.example", 99, WATCH_HISTORY_LIMIT] as const;
+    queryClient.setQueryData(otherKey, { items: [makeHistoryItem("Other User Show")] });
+    const cancelSpy = vi.spyOn(queryClient, "cancelQueries");
+
+    const { result } = renderHook(
+      () => ({
+        history: useWatchHistoryQuery(scope),
+        clear: useClearWatchHistoryMutation(scope),
+      }),
+      { wrapper },
+    );
+    await waitFor(() => expect(events).toEqual(["get"]));
+
+    await act(async () => {
+      await result.current.clear.mutateAsync();
+    });
+
+    expect(cancelSpy).toHaveBeenCalledWith({ queryKey, exact: true });
+    expect(events).toEqual(["get", "delete"]);
+    expect(queryClient.getQueryData(queryKey)).toEqual({ items: [] });
+    expect(queryClient.getQueryData(otherKey)).toEqual({ items: [makeHistoryItem("Other User Show")] });
+
+    await act(async () => {
+      staleRead.resolve({ items: [makeHistoryItem("Stale Show")] });
+      await staleRead.promise;
+    });
+
+    expect(queryClient.getQueryData(queryKey)).toEqual({ items: [] });
+  });
+
+  it("keeps the invocation identity when scope changes while DELETE is pending", async () => {
+    const pendingDelete = deferred<void>();
+    const api = createTestAPI({ clearWatchHistory: async () => pendingDelete.promise });
+    const { queryClient, wrapper } = makeHarness(api);
+    const firstScope = { serverOrigin: "https://kmtv.example", userID: 1, isAuthenticated: true };
+    const nextScope = { serverOrigin: "https://kmtv.example", userID: 2, isAuthenticated: true };
+    const firstKey = ["watch-history", firstScope.serverOrigin, firstScope.userID, WATCH_HISTORY_LIMIT] as const;
+    const nextKey = ["watch-history", nextScope.serverOrigin, nextScope.userID, WATCH_HISTORY_LIMIT] as const;
+    queryClient.setQueryData(firstKey, { items: [makeHistoryItem("First User Show")] });
+    queryClient.setQueryData(nextKey, { items: [makeHistoryItem("Next User Show")] });
+
+    const { result, rerender } = renderHook(({ activeScope }) => useClearWatchHistoryMutation(activeScope), {
+      initialProps: { activeScope: firstScope },
+      wrapper,
+    });
+
+    act(() => result.current.mutate());
+    await waitFor(() => expect(result.current.isPending).toBe(true));
+    rerender({ activeScope: nextScope });
+
+    await act(async () => {
+      pendingDelete.resolve();
+      await pendingDelete.promise;
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(queryClient.getQueryData(firstKey)).toEqual({ items: [] });
+    expect(queryClient.getQueryData(nextKey)).toEqual({ items: [makeHistoryItem("Next User Show")] });
   });
 });
