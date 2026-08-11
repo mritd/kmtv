@@ -233,6 +233,15 @@ describe("global styles", () => {
     expect(css).not.toMatch(/^\.player \{[^}]*max-width/m);
   });
 
+  it("keeps ArtPlayer overlays below the sticky navigation outside web fullscreen", () => {
+    const css = readFileSync("src/style.css", "utf8");
+    const hostCss = cssBlock(css, ".artplayer-host");
+    const webFullscreenCss = cssBlock(css, ".artplayer-host:has(.art-fullscreen-web)");
+
+    expect(hostCss).toContain("isolation: isolate");
+    expect(webFullscreenCss).toContain("z-index: 9999");
+  });
+
   it("gives the detail page a wider measure than the shared page cap", () => {
     const css = readFileSync("src/style.css", "utf8");
     // The video is the content, so the detail page opts out of the shared 1720px measure.

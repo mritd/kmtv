@@ -1728,7 +1728,22 @@ select:focus {
 }
 
 .artplayer-host {
+  /*
+   * ArtPlayer gives its info and context-menu overlays z-index values up to 120.
+   * Isolate them here so they stay below the sticky navigation while the page scrolls.
+   * Web fullscreen must lift the whole host because an isolated fixed descendant cannot
+   * escape its parent's stacking level.
+   *
+   * ArtPlayer 的详细信息和右键菜单层级最高为 120. 在宿主上隔离层叠上下文,
+   * 避免页面滚动时这些覆盖层越过吸顶导航. 网页全屏时必须整体抬高宿主,
+   * 因为隔离后的 fixed 子元素无法越过父元素所在的层级.
+   */
+  isolation: isolate;
   overflow: hidden;
+}
+
+.artplayer-host:has(.art-fullscreen-web) {
+  z-index: 9999;
 }
 
 .artplayer-host .art-video-player {
