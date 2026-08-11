@@ -1,4 +1,5 @@
 // createDetailAPI tests — covers query encoding + return shape.
+//
 // createDetailAPI 测试 — 校验查询参数编码与返回结构.
 
 import type { APIClient } from "./client";

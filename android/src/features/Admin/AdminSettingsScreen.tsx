@@ -1,4 +1,5 @@
 // AdminSettingsScreen — schema-driven settings form, diff-only PUT, clamp + URL validation.
+//
 // AdminSettingsScreen — 由 schema 驱动的设置表单, 仅 diff 提交 + clamp + URL 校验.
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
@@ -22,6 +23,7 @@ import {
 
 /**
  * AdminSettingsScreenContextValue — admin binding for tests.
+ *
  * AdminSettingsScreenContextValue — 为测试提供 admin 绑定.
  */
 export interface AdminSettingsScreenContextValue {
@@ -30,6 +32,7 @@ export interface AdminSettingsScreenContextValue {
 
 /**
  * AdminSettingsScreenContext — null-by-default; tests inject via Provider.
+ *
  * AdminSettingsScreenContext — 默认 null, 测试通过 Provider 注入.
  */
 export const AdminSettingsScreenContext = createContext<AdminSettingsScreenContextValue | null>(null);
@@ -49,6 +52,7 @@ function useDefaultCtx(): AdminSettingsScreenContextValue | null {
 
 /**
  * AdminSettingsScreen — fetches all admin-allowed settings and exposes a schema-driven editor.
+ *
  * AdminSettingsScreen — 拉取全部允许的设置项并以 schema 驱动的编辑器展示.
  */
 export function AdminSettingsScreen(){
@@ -87,6 +91,7 @@ export function AdminSettingsScreen(){
       // Skip keys the server did not return in `initial` — they're not editable in this view.
       // Iterating absent keys would synthesize defaults (e.g. clamp("") = min) and add them to
       // the diff even when untouched, sending spurious writes.
+      //
       // 跳过 server 未返回的 key, 防止 clamp("") 合成默认值进入 diff 触发误写.
       if (!(entry.key in initial)) continue;
       const v = (clamped[entry.key] ?? "").toString();

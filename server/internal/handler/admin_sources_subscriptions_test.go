@@ -30,6 +30,7 @@ func TestListSources(t *testing.T) {
 	m := decodeJSON(t, rec)
 	// An empty source list must serialize to a JSON array [], never null — a null here
 	// crashes clients that call array methods on the field (e.g. the admin poll loop).
+	//
 	// 空源列表必须序列化为 JSON 数组 [], 不能是 null — null 会让对该字段调用数组方法的客户端崩溃 (如管理端轮询).
 	sources, ok := m["sources"].([]any)
 	if !ok {
@@ -159,6 +160,7 @@ func TestBulkSetSourcesEnabled(t *testing.T) {
 	}
 
 	// Empty ids returns 400.
+	//
 	// 空 ids 返回 400.
 	body, _ = json.Marshal(map[string]any{"ids": []int64{}, "enabled": true})
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/admin/sources/bulk-enabled", bytes.NewReader(body))
@@ -171,6 +173,7 @@ func TestBulkSetSourcesEnabled(t *testing.T) {
 	}
 
 	// Unknown id rolls back, prior state preserved, 404 returned.
+	//
 	// 未知 id 触发整批回滚, 之前的状态保留, 返回 404.
 	body, _ = json.Marshal(map[string]any{"ids": []int64{ids[0], 99999}, "enabled": false})
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/admin/sources/bulk-enabled", bytes.NewReader(body))
@@ -342,6 +345,7 @@ func TestAdminCheckSourceAndSyncSubscription(t *testing.T) {
 
 // TestCreateSubscription_AutoSyncsSources guards that POST /admin/subscriptions imports sources
 // immediately (best-effort auto-sync) instead of waiting for a cron tick or a manual sync.
+//
 // TestCreateSubscription_AutoSyncsSources 确保 POST /admin/subscriptions 会立即导入源 (尽力而为的自动同步),
 // 而非等待 cron 或手动同步.
 func TestCreateSubscription_AutoSyncsSources(t *testing.T) {
@@ -478,6 +482,7 @@ func TestAdminSubscriptionErrorPaths(t *testing.T) {
 
 // TestListSubscriptions_EmptyIsArray guards that an empty subscription list serializes to
 // JSON [] rather than null, matching the sources/search contract so clients never receive null arrays.
+//
 // TestListSubscriptions_EmptyIsArray 确保空订阅列表序列化为 JSON [] 而非 null, 与 sources/search 契约一致.
 func TestListSubscriptions_EmptyIsArray(t *testing.T) {
 	h, r := setupTestHandler(t)

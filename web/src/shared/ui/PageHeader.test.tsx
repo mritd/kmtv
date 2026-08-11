@@ -1,4 +1,5 @@
 // Tests for the PageHeader page-level header component.
+//
 // PageHeader 页面级标题组件测试.
 //
 // Coverage targets: title-only, eyebrow, description, action slot, all props combined.
@@ -19,6 +20,7 @@ describe("PageHeader", () => {
     it("does not render the eyebrow element when omitted", () => {
       const { container } = render(<PageHeader title="Settings" />);
       // No .eyebrow node should be in the DOM — absence of the class confirms no wrapper was rendered.
+      //
       // 无 .eyebrow 节点意味着包裹元素未被渲染, 比文字内容断言更可靠.
       expect(container.querySelector(".eyebrow")).toBeNull();
     });
@@ -33,6 +35,7 @@ describe("PageHeader", () => {
     it("renders the eyebrow text above the title", () => {
       render(<PageHeader eyebrow="Admin" title="Sources" />);
       // Eyebrow renders as a <p class="eyebrow"> element.
+      //
       // 眉题渲染为 <p class="eyebrow"> 元素.
       const eyebrow = screen.getByText("Admin");
       expect(eyebrow.tagName).toBe("P");
@@ -49,6 +52,7 @@ describe("PageHeader", () => {
     it("does not render a description paragraph when omitted", () => {
       const { container } = render(<PageHeader title="Users" />);
       // Only one p element (no description) — when both eyebrow and description are absent, no <p>.
+      //
       // 无描述时只有 h1, 无 <p> 元素.
       expect(container.querySelectorAll("p")).toHaveLength(0);
     });
@@ -64,6 +68,7 @@ describe("PageHeader", () => {
       );
       expect(screen.getByRole("button", { name: "Add source" })).toBeInTheDocument();
       // Confirm the action is wrapped correctly for layout alignment.
+      //
       // 确认操作元素被正确包裹以对齐布局.
       const wrapper = document.querySelector(".page-header-action");
       expect(wrapper).toBeInTheDocument();

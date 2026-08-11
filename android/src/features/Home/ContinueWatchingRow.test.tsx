@@ -1,4 +1,5 @@
 // ContinueWatchingRow tests: empty list returns null, header + clear renders, progress ratio computed.
+//
 // ContinueWatchingRow 测试: 空列表返回 null, 渲染 header + clear, 计算进度条比例.
 
 import { fireEvent, render } from "@testing-library/react-native";

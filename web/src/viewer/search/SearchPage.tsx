@@ -1,5 +1,6 @@
 /**
  * SearchPage — SSE-backed full-page search UI with progress tracking and result display.
+ *
  * SearchPage — 支持 SSE 的全页搜索 UI, 包含进度追踪和结果展示.
  *
  * Responsibilities / 职责:
@@ -9,6 +10,7 @@
  *   - Show SearchProgressCard when the stream is active or complete — 流活跃或完成时展示 SearchProgressCard
  *   - Show SearchSkeleton while loading, StatusState on error, EmptyState on zero results — 加载中展示骨架, 错误展示 StatusState, 无结果展示 EmptyState
  *   - Navigate to /detail/:token on card open (token via storage/detailRoute);
+ *
  *     save SourceBundle to localStorage — 卡片打开时跳转到 /detail/:token (token 由 storage/detailRoute 生成),
  *     并保存 SourceBundle 到 localStorage
  *   - Track favorite state in local React state; sync on each toggle — 在本地 React state 中追踪收藏状态; 每次切换时同步
@@ -16,12 +18,14 @@
  * State ownership / 状态所有权:
  *   searchStore (Zustand vanilla) owns SSE lifecycle + query + results + progress.
  *   SearchPage reads from the store and dispatches actions; it does NOT own the SSE stream.
+ *
  *   searchStore (Zustand vanilla) 持有 SSE 生命周期 + 查询 + 结果 + 进度.
  *   SearchPage 从 store 读取并分发 action; 它不持有 SSE 流.
  *
  * URL contract / URL 契约:
  *   Route: /search?q=<query>
  *   The URL is the single source of truth for what query was submitted.
+ *
  *   URL 是已提交查询的唯一真相来源.
  *
  * TIER 4 LOCKED / Tier 4 锁定:
@@ -45,10 +49,12 @@ import { staggerChild, staggerParent } from "@/animation/motionPresets";
 
 /**
  * STAGGER_CAP — maximum number of result cards that receive stagger entrance animation.
+ *
  * STAGGER_CAP — 接收错落入场动画的最大结果卡片数量.
  *
  * Cards beyond this index receive no entrance variant so long result sets do not
  * accumulate excessive animation delay. 8 cards ≈ 1.2 s at the default stagger timing.
+ *
  * 超过此索引的卡片不接收入场变体, 避免长结果集累积过多动画延迟.
  * 8 张卡片在默认错落时间下约 1.2 秒.
  */
@@ -69,24 +75,29 @@ import { searchStore, type SearchProgressMap, type SearchStatus } from "@/store/
 import { useSearchStreamSync } from "./useSearchStreamSync";
 
 // TrackedSearchPhase — the two SSE progress phases the backend emits and we display.
+//
 // TrackedSearchPhase — 后端发出并展示的两个 SSE 进度阶段.
 type TrackedSearchPhase = "searching" | "probing";
 
 // SearchPhaseState — visual state of a single progress card.
+//
 // SearchPhaseState — 单个进度卡片的视觉状态.
 type SearchPhaseState = "pending" | "active" | "done";
 
 // trackedSearchPhases defines the render order of the progress card grid.
+//
 // trackedSearchPhases 定义进度卡片网格的渲染顺序.
 const trackedSearchPhases: TrackedSearchPhase[] = ["searching", "probing"];
 
 /**
  * SearchPage — full-page search view backed by SSE streaming results.
+ *
  * SearchPage — 基于 SSE 流式结果的全页搜索视图.
  *
  * The URL param ?q= is the single source of truth for the submitted query.
  * Form submission updates the URL; the useEffect bridge detects the URL change
  * and calls submitQuery on the store, which starts the SSE stream via useSearchStreamSync.
+ *
  * URL 参数 ?q= 是已提交查询的唯一真相来源.
  * 表单提交更新 URL; useEffect 桥接检测 URL 变化并调用 store 的 submitQuery,
  * 通过 useSearchStreamSync 启动 SSE 流.
@@ -99,6 +110,7 @@ export function SearchPage() {
   const activeQuery = params.get("q") ?? "";
 
   // SSE lifecycle lives in the store; the bridge hook starts/resumes streams.
+  //
   // SSE 生命周期由 store 持有, bridge hook 启动或恢复流.
   useSearchStreamSync(api);
 
@@ -114,19 +126,23 @@ export function SearchPage() {
 
   // savedFavoriteIDs is local state so toggling a favorite updates the card immediately
   // without a full store round-trip.
+  //
   // savedFavoriteIDs 是本地 state, 切换收藏时立即更新卡片, 无需完整 store 往返.
   const [savedFavoriteIDs, setSavedFavoriteIDs] = useState<Set<string>>(() => favoriteIDs());
   // Stagger collapses to a no-op variant when reduced motion is preferred.
+  //
   // 用户偏好减少动画时 stagger 变为空变体.
   const reduceMotion = useReducedMotion() ?? false;
   const parentVariants = reduceMotion ? undefined : staggerParent;
   const childVariants = reduceMotion ? undefined : staggerChild;
 
   // The URL drives intent; the store drives display.
+  //
   // URL 表达意图, store 驱动显示.
   useEffect(() => {
     if (!activeQuery) return;
     // Avoid re-submitting the same query if the store already has it (e.g. back-navigation).
+    //
     // 如果 store 已有该查询则避免重复提交 (如后退导航).
     if (activeQuery === lastSubmittedQuery) return;
     setQueryText(activeQuery);
@@ -135,6 +151,7 @@ export function SearchPage() {
 
   // Sync the input box to the URL when there is no submitted query yet,
   // so the input reflects ?q= on initial mount before the stream fires.
+  //
   // URL 中已有 ?q= 但 store 尚未同步时, 把输入框同步到 URL
   // (初始挂载时, 流触发前输入框应反映 ?q= 值).
   useEffect(() => {
@@ -147,6 +164,7 @@ export function SearchPage() {
     event.preventDefault();
     const next = queryText.trim();
     // Only push to URL if there is a non-blank query; empty submit is a no-op.
+    //
     // 仅在查询非空时推送到 URL; 空提交为无操作.
     if (next) {
       setParams({ q: next });
@@ -160,6 +178,7 @@ export function SearchPage() {
   function openSource(item: SearchResult, sourceIndex?: number) {
     const safeItem = sanitizeSearchResult(item);
     // Fall back to the fastest source when no explicit index is given.
+    //
     // 未指定索引时回退到最快的 source.
     const source = safeItem.sources[sourceIndex ?? fastestSourceIndex(safeItem.sources)];
     if (!source) {
@@ -168,6 +187,7 @@ export function SearchPage() {
     const bundle = bundleFromSearchResult(safeItem);
     saveSourceBundle(bundle);
     // Use React Router's built-in viewTransition option so the snapshot fires AFTER React commits the new route.
+    //
     // 通过 React Router 内置的 viewTransition 选项, 让快照在路由提交之后执行, 避免新旧 DOM 颠倒.
     navigate(detailRoutePath(source.source_key, source.video_id), {
       state: { sourceBundle: bundle },
@@ -178,6 +198,7 @@ export function SearchPage() {
   function toggleSearchFavorite(item: SearchResult) {
     toggleResultFavorite(item);
     // Re-read favoriteIDs from localStorage after the toggle to keep local state in sync.
+    //
     // toggle 后重新从 localStorage 读取 favoriteIDs 以保持本地 state 同步.
     setSavedFavoriteIDs(favoriteIDs());
   }
@@ -259,10 +280,12 @@ export function SearchPage() {
 
 /**
  * SearchProgressCard — live SSE phase progress grid shown during and after a search.
+ *
  * SearchProgressCard — 搜索期间和之后展示的实时 SSE 阶段进度网格.
  *
  * Renders one card per tracked phase ("searching", "probing"), each with a progress bar
  * driven by the phase's completed/total ratio from the SSE stream.
+ *
  * 每个追踪阶段 ("searching", "probing") 渲染一张卡片, 进度条由 SSE 流的 completed/total 比率驱动.
  *
  * @param progressMap — phase-keyed progress events from searchStore — searchStore 中以阶段为键的进度事件
@@ -304,6 +327,7 @@ function SearchProgressCard({ progressMap }: { progressMap: SearchProgressMap })
 }
 
 // progressValue formats a progress snapshot as "completed / total".
+//
 // progressValue 将进度快照格式化为 "completed / total".
 function progressValue(progress: SearchProgress | undefined): string {
   return progress ? `${progress.completed} / ${progress.total}` : "0 / 0";
@@ -311,9 +335,11 @@ function progressValue(progress: SearchProgress | undefined): string {
 
 /**
  * progressPercent — compute integer 0-100 progress percentage from a phase snapshot.
+ *
  * progressPercent — 从阶段快照计算 0-100 整数进度百分比.
  *
  * Returns 0 when progress is absent or total is non-positive (avoids division-by-zero).
+ *
  * 当 progress 缺失或 total 非正时返回 0 (避免除以零).
  *
  * @param progress — SSE progress event or undefined — SSE 进度事件或 undefined
@@ -328,10 +354,12 @@ function progressPercent(progress: SearchProgress | undefined): number {
 
 /**
  * progressPhaseState — derive a SearchPhaseState from the computed percent.
+ *
  * progressPhaseState — 从计算的百分比推导 SearchPhaseState.
  *
  * - 100 → "done"; > 0 → "active"; 0 → "pending".
  * CSS class suffix is "search-phase-card-{state}".
+ *
  * CSS 类后缀为 "search-phase-card-{state}".
  *
  * @param percent — integer 0-100 — 0-100 整数
@@ -348,10 +376,12 @@ function progressPhaseState(percent: number): SearchPhaseState {
 }
 
 // ViewerT is the narrow TFunction type for the "viewer" i18n namespace.
+//
 // ViewerT 是 "viewer" i18n 命名空间的窄 TFunction 类型.
 type ViewerT = TFunction<"viewer", undefined>;
 
 // phaseStateLabel returns the i18n label for a progress card's state chip.
+//
 // phaseStateLabel 返回进度卡片状态 chip 的 i18n 标签.
 function phaseStateLabel(t: ViewerT, state: SearchPhaseState): string {
   if (state === "done") return t("search.progress.stateDone");
@@ -360,6 +390,7 @@ function phaseStateLabel(t: ViewerT, state: SearchPhaseState): string {
 }
 
 // summaryStatusLabel returns the h2 label for the summary sidebar based on stream state and query.
+//
 // summaryStatusLabel 根据流状态和查询返回摘要侧边栏的 h2 标签.
 function summaryStatusLabel(t: ViewerT, status: SearchStatus, activeQuery: string): string {
   if (!activeQuery) return t("search.summary.statusIdle");
@@ -369,6 +400,7 @@ function summaryStatusLabel(t: ViewerT, status: SearchStatus, activeQuery: strin
 }
 
 // summaryProgressValue formats a progress snapshot for the compact summary sidebar (no spaces).
+//
 // summaryProgressValue 将进度快照格式化为紧凑摘要侧边栏用格式 (无空格).
 function summaryProgressValue(progress: SearchProgress | undefined): string {
   return progress ? `${progress.completed}/${progress.total}` : "0/0";
@@ -376,10 +408,12 @@ function summaryProgressValue(progress: SearchProgress | undefined): string {
 
 /**
  * sanitizeSearchResult — coerce a potentially unsafe runtime SearchResult to a safe local shape.
+ *
  * sanitizeSearchResult — 将潜在不安全的运行时 SearchResult 强制转换为安全的本地形状.
  *
  * The SSE stream may carry API contract violations (null sources, malformed entries).
  * This function ensures sources is always a valid SourceResult[].
+ *
  * SSE 流可能携带违反 API 契约的数据 (null sources, 格式错误的条目).
  * 此函数确保 sources 始终是有效的 SourceResult[].
  *
@@ -391,6 +425,7 @@ function sanitizeSearchResult(item: SearchResult): SearchResult {
 }
 
 // safeSourceResults filters a SearchResult's sources to only valid SourceResult entries.
+//
 // safeSourceResults 过滤 SearchResult 的 sources, 仅保留有效的 SourceResult 条目.
 function safeSourceResults(item: SearchResult): SourceResult[] {
   return Array.isArray(item.sources) ? item.sources.filter(isSourceResult) : [];
@@ -400,6 +435,7 @@ function safeSourceResults(item: SearchResult): SourceResult[] {
 // Rejects empty source_key / video_id and any control character used as the detail-route
 // token separator (0x1F) — see storage/detailRoute.ts. Without this guard, malformed
 // upstream entries would navigate to a permanently-broken /detail/:token URL.
+//
 // isSourceResult 是验证 SourceResult 结构要求的类型守卫.
 // 拒绝空 source_key / video_id 以及详情路由令牌分隔符 (0x1F) — 详见 storage/detailRoute.ts.
 // 无此守卫, 上游恶意条目会跳转到永久死链 /detail/:token URL.
@@ -424,6 +460,7 @@ function isSourceResult(source: unknown): source is SourceResult {
 }
 
 // isEpisode is a type guard for Episode: requires name and url string fields.
+//
 // isEpisode 是 Episode 的类型守卫: 要求 name 和 url 字符串字段.
 function isEpisode(value: unknown): value is Episode {
   return typeof value === "object" && value !== null && "name" in value && typeof value.name === "string" && "url" in value && typeof value.url === "string";
@@ -431,10 +468,12 @@ function isEpisode(value: unknown): value is Episode {
 
 /**
  * fastestSourceIndex — return the index of the source with the lowest positive duration_ms.
+ *
  * fastestSourceIndex — 返回 duration_ms 最小正值的 source 索引.
  *
  * duration_ms is the probe round-trip time from useSearchStreamSync; lower = faster CDN.
  * When no source has a valid duration_ms (e.g. probing not yet complete), returns 0.
+ *
  * duration_ms 是 useSearchStreamSync 的探测往返时间; 越低表示 CDN 越快.
  * 当没有 source 有有效 duration_ms 时 (如探测尚未完成), 返回 0.
  *
@@ -454,15 +493,18 @@ function fastestSourceIndex(sources: SourceResult[]): number {
 }
 
 // isResultFavorited checks whether any of the result's canonical IDs is in the saved set.
+//
 // isResultFavorited 检查结果的任意规范 ID 是否在已保存集合中.
 function isResultFavorited(item: SearchResult, ids: Set<string>): boolean {
   return Array.from(resultFavoriteIDs(item)).some((id) => ids.has(id));
 }
 
-// searchResultKey builds a stable React list key from title + year + first valid source identity.
-// Falls back to positional index when no valid sources are present.
-// searchResultKey 从 title + year + 第一个有效 source 标识构建稳定的 React 列表 key.
-// 当无有效 source 时回退到位置索引.
+// searchResultKey builds a stable React list key from the exact title, year, and first valid source
+// identity. Keeping the title verbatim ensures spaced and unspaced server variants remain separate
+// React cards. Falls back to positional index when no valid sources are present.
+//
+// searchResultKey 使用原始 title, year 和首个有效 source 标识构建稳定的 React 列表 key.
+// 原样保留标题可确保带空格和不带空格的服务端变体仍是不同 React 卡片. 无有效来源时回退到位置索引.
 function searchResultKey(item: SearchResult, index: number): string {
   const firstSource = safeSourceResults(item)[0];
   return firstSource ? `${item.title}-${item.year ?? ""}-${firstSource.source_key}-${firstSource.video_id}` : `${item.title}-${item.year ?? ""}-${index}`;

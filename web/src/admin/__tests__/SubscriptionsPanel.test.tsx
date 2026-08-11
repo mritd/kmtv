@@ -1,5 +1,6 @@
 /**
  * SubscriptionsPanel tests — happy path, empty state, error state, and row interactions.
+ *
  * SubscriptionsPanel 测试 — 正常路径、空状态、错误状态和行交互.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -70,7 +71,9 @@ describe("SubscriptionsPanel", () => {
       renderPanel({ listSubscriptions: async () => ({ subscriptions: [] }) });
 
       await screen.findByRole("heading", { name: "订阅" });
-      // i18n key subscription.newButton = "新增订阅"
+      // The zh translation for subscription.newButton is "新增订阅".
+      //
+      // subscription.newButton 的中文翻译是 "新增订阅".
       await user.click(screen.getByRole("button", { name: "新增订阅" }));
 
       expect(adminModalStore.getState().current).toEqual({ kind: "subscription.new" });

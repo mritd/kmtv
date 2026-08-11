@@ -1,4 +1,5 @@
 // settingsSchema unit tests — covers URL validator, clamp, and diff.
+//
 // settingsSchema 单元测试, 覆盖 URL 校验、clamp 与 diff.
 
 import { clampNumber, diffSettings, editableSettingsSchema, validatePublicBaseURL } from "./settingsSchema";

@@ -1,4 +1,5 @@
 // errorLog ring-buffer tests: append + read order + eviction + truncation.
+//
 // errorLog 环形缓冲测试: 追加 + 读取顺序 + 淘汰 + 截断.
 
 import {

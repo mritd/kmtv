@@ -1,27 +1,33 @@
 // IncognitoAvatar — hat-and-glasses SVG silhouette used for anonymous / incognito user display.
+//
 // IncognitoAvatar — 礼帽 + 眼镜 SVG 剪影, 用于匿名/隐身用户的头像占位.
 //
 // Exports: IncognitoAvatar, IncognitoAvatarProps.
 // Callers: AccountPage (when no avatar is set), anonymous mode user display.
+//
 // 调用者: AccountPage (无头像时)、匿名模式用户显示.
 //
 // Design: uses currentColor so the icon inherits the parent's text color without extra CSS.
 //   The lens circles carry a translucent fill (fillOpacity 0.18) to suggest glass without
 //   obscuring the path lines underneath.
+//
 // 设计: 使用 currentColor 继承父级文字颜色; 镜片圆形使用半透明填充 (fillOpacity 0.18)
 //   以体现玻璃质感而不遮挡底部线条.
 
 // IncognitoAvatarProps defines the public API of IncognitoAvatar.
+//
 // IncognitoAvatarProps 定义 IncognitoAvatar 的公开 API.
 export interface IncognitoAvatarProps {
   className?: string;
   // label is the accessible name announced by screen readers (defaults to "Anonymous").
+  //
   // label 是屏幕阅读器播报的可访问名称 (默认为 "Anonymous").
   label?: string;
 }
 
 // IncognitoAvatar renders a Chrome-style incognito hat-and-glasses silhouette as an inline SVG.
 // The SVG uses role="img" + aria-label so assistive technology treats it as a named image.
+//
 // IncognitoAvatar 渲染类 Chrome 隐身模式的礼帽 + 眼镜内联 SVG.
 // 使用 role="img" + aria-label, 使辅助技术将其识别为具名图像.
 export function IncognitoAvatar({ className, label = "Anonymous" }: IncognitoAvatarProps): React.JSX.Element {

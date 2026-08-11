@@ -26,6 +26,7 @@ describe("useAPI", () => {
 
   it("returns the client when provider is mounted", async () => {
     // Use a distinct username so the assertion targets real hook behavior, not a default stub value.
+    //
     // 使用独特用户名, 确保断言验证的是真实 hook 行为, 而非默认存根的值.
     const api = createTestAPI({
       me: async () => ({ id: 42, username: "unique-test-user", role: "user" }),

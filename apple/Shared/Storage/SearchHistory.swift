@@ -1,6 +1,10 @@
 import Foundation
 import SwiftData
 
+/// SwiftData search-history row scoped by server URL.
+/// Its current key contains no user ID, unlike watch history.
+///
+/// 按服务器 URL 隔离的 SwiftData 搜索历史记录. 与观看历史不同, 当前 key 不包含用户 ID.
 @Model
 final class SearchHistoryItem {
     var serverURL: String

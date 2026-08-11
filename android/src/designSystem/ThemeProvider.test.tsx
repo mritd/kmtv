@@ -1,4 +1,5 @@
 // ThemeProvider tests cover the system / light / dark override paths.
+//
 // ThemeProvider 测试覆盖 system / light / dark 覆盖路径.
 
 import { render, screen } from "@testing-library/react-native";

@@ -13,6 +13,7 @@ final class HomeViewModel {
 
     private let logger = Logger(subsystem: "com.mritd.kmtv", category: "api")
     /// Protocol dependency keeps Douban home loading replaceable in unit tests.
+    ///
     /// 使用协议依赖让 Douban 首页加载可以在单元测试中替换.
     private let apiClient: any HomeAPIProtocol
 	private let modelContext: ModelContext
@@ -31,13 +32,17 @@ final class HomeViewModel {
         if isInitialLoad {
             isLoading = true
         }
-        // Watch history is remote-first with SwiftData as fallback/cache.
-        // 观看历史采用远端优先, SwiftData 作为兜底和缓存.
+        // Authenticated history is remote-first and replaces only this server/user cache.
+        // Anonymous user 0 rows stay separate and are never merged after sign-in.
+        //
+        // 已登录观看历史采用远端优先, 且只替换当前服务器与用户的缓存. 匿名用户 `0`
+        // 的记录保持独立, 登录后不会合并.
         await loadRemoteWatchHistory()
 
         let client = self.apiClient
         do {
             // Run network decoding off the main actor while keeping UI state updates on MainActor.
+            //
             // 将网络解码放到 MainActor 之外执行, UI 状态更新仍留在 MainActor.
             let response: DoubanHomeResponse = try await Task.detached {
                 try await client.doubanHome()
@@ -57,6 +62,7 @@ final class HomeViewModel {
             }
             #if os(iOS)
             // Home can remain mounted behind iPad playback, so keep passive feed failures local.
+            //
             // iPad 播放页背后可能仍挂载首页, 因此被动信息流失败只保留在本页.
             self.error = message
             #else

@@ -1,4 +1,5 @@
 // AuthenticatedAvatarImage — fetches a protected avatar via APIClient.getBlob and renders it.
+//
 // AuthenticatedAvatarImage — 通过 APIClient.getBlob 拉取受保护头像并渲染.
 
 import { Image } from "expo-image";
@@ -10,6 +11,7 @@ import type { APIClient } from "@/api/client";
 /**
  * Props for AuthenticatedAvatarImage. `path` is the full server-rooted path (`/api/v1/avatar/...`)
  * — we strip the `/api/v1` prefix internally since APIClient adds it.
+ *
  * AuthenticatedAvatarImage 的 props. path 是带 /api/v1 前缀的完整路径,
  * 内部会剥离前缀, 因为 APIClient 自动添加.
  */
@@ -24,6 +26,7 @@ const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012
 /**
  * Encode an ArrayBuffer to a base64 string. RN ≤ 0.85 does NOT reliably ship `btoa` on Hermes;
  * we hand-roll the encoder to keep the encoding deterministic and dependency-free.
+ *
  * 把 ArrayBuffer 编码为 base64. RN ≤ 0.85 在 Hermes 上不一定提供 btoa, 手写编码避免依赖.
  */
 function bufferToBase64(buf: ArrayBuffer): string {
@@ -59,6 +62,7 @@ function bufferToDataUri(buf: ArrayBuffer, mime = "image/jpeg"): string {
 
 /**
  * AuthenticatedAvatarImage — wraps `expo-image` with bearer-authenticated binary fetch.
+ *
  * AuthenticatedAvatarImage — 用受 bearer 认证的二进制 fetch 包裹 expo-image.
  */
 export function AuthenticatedAvatarImage({ apiClient, path, size = 60 }: AuthenticatedAvatarImageProps) {

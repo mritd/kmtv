@@ -1,4 +1,5 @@
 // ProfileStack — wraps ProfileScreen and the four admin sub-screens under one native-stack.
+//
 // ProfileStack — 在同一个 native-stack 下装载 ProfileScreen 与四个管理子页面.
 
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -20,6 +21,7 @@ const Stack = createNativeStackNavigator<ProfileStackParamList>();
 
 /**
  * ProfileStack renders the profile root and pushes admin screens on top when reached.
+ *
  * ProfileStack 渲染 profile 根页, 进入管理时在其上 push 管理页面.
  */
 export function ProfileStack(){
@@ -28,6 +30,7 @@ export function ProfileStack(){
   return (
     // The default native-stack header is light-on-light and ignores the dark theme, so admin sub-screens
     // ended up with a white header on a black body. Mirror FavoritesStack's theme-aware screenOptions.
+    //
     // native-stack 默认 header 是浅色, 不跟随深色主题, 导致 admin 子页面顶栏白底黑字与全局深色不协调. 沿用
     // FavoritesStack 的主题感知 screenOptions.
     <Stack.Navigator

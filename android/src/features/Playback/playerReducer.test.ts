@@ -1,4 +1,5 @@
 // playerReducer tests — every transition exhaustively covered including clamp edges.
+//
 // playerReducer 测试 — 穷尽覆盖每个转移, 含 clamp 边界.
 
 import type { SourceResult, VideoDetail } from "@/api/types";
@@ -34,6 +35,7 @@ test("initialPlayerState seeds sources, key, episodeIndex; defaults everything e
 test("initialPlayerState seeds a placeholder source when destination.sources is empty", () => {
   // Continue-watching entry: only sourceKey + videoId are known. We seed a placeholder so the
   // selection helpers have a current source to anchor to until detailLoaded replaces it.
+  //
   // 继续观看入口仅有 sourceKey + videoId. 占位 source 让选择器在 detailLoaded 替换之前有锚点.
   const s = initialPlayerState([], "k1", "v1", 2);
   expect(s.sources).toHaveLength(1);

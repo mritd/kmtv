@@ -1,4 +1,5 @@
 // OptionalDate component tests — branching on hasUsableDate, placeholder vs formatted output.
+//
 // OptionalDate 组件测试 — hasUsableDate 分支、占位符与格式化输出.
 
 import { render, screen } from "@testing-library/react";
@@ -10,9 +11,11 @@ describe("OptionalDate", () => {
   describe("when value is a valid timestamp", () => {
     it("renders a <span> with the formatted date string", () => {
       // Use a fixed UTC date to avoid local-timezone test fragility.
+      //
       // 使用固定 UTC 日期, 避免因时区不同导致测试结果不稳定.
       render(<OptionalDate value="2025-06-15T10:30:45Z" />);
       // The exact hour may differ by timezone; just assert date-cell class and year are present.
+      //
       // 精确小时可能因时区而异; 仅断言 date-cell 类和年份存在.
       const span = document.querySelector(".date-cell");
       expect(span).not.toBeNull();
@@ -45,6 +48,7 @@ describe("OptionalDate", () => {
 
     it("includes date-cell class alongside date-placeholder for consistent column width", () => {
       // Both branches must apply date-cell so table columns keep the same width.
+      //
       // 两个分支都应用 date-cell, 确保表格列宽一致.
       render(<OptionalDate value="0001-01-01T00:00:00Z" />);
       const span = document.querySelector(".date-cell");
@@ -55,6 +59,7 @@ describe("OptionalDate", () => {
       render(<OptionalDate value="0001-01-01T00:00:00Z" />);
       const span = document.querySelector(".date-placeholder");
       // The aria-label is set to the i18n key "date.missing" with defaultValue "no date".
+      //
       // aria-label 通过 i18n 键 "date.missing" 设置, 默认值 "no date".
       expect(span?.getAttribute("aria-label")).toBeTruthy();
     });

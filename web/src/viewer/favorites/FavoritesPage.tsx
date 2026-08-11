@@ -1,5 +1,6 @@
 /**
  * viewer/favorites/FavoritesPage.tsx — saved-favorites list page.
+ *
  * viewer/favorites/FavoritesPage.tsx — 已收藏列表页面.
  *
  * Responsibilities / 职责:
@@ -16,6 +17,7 @@
  *
  * localStorage key: delegated to storage/favorites.ts (favoritesKey = "kmtv.favorites")
  * Tier 4 locked — do NOT rename the key or change the FavoriteItem schema.
+ *
  * Tier 4 锁定 — 不得重命名 key 或修改 FavoriteItem schema.
  */
 import { useMemo, useState } from "react";
@@ -30,6 +32,7 @@ import { EmptyState } from "@/shared/ui/EmptyState";
 import { PosterImage } from "@/shared/ui/PosterImage";
 
 // normalizedRating trims and rejects the sentinel "0" value that some sources emit when unrated.
+//
 // normalizedRating 修剪并拒绝部分来源在无评分时发出的哨兵值 "0".
 function normalizedRating(rate?: string): string | undefined {
   const value = rate?.trim();
@@ -38,6 +41,7 @@ function normalizedRating(rate?: string): string | undefined {
 
 // homeRatingsByTitle builds a lookup map from the Douban home sections for augmenting stored favorites
 // that were saved before Douban rating data was available.
+//
 // homeRatingsByTitle 从豆瓣主页区块构建查找 map, 用于补充在豆瓣评分数据可用前保存的收藏.
 function homeRatingsByTitle(sections: DoubanHomeSection[]): Map<string, string> {
   const ratings = new Map<string, string>();
@@ -45,6 +49,7 @@ function homeRatingsByTitle(sections: DoubanHomeSection[]): Map<string, string> 
     for (const item of section.items) {
       const rating = normalizedRating(item.rate);
       // Only the first rating for a title is kept; later duplicates are ignored.
+      //
       // 每个标题只保留首个评分; 后续重复项被忽略.
       if (rating && !ratings.has(item.title)) {
         ratings.set(item.title, rating);
@@ -56,6 +61,7 @@ function homeRatingsByTitle(sections: DoubanHomeSection[]): Map<string, string> 
 
 // favoriteRatingValue resolves the display rating for a favorite item.
 // Priority: item's own stored rate → Douban home augmentation → undefined (renders as "N/A").
+//
 // favoriteRatingValue 解析收藏条目的展示评分.
 // 优先级: 条目自身存储的 rate → 豆瓣主页补充 → undefined (渲染为 "N/A").
 function favoriteRatingValue(item: FavoriteItem, homeRatings: Map<string, string>): string | undefined {
@@ -64,16 +70,19 @@ function favoriteRatingValue(item: FavoriteItem, homeRatings: Map<string, string
 
 /**
  * FavoritesPage renders the user's saved-favorites list with rating badges and search/remove actions.
+ *
  * FavoritesPage 渲染用户的收藏列表, 包含评分徽标以及搜索/取消收藏操作.
  *
  * Favorites are read from localStorage on mount and kept in local state for instant removal without
  * a round-trip to the store.
+ *
  * 收藏在挂载时从 localStorage 读取并保存到本地状态, 以便即时删除而无需往返 store.
  */
 export function FavoritesPage() {
   const { t } = useTranslation("viewer");
   const navigate = useNavigate();
   // Local copy of favorites so removal is instant without re-reading localStorage.
+  //
   // 本地收藏副本, 使取消收藏即时生效而无需重新读取 localStorage.
   const [items, setItems] = useState<FavoriteItem[]>(() => listFavorites());
   const homeQuery = useDoubanHomeQuery();
@@ -86,6 +95,7 @@ export function FavoritesPage() {
 
   function removeFavorite(item: FavoriteItem) {
     // toggleFavorite mutates localStorage and returns the updated list.
+    //
     // toggleFavorite 修改 localStorage 并返回更新后的列表.
     setItems(toggleFavorite(item));
   }
@@ -115,6 +125,7 @@ export function FavoritesPage() {
         {items.map((item) => (
           <FavoriteResultCard
             // key uses source_key + video_id for stability; title alone is not unique across sources.
+            //
             // key 使用 source_key + video_id 保持稳定; 仅靠标题在多来源间不唯一.
             key={`${item.source.source_key}-${item.source.video_id}`}
             item={item}
@@ -130,9 +141,11 @@ export function FavoritesPage() {
 
 /**
  * FavoriteResultCard renders a single favorite item as an article card.
+ *
  * FavoriteResultCard 将单个收藏条目渲染为 article 卡片.
  *
  * This component is file-private; only FavoritesPage should render it.
+ *
  * 此组件为文件私有; 只有 FavoritesPage 应渲染它.
  *
  * @param item - The favorite item to display — 要显示的收藏条目
@@ -154,6 +167,7 @@ function FavoriteResultCard({
   const { t } = useTranslation("viewer");
   const subtitle = [item.type, item.year].filter(Boolean).join(" | ");
   // Fall back to i18n "N/A" label when ratingValue is absent.
+  //
   // 当 ratingValue 缺失时回退到 i18n "N/A" 标签.
   const ratingLabel = ratingValue ?? t("favorites.cardRatingMissing");
 

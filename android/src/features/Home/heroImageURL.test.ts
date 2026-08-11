@@ -1,4 +1,5 @@
 // heroImageURL mirrors HomeView.swift heroImageURL(_:).
+//
 // heroImageURL 与 HomeView.swift 中 heroImageURL(_:) 保持一致.
 
 import { heroImageURL } from "./heroImageURL";

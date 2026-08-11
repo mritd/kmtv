@@ -7,11 +7,13 @@ import { ScrollToTop } from "../ScrollToTop";
 
 // A page tall enough that a real browser could scroll it, with a link onward and a
 // back button so a test can drive PUSH and POP through the same router.
+//
 // 一个足以产生滚动的高页面, 带有前往下一页的链接与返回按钮,
 // 使测试可以在同一个 router 中同时驱动 PUSH 与 POP.
 function Page({ name, to }: { name: string; to: string }) {
   // navigate(-1) is what drives a POP here: MemoryRouter keeps its own history and
   // does not listen to window.history, so window.history.back() would do nothing.
+  //
   // 这里用 navigate(-1) 触发 POP: MemoryRouter 自持一套 history, 不监听 window.history,
   // 因此 window.history.back() 不会起作用.
   const navigate = useNavigate();
@@ -57,6 +59,7 @@ describe("ScrollToTop", () => {
 
     // React Router reports the initial navigation as POP, so a reload keeps the
     // position the browser restored rather than being pulled to the top.
+    //
     // React Router 将初始导航报告为 POP, 因此刷新时保留浏览器恢复的位置,
     // 而不会被拉回顶部.
     expect(scrollTo).not.toHaveBeenCalled();
@@ -72,6 +75,7 @@ describe("ScrollToTop", () => {
     // The regression this guards: opening a title from halfway down the search
     // results used to land on the detail page still scrolled, hiding the top of
     // the player behind the sticky nav.
+    //
     // 此处防护的回归: 从搜索结果中部点开片子, 进入详情页时仍保持滚动量,
     // 播放器顶部被吸顶导航挡住.
     expect(scrollTo).toHaveBeenCalledWith(0, 0);
@@ -90,6 +94,7 @@ describe("ScrollToTop", () => {
 
     // Back and forward are the browser's to restore; scrolling to the top here
     // would throw away the position the user is returning to.
+    //
     // 前进与后退的位置恢复归浏览器管; 在此滚到顶部会丢弃用户正要返回的位置.
     expect(scrollTo).not.toHaveBeenCalled();
   });

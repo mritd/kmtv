@@ -1,5 +1,6 @@
 /**
  * HomeSkeleton — Suspense fallback mirroring the HomePage full structure.
+ *
  * HomeSkeleton — 镜像 HomePage 完整结构的 Suspense 回退组件.
  *
  * Responsibilities / 职责:
@@ -15,8 +16,11 @@
  *       .home-content — 2 × .rail-section with section-heading + .poster-rail (8 tiles each)
  *   Reuses live classNames (.home-hero, .hero-stage, .rail-section, .poster-rail, etc.)
  *   so the page-level CSS handles all layout; zero drift risk between skeleton and real page.
+ *
  *   镜像 HomePage:
+ *
  *     .home-skeleton
+ *
  *       .home-hero — hero 区含 eyebrow + h1 + meta 行 + 描述 + 海报
  *         .hero-controls — 操作按钮 + 点状指示器
  *       .home-content — 2 × .rail-section 含 section-heading + .poster-rail (每个 8 格)
@@ -24,13 +28,14 @@
  *   让页面级 CSS 处理所有布局; 骨架与真实页面之间零漂移风险.
  *
  * Callers / 调用方:
- *   app/AppRoutes.tsx (Suspense fallback for the / home lazy route)
+ *   app/AppRoutes.tsx (Suspense fallback for the lazy root route, /)
  *
  * Test exclusion / 测试排除:
  *   This file matches the vitest.config.ts coverage exclude pattern for skeletons directories.
  *   No tests are needed: this component has no conditional branches, no state, and no callbacks.
  *   Array.from() calls are static; there is no branching logic anywhere in this file.
  *   Visual correctness is validated by E2E Suspense observation.
+ *
  *   此文件匹配 vitest.config.ts 的 skeletons 目录覆盖率排除模式.
  *   无需测试: 该组件无条件分支、无状态、无回调.
  *   Array.from() 调用为静态; 文件中无任何分支逻辑.
@@ -41,10 +46,12 @@ import { Skeleton } from "@/shared/ui/Skeleton";
 
 /**
  * HomeSkeleton — pure presentational Suspense fallback for HomePage.
+ *
  * HomeSkeleton — HomePage 的纯展示型 Suspense 回退.
  *
  * Renders the hero section and two rail sections with Skeleton placeholders.
  * The same-column rhythm keeps the page from jumping when the real content arrives.
+ *
  * 渲染 hero 区和两个 rail 区的骨架占位符.
  * 相同的列节奏防止真实内容出现时页面跳动.
  */

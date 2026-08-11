@@ -1,4 +1,5 @@
 // DiagnosticsScreen — view recent uncaught + console errors captured by installGlobalErrorHandler.
+//
 // DiagnosticsScreen — 查看由 installGlobalErrorHandler 捕获的近期未捕获 + console 错误.
 
 import React, { useCallback, useState } from "react";
@@ -11,6 +12,7 @@ import { useTheme } from "@/designSystem/useTheme";
 
 /**
  * DiagnosticsScreen — list of recent error entries with a clear button.
+ *
  * DiagnosticsScreen — 近期错误条目列表 + 清空按钮.
  */
 export function DiagnosticsScreen() {

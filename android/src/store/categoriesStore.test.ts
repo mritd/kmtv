@@ -1,4 +1,5 @@
 // categoriesStore tests cover MMKV-persisted selection, per-server isolation, group reset rule.
+//
 // categoriesStore 测试覆盖 MMKV 持久化选择、按服务器隔离、切换分组重置规则.
 
 import { _resetForTests } from "@/storage/mmkv";

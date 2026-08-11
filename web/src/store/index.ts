@@ -1,5 +1,6 @@
 /**
  * store/index.ts — barrel re-export for all Zustand store modules.
+ *
  * store/index.ts — 所有 Zustand store 模块的统一桶导出.
  *
  * Responsibilities / 职责:
@@ -14,14 +15,17 @@
  *
  * Callers / 调用方:
  *   Any component or hook that reads or writes application state.
+ *
  *   任何读取或写入应用状态的组件或 hook.
  *
  * TIER 4 LOCKED — do NOT remove or rename any existing re-export; additions are free.
+ *
  * Tier 4 锁定 — 不得删除或重命名任何现有重导出; 可以新增.
  */
 
 /**
  * searchStore — Zustand vanilla store for SSE-backed search lifecycle.
+ *
  * searchStore — 支持 SSE 的搜索生命周期 Zustand vanilla store.
  */
 export { searchStore } from "./searchStore";
@@ -64,18 +68,21 @@ export type { DetailEntry, DetailState } from "./detailStore";
 
 /**
  * adminModalStore — Zustand vanilla store driving the admin modal dialog.
+ *
  * adminModalStore — 驱动管理弹窗的 Zustand vanilla store.
  */
 export { adminModalStore } from "./adminModalStore";
 
 /**
  * categoriesStore — Zustand vanilla store holding the browse-page filter selection.
+ *
  * categoriesStore — 持有浏览页筛选选择的 Zustand vanilla store.
  */
 export { categoriesStore } from "./categoriesStore";
 
 /**
  * CategoriesState — full state + action shape of categoriesStore.
+ *
  * CategoriesState — categoriesStore 的完整状态与 action 定义.
  */
 export type { CategoriesState } from "./categoriesStore";
@@ -91,12 +98,14 @@ export type { AdminModalPayload, AdminModalState } from "./adminModalStore";
 
 /**
  * useI18nStore — Zustand hook store persisting the device-level language preference.
+ *
  * useI18nStore — 持久化设备级语言偏好的 Zustand hook store.
  */
 export { useI18nStore } from "./i18nStore";
 
 /**
  * Lang — supported locale identifiers: "zh" | "en".
+ *
  * Lang — 支持的语言标识: "zh" | "en".
  */
 export type { Lang } from "./i18nStore";

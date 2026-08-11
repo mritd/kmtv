@@ -1,18 +1,28 @@
 /**
  * SystemSettingsPanel — admin panel for viewing and editing system-wide configuration.
+ *
  * SystemSettingsPanel — 查看和编辑系统全局配置的管理面板.
  *
  * Responsibilities / 职责:
  *   - Display all editable settings in a two-column read-only list by default.
+ *
  *     默认以两列只读列表展示所有可编辑配置项.
+ *
  *   - Switch to an edit form on "Edit" click; validate fields inline before submitting.
+ *
  *     点击 "编辑" 切换为编辑表单; 提交前内联校验各字段.
+ *
  *   - Sync local form state with server state on query refetch (only when not editing).
+ *
  *     查询刷新时将本地状态同步为服务端状态 (仅在非编辑状态下).
+ *
  *   - Submit only the diff (changed keys) to avoid overwriting concurrent edits on other keys.
+ *
  *     仅提交变更的键, 避免覆盖其他并发编辑.
+ *
  *   - Render InlineSettingField — a sub-component that picks the appropriate input widget
  *     based on EditableSettingEntry.kind (boolean toggle, enum select, number, url/text).
+ *
  *     渲染 InlineSettingField — 根据 EditableSettingEntry.kind 选择输入控件的子组件
  *     (布尔开关、枚举选择、数字、url/text).
  *
@@ -24,6 +34,7 @@
  *
  * Settings schema lives in forms/editableSettingsSchema.ts (fe-3 scope).
  * Clamp ranges in the schema must stay aligned with server/internal/runtime/settings.go.
+ *
  * 配置模式定义在 forms/editableSettingsSchema.ts (fe-3 范围).
  * 模式中的范围约束必须与 server/internal/runtime/settings.go 保持同步.
  */
@@ -41,11 +52,11 @@ import { useSettingsMutation } from "./hooks/useSettingsMutation";
 import { SettingsListSkeleton } from "./skeletons/AdminTableSkeleton";
 
 // defaultValue provides the local-state initial value for a setting when the server
-// has not yet returned a value for it.  Boolean defaults to "false" (the safer option);
+// has not yet returned a value for it. Boolean defaults to "false";
 // enum defaults to the first option; all other kinds default to "".
-// defaultValue
+//
 // 当服务端尚未返回某配置项的值时提供本地状态的初始值.
-// boolean 默认 "false" (更安全的选项); enum 默认第一个选项; 其他类型默认 "".
+// boolean 默认 "false"; enum 默认第一个选项; 其他类型默认 "".
 function defaultValue(entry: EditableSettingEntry): string {
   if (entry.kind === "boolean") return "false";
   if (entry.kind === "enum" && entry.options) return entry.options[0]?.value ?? "";
@@ -54,10 +65,12 @@ function defaultValue(entry: EditableSettingEntry): string {
 
 /**
  * SystemSettingsPanel renders the editable system settings list.
+ *
  * SystemSettingsPanel 渲染可编辑的系统配置列表.
  *
  * Renders a skeleton while loading, an error state on failure, and the two-column
  * read-only list (or edit form) on success.
+ *
  * 加载中显示骨架屏, 失败时显示错误状态, 成功时显示两列只读列表 (或编辑表单).
  */
 export function SystemSettingsPanel() {
@@ -66,10 +79,12 @@ export function SystemSettingsPanel() {
   const mutation = useSettingsMutation();
   const [isEditing, setIsEditing] = useState(false);
   // values holds the current form state (edited or read-only mirror of server data).
+  //
   // values 持有当前表单状态 (编辑中或服务端数据的只读镜像).
   const [values, setValues] = useState<Record<string, string>>({});
   // initial is the server-side snapshot captured at the last successful fetch or save.
   // Diff against initial before submitting to send only changed keys.
+  //
   // initial 是最近一次成功获取或保存时的服务端快照.
   // 提交前与 initial 对比, 只发送变更的键.
   const [initial, setInitial] = useState<Record<string, string>>({});
@@ -77,6 +92,7 @@ export function SystemSettingsPanel() {
 
   // Sync local values with server state whenever the query refetches;
   // only overwrite while not actively editing.
+  //
   // 查询刷新时同步本地状态; 编辑中不覆盖, 避免吞掉用户输入.
   useEffect(() => {
     if (!query.data) return;
@@ -119,6 +135,7 @@ export function SystemSettingsPanel() {
       const raw = values[entry.key] ?? "";
       // Only true URL fields receive URL validation; enums and other text fields
       // use their own value sets.
+      //
       // 只有真正的 URL 字段做 URL 校验; enum 等使用各自取值集合.
       if (entry.kind === "url") {
         const issue = validatePublicBaseURL(raw);
@@ -183,6 +200,7 @@ export function SystemSettingsPanel() {
     if (entry.kind === "enum") {
       // Map enum codes to localized labels via `settings.<i18nNamespace>.<value>`;
       // fall back to the raw value when the entry has no namespace or the key is missing.
+      //
       // 通过 `settings.<i18nNamespace>.<value>` 取本地化标签; 没声明命名空间或缺 key 时回退原值.
       const ns = entry.i18nNamespace;
       const path = ns ? `settings.${ns}.${raw}` : raw;
@@ -253,18 +271,18 @@ export function SystemSettingsPanel() {
 //   "url"|"text" → plain <input>
 //
 // The `invalid` flag toggles aria-invalid and data-invalid attributes so CSS can
-// style the field without needing a class, keeping the logic in the schema layer.
+// style invalid fields without a dedicated class.
 //
-// InlineSettingField
 // 为单个可编辑配置项渲染合适的输入控件.
 // 控件类型由 entry.kind 决定:
 //   "boolean" → 切换复选框 (存储为 "true"/"false" 字符串)
+//
 //   "enum"    → <Select> (选项来自 entry.options)
+//
 //   "number"  → 带可选 min/max/step 约束的 <input type=number>
 //   "url"|"text" → 普通 <input>
 //
-// invalid 标志切换 aria-invalid 和 data-invalid 属性, 让 CSS 无需额外 class 即可样式化错误字段,
-// 将逻辑保留在 schema 层.
+// invalid 标志切换 aria-invalid 和 data-invalid 属性, 让 CSS 无需专用 class 即可设置错误样式.
 function InlineSettingField({
   entry,
   value,
@@ -296,11 +314,11 @@ function InlineSettingField({
       );
     case "enum": {
       const ns = entry.i18nNamespace;
-      // The raw code (e.g. "direct") is the fallback when an entry declares no namespace or
-      // the key is absent. It reads worse than a translated label but is at least neutral —
-      // the previous fallback was a Chinese string baked into the schema.
-      // 未声明命名空间或 key 缺失时, 回退到原始码值 (如 "direct").
-      // 它不如翻译后的标签好看, 但至少是中立的 — 此前的回退是写死在 schema 里的中文.
+      // Fall back to the raw code (for example, "direct") when an entry has no namespace
+      // or the translation key is missing. This keeps schema data language-neutral.
+      //
+      // 条目未声明命名空间或翻译 key 缺失时, 回退到原始码值 (如 "direct").
+      // 这样可以让 schema 数据保持语言中立.
       const opts = (entry.options ?? []).map((opt) => ({
         value: opt.value,
         label: ns ? t(`settings.${ns}.${opt.value}` as never, { defaultValue: opt.value }) : opt.value,

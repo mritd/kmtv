@@ -1,4 +1,5 @@
 // AuthenticatedAvatarImage tests — covers happy path, fetch failure, and btoa-absent encoder.
+//
 // AuthenticatedAvatarImage 测试 — 覆盖正常路径、拉取失败与无 btoa 情况下的编码.
 
 import { render, waitFor } from "@testing-library/react-native";
@@ -40,6 +41,7 @@ describe("AuthenticatedAvatarImage", () => {
 
   it("encodes without depending on global.btoa", async () => {
     // Hermes on RN 0.85 does not reliably ship btoa; the implementation must NOT call it.
+    //
     // RN 0.85 的 Hermes 不一定提供 btoa, 实现禁止依赖该全局.
     const original = (globalThis as { btoa?: unknown }).btoa;
     (globalThis as { btoa?: unknown }).btoa = undefined;

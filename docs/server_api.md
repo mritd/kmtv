@@ -268,6 +268,8 @@ Common errors: `400 InvalidRequest`, `400 UnknownSetting`, `500 ServerError`.
 
 Protected. Aggregates search results across enabled and healthy video sources.
 
+Results are merged only when `title` and `year` match after trimming leading and trailing whitespace. Internal whitespace, punctuation, symbols, and letter case remain significant, so textually different titles stay in separate result cards. Within one result, `sources` contains at most one entry for each `source_key`.
+
 Query parameters:
 
 | Name   | Required | Default | Description        |
@@ -509,8 +511,9 @@ Success `200`:
 {"message": "watch history cleared"}
 ```
 
-`event_time_ms` must be a positive integer; the server clamps values ahead of its own clock so a
-fast client clock cannot block that user's later writes.
+`event_time_ms` must be a positive integer. The server preserves a value up to one second ahead of
+its own clock so consecutive events from the same client remain ordered, but clamps larger future
+values to server time so a fast client clock cannot block that user's later writes.
 
 Common errors: `400 InvalidRequest`, `401 NotLoggedIn`, `500 ServerError`.
 

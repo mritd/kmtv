@@ -1,13 +1,20 @@
 /**
  * SourceForm — create / edit form for a single video source.
+ *
  * SourceForm — 单个视频源的新建 / 编辑表单.
  *
  * Responsibilities / 职责:
- *   - Validate key, name, and api fields as required — 校验 key/name/api 字段必填
- *   - Auto-suggest enabled=false for new sources marked is_adult — 新建标记为 is_adult 的源时自动建议 disabled
- *   - Lock auto-suggest once the user has explicitly toggled the enabled checkbox — 用户手动操作后锁定自动建议
- *   - Dispatch create or update mutation based on whether a source is provided — 根据是否传入 source 分发新建/更新 mutation
- *   - Show toast on mutation error — mutation 错误时显示 toast
+ *   - Validate key, name, and api as required fields.
+ *   - Keep enabled opposite to is_adult for untouched create forms.
+ *   - Stop automatic enabled changes after the user explicitly toggles it.
+ *   - Dispatch create or update based on whether a source is provided.
+ *   - Show a toast when the mutation fails.
+ *
+ *   - 校验 key, name 和 api 为必填字段.
+ *   - 新建表单未手动修改 enabled 时, 保持 enabled 与 is_adult 相反.
+ *   - 用户明确切换 enabled 后停止自动调整.
+ *   - 根据是否传入 source 分发 create 或 update mutation.
+ *   - mutation 失败时显示 toast.
  *
  * Key exports / 主要导出:
  *   SourceForm
@@ -27,6 +34,7 @@ import { useSourcesMutations } from "../hooks/useSourcesMutations";
 import { useForm } from "./useForm";
 
 // SourceFormValues mirrors the editable fields of SourcePayload.
+//
 // SourceFormValues 镜像 SourcePayload 的可编辑字段.
 type SourceFormValues = {
   key: string;
@@ -40,6 +48,7 @@ type SourceFormValues = {
 };
 
 // valuesFromSource converts an optional existing Source into the form's initial values.
+//
 // valuesFromSource 将可选的已有 Source 转换为表单初始值.
 function valuesFromSource(source: Source | undefined): SourceFormValues {
   return {
@@ -55,6 +64,7 @@ function valuesFromSource(source: Source | undefined): SourceFormValues {
 }
 
 // payloadFromValues converts form values into the API payload shape.
+//
 // payloadFromValues 将表单值转换为 API 提交形态.
 function payloadFromValues(values: SourceFormValues): SourcePayload {
   return { ...values };
@@ -62,12 +72,15 @@ function payloadFromValues(values: SourceFormValues): SourcePayload {
 
 /**
  * SourceForm renders the source create/edit modal form.
+ *
  * SourceForm 渲染视频源新建/编辑弹窗表单.
  *
  * When `source` is undefined the form is in "new" mode; otherwise "edit" mode.
+ *
  * source 为 undefined 时为新建模式, 否则为编辑模式.
  *
  * In edit mode the `key` field is disabled (keys are immutable after creation).
+ *
  * 编辑模式下 key 字段禁用 (key 创建后不可修改).
  */
 export function SourceForm({ source, onDone }: { source?: Source; onDone: () => void }) {
@@ -81,15 +94,16 @@ export function SourceForm({ source, onDone }: { source?: Source; onDone: () => 
   });
 
   // enabledDirtyRef tracks whether the user has explicitly toggled enabled.
-  // While clean (new-source path only), toggling is_adult on flips enabled to
-  // false; any user toggle locks the field from automatic changes.
-  // enabledDirtyRef
-  // 记录用户是否手动切换过 enabled. 在未触碰时(仅新建路径), 勾选 is_adult 会自动设为 false;
-  // 一旦用户主动操作即锁定, 后续不再自动调整.
+  // In create mode, enabled follows the inverse of is_adult until the user explicitly
+  // changes enabled. Edit mode starts dirty so existing values are never rewritten.
+  //
+  // enabledDirtyRef 记录用户是否手动切换过 enabled. 新建模式下, 用户手动修改 enabled 前,
+  // enabled 始终跟随 is_adult 的反值. 编辑模式初始即为 dirty, 避免改写已有值.
   const enabledDirtyRef = useRef<boolean>(isEdit);
 
-  // Auto-suggest enabled=false for new sources marked is_adult until the user opts in.
-  // 新建标记为 is_adult 的源时, 在用户未手动操作前自动建议 enabled=false.
+  // Keep enabled opposite to is_adult for untouched create forms.
+  //
+  // 新建表单尚未手动修改 enabled 时, 保持 enabled 与 is_adult 相反.
   useEffect(() => {
     if (isEdit) return;
     if (enabledDirtyRef.current) return;
@@ -101,6 +115,7 @@ export function SourceForm({ source, onDone }: { source?: Source; onDone: () => 
   }, [values.is_adult, values.enabled, isEdit, setField]);
 
   // handleEnabledChange marks the field as user-controlled and updates the value.
+  //
   // handleEnabledChange 将字段标记为用户控制并更新值.
   function handleEnabledChange(next: boolean) {
     enabledDirtyRef.current = true;

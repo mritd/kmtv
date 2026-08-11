@@ -1,4 +1,5 @@
 // CustomSlider tests — drive the drag callbacks via the test escape hatch.
+//
 // CustomSlider 测试 — 通过测试逃生口驱动拖动回调.
 
 import { render } from "@testing-library/react-native";

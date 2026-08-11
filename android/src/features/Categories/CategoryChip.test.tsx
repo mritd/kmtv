@@ -1,4 +1,5 @@
 // CategoryChip render + press + active state tests.
+//
 // CategoryChip 渲染、点击与选中态测试.
 
 import { fireEvent, render, screen } from "@testing-library/react-native";

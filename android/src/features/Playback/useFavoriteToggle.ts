@@ -1,4 +1,5 @@
 // useFavoriteToggle — small hook owning is-favorited state for one (sourceKey, videoId) tuple.
+//
 // useFavoriteToggle — 承载单个 (sourceKey, videoId) 元组收藏状态的小 hook.
 
 import { useCallback, useEffect, useState } from "react";
@@ -9,6 +10,7 @@ import {
 
 /**
  * Args for useFavoriteToggle — full metadata, since iOS persists title/cover/type/year.
+ *
  * useFavoriteToggle 的参数 — 包含完整元数据, 因为 iOS 也会持久化 title/cover/type/year.
  */
 export interface UseFavoriteToggleArgs {
@@ -18,6 +20,7 @@ export interface UseFavoriteToggleArgs {
 
 /**
  * useFavoriteToggle — returns the current is-favorited flag and a synchronous toggle.
+ *
  * useFavoriteToggle — 返回当前收藏标志与同步切换函数.
  */
 export function useFavoriteToggle({ serverURL, item }: UseFavoriteToggleArgs) {

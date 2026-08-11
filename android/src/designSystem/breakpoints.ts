@@ -1,4 +1,5 @@
 // Tablet width breakpoints mirror design spec section 4 (Phone vs tablet).
+//
 // 平板宽度断点与设计 spec 第 4 节 (手机 vs 平板) 保持一致.
 
 import { useWindowDimensions } from "react-native";
@@ -11,6 +12,7 @@ export type LayoutWidth = "phone" | "tablet" | "largeTablet";
 
 /**
  * Classify a width in density-independent pixels into phone / tablet / largeTablet.
+ *
  * 将 dp 宽度归类为 phone / tablet / largeTablet.
  */
 export function pickLayoutWidth(width: number): LayoutWidth {
@@ -21,6 +23,7 @@ export function pickLayoutWidth(width: number): LayoutWidth {
 
 /**
  * Hook returning the current LayoutWidth, reactive to dimension changes.
+ *
  * 返回当前 LayoutWidth 的 hook, 跟随尺寸变化更新.
  */
 export function useLayoutWidth(): LayoutWidth {
@@ -30,6 +33,7 @@ export function useLayoutWidth(): LayoutWidth {
 
 /**
  * Poster grid column count per spec section 4 thresholds.
+ *
  * 按 spec 第 4 节阈值计算海报网格列数.
  */
 export function pickNumColumns(width: number): number {

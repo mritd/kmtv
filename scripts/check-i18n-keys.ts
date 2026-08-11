@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 // check-i18n-keys verifies every locale has the same set of keys per namespace.
-// check-i18n-keys
-// 校验每个 namespace 下各语言资源拥有相同 key 集.
+//
+// check-i18n-keys 校验每个 namespace 下各语言资源拥有相同的 key 集合.
 
 import enAccount from "../web/src/i18n/locales/en/account";
 import enAdmin from "../web/src/i18n/locales/en/admin";

@@ -1,4 +1,5 @@
 // Skeleton uses reanimated to loop a brightness change as the loading placeholder.
+//
 // Skeleton 使用 reanimated 循环亮度变化作为加载占位.
 
 import React, { useEffect } from "react";
@@ -23,6 +24,7 @@ interface Props {
 
 /**
  * Skeleton placeholder pulsing between 0.5 and 1.0 opacity in a 750 ms reverse-repeat loop.
+ *
  * 在 750 ms 反向循环中, 在 0.5 与 1.0 之间脉动的占位骨架.
  */
 export function Skeleton({ width, height, radius = sizes.radius.md, testID }: Props) {

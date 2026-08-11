@@ -1,4 +1,5 @@
 // IncognitoAvatar component tests.
+//
 // IncognitoAvatar 组件测试.
 
 import { render, screen } from "@testing-library/react";
@@ -32,6 +33,7 @@ describe("IncognitoAvatar", () => {
     const { container } = render(<IncognitoAvatar />);
     const svg = container.querySelector("svg");
     // class attribute should be absent or empty when no className is passed.
+    //
     // 未传 className 时 class 属性应缺失或为空.
     expect(svg?.getAttribute("class") ?? "").toBe("");
   });

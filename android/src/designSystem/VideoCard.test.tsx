@@ -1,4 +1,5 @@
 // VideoCard tests cover rating fallback, missing year, and presence of poster.
+//
 // VideoCard 测试覆盖评分回退、缺失年份、海报显示.
 
 import { render } from "@testing-library/react-native";

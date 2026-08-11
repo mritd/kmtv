@@ -1,4 +1,5 @@
 // serverStore exposes the currently selected server URL as zustand state.
+//
 // serverStore 将当前选择的服务器 URL 以 zustand 状态形式暴露.
 
 import { create } from "zustand";
@@ -14,6 +15,7 @@ interface ServerState {
 
 /**
  * Zustand store for the active server URL, persisted via MMKV.
+ *
  * 通过 MMKV 持久化的当前服务器 URL zustand store.
  */
 export const useServerStore = create<ServerState>((set) => ({

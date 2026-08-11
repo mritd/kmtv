@@ -1,15 +1,23 @@
 /**
  * AccountPage — user account management route (/account).
+ *
  * AccountPage — 用户账号管理路由 (/account).
  *
  * Responsibilities / 职责:
  *   - Show the profile editor (username + avatar) for authenticated users.
+ *
  *     为已认证用户显示 profile 编辑器 (用户名 + 头像).
+ *
  *   - Show LoginPromptCard in place of the profile editor for anonymous users.
+ *
  *     匿名用户时以 LoginPromptCard 替代 profile 编辑器.
+ *
  *   - Always show ThemeSettings regardless of auth state.
+ *
  *     无论认证状态, 始终显示主题设置.
+ *
  *   - Submit profile updates via the API and surface success / error toasts.
+ *
  *     通过 API 提交 profile 更新, 显示成功/失败 Toast.
  *
  * Key exports / 主要导出:
@@ -35,10 +43,12 @@ import { ThemeSettings } from "./ThemeSettings";
 
 /**
  * AccountPage is the root component for the /account route.
+ *
  * AccountPage 是 /account 路由的根组件.
  *
  * The profile form is only rendered when `auth.isAnonymous` is false.
  * Anonymous visitors see LoginPromptCard instead so they can navigate to /login.
+ *
  * 仅当 auth.isAnonymous 为 false 时渲染 profile 表单.
  * 匿名访客显示 LoginPromptCard 以引导登录.
  */
@@ -50,6 +60,7 @@ export function AccountPage() {
 
   // saveProfile submits the trimmed username to the API and refreshes the auth snapshot on success.
   // The error handler prefers the APIError message (server-supplied) over generic Error.message.
+  //
   // saveProfile 将修剪后的用户名提交到 API, 成功后刷新 auth 快照.
   // 错误处理优先使用 APIError 消息 (服务端返回), 其次用 Error.message.
   async function saveProfile(event: FormEvent<HTMLFormElement>) {

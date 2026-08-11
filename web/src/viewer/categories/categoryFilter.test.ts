@@ -1,9 +1,11 @@
 /**
  * Tests for categoryFilter — selection resolution + recommend-filter derivation.
+ *
  * categoryFilter 测试 — 选择解析 + 推荐筛选参数推导.
  *
  * Focus: the non-obvious format rule (sub overrides format only when it has its own kind),
  * the group-switch reset behaviour via fallback, and empty-list edge cases.
+ *
  * 重点: 不直观的 format 规则 (子分类仅在自带 kind 时覆盖 format)、通过回退实现的切组重置行为、空列表边界.
  */
 
@@ -13,6 +15,7 @@ import type { CategoryGroup } from "@/api/types";
 import { resolveRecommendFilter, resolveSelection } from "./categoryFilter";
 
 // movieGroup: a group whose sub-categories do NOT carry their own kind (format follows the group).
+//
 // movieGroup: 子分类不自带 kind 的分组 (format 跟随分组).
 const movieGroup: CategoryGroup = {
   key: "movie",
@@ -30,6 +33,7 @@ const movieGroup: CategoryGroup = {
 };
 
 // showGroup: a group whose sub-categories carry their own kind+format (sub overrides format).
+//
 // showGroup: 子分类自带 kind+format 的分组 (子分类覆盖 format).
 const showGroup: CategoryGroup = {
   key: "show",
@@ -69,6 +73,7 @@ describe("resolveSelection", () => {
 
   it("resets sub and region to the new group's first option when names do not exist there", () => {
     // Selection still carries movie-group names, but the group switched to "show".
+    //
     // 选择仍带着电影分组的名称, 但分组已切到「综艺」.
     const resolved = resolveSelection(groups, { groupKey: "show", subName: "喜剧", regionName: "美国" });
     expect(resolved.group?.key).toBe("show");
@@ -120,6 +125,7 @@ describe("resolveRecommendFilter", () => {
   it("yields an empty format when the sub-category has a kind but a blank format", () => {
     const resolved = resolveSelection(groups, { groupKey: "show", subName: "纪录片", regionName: null });
     // sub has kind "tv" so format follows the sub (""), NOT the group format ("tv").
+    //
     // 子分类自带 kind "tv", 因此 format 跟随子分类 (""), 而非分组 format ("tv").
     expect(resolveRecommendFilter(resolved)).toMatchObject({ kind: "tv", format: "" });
   });
@@ -131,6 +137,7 @@ describe("resolveRecommendFilter", () => {
       douban_kind: "movie",
       format: "groupfmt",
       // kind is present but empty: iOS `sub?.kind != nil` is true, so format follows the sub ("subfmt").
+      //
       // kind 存在但为空: iOS `sub?.kind != nil` 为真, 因此 format 跟随子分类 ("subfmt").
       subcategories: [{ name: "S", tag: "t", kind: "", format: "subfmt" }],
       regions: [],

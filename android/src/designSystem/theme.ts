@@ -1,8 +1,10 @@
 // Theme tokens mirroring apple/Shared/DesignSystem/Theme.swift.
+//
 // 镜像 apple/Shared/DesignSystem/Theme.swift 的主题 token.
 
 /**
  * Strong palette shape used by both light and dark variants.
+ *
  * 浅色与深色变体共用的调色板形状.
  */
 export interface ColorPalette {
@@ -17,6 +19,7 @@ export interface ColorPalette {
 
 /**
  * Layout size tokens shared across themes.
+ *
  * 跨主题共享的尺寸 token.
  */
 export interface SizeTokens {
@@ -28,6 +31,7 @@ export interface SizeTokens {
 
 /**
  * Light palette mirrors Theme.swift light variants.
+ *
  * 浅色调色板与 Theme.swift light 分支保持一致.
  */
 export const lightColors: ColorPalette = {
@@ -42,6 +46,7 @@ export const lightColors: ColorPalette = {
 
 /**
  * Dark palette mirrors Theme.swift dark variants.
+ *
  * 深色调色板与 Theme.swift dark 分支保持一致.
  */
 export const darkColors: ColorPalette = {
@@ -56,6 +61,7 @@ export const darkColors: ColorPalette = {
 
 /**
  * Layout size tokens. heroHeightTablet kicks in at width >= 600 dp per the design spec.
+ *
  * 尺寸 token. heroHeightTablet 在宽度 >= 600 dp 时生效, 与设计 spec 对齐.
  */
 export const sizes: SizeTokens = {
@@ -67,6 +73,7 @@ export const sizes: SizeTokens = {
 
 /**
  * Theme mode flag used by the ThemeProvider override resolution.
+ *
  * ThemeProvider 解析覆盖时使用的主题模式标记.
  */
 export type ThemeMode = "light" | "dark";

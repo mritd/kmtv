@@ -8,6 +8,7 @@ import (
 )
 
 // DoubanService provides access to Douban movie/TV data.
+//
 // DoubanService 提供 Douban 影视数据访问能力.
 type DoubanService struct {
 	client *http.Client
@@ -15,12 +16,14 @@ type DoubanService struct {
 }
 
 // NewDoubanService creates a new DoubanService.
+//
 // NewDoubanService 创建一个新的 DoubanService.
 func NewDoubanService(s *store.Store) *DoubanService {
 	return NewDoubanServiceWithClient(s, NewSSRFSafeClient(10*time.Second))
 }
 
 // NewDoubanServiceWithClient creates a DoubanService with an injected HTTP client.
+//
 // NewDoubanServiceWithClient 使用注入的 HTTP client 创建 DoubanService.
 func NewDoubanServiceWithClient(s *store.Store, client *http.Client) *DoubanService {
 	if client == nil {

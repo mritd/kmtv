@@ -22,6 +22,7 @@ type authVerifier interface {
 
 // anonAccessCache caches the anonymous_access setting to avoid querying the
 // database on every request. The value is refreshed every 30 seconds.
+//
 // anonAccessCache 缓存 anonymous_access 设置, 避免每个请求都查询数据库.
 // 缓存值每 30 秒刷新一次.
 var anonAccessCache struct {
@@ -32,6 +33,7 @@ var anonAccessCache struct {
 
 // ResetAnonAccessCache clears the cached anonymous_access value.
 // Intended for use in tests and when settings are updated.
+//
 // ResetAnonAccessCache 清除 anonymous_access 缓存值.
 // 用于测试以及设置被更新时.
 func ResetAnonAccessCache() {
@@ -42,6 +44,7 @@ func ResetAnonAccessCache() {
 }
 
 // trySetUser attempts to resolve a bearer token and set user context.
+//
 // trySetUser 尝试解析 bearer token, 并设置用户上下文.
 func trySetUser(c *gin.Context, verifier authVerifier) bool {
 	token := utils.ExtractBearerToken(c.GetHeader("Authorization"))
@@ -61,6 +64,7 @@ func trySetUser(c *gin.Context, verifier authVerifier) bool {
 
 // OptionalAuth tries to resolve bearer authentication and set user context.
 // Always allows the request through regardless of authentication result.
+//
 // OptionalAuth 尝试解析 bearer 认证并设置用户上下文.
 // 无论认证结果如何都会放行请求.
 func OptionalAuth(verifier authVerifier) gin.HandlerFunc {
@@ -72,6 +76,7 @@ func OptionalAuth(verifier authVerifier) gin.HandlerFunc {
 
 // Auth checks authentication. If anonymous_access setting is "true", allows all
 // requests through. Otherwise checks the bearer token and sets user context.
+//
 // Auth 检查认证状态. 如果 anonymous_access 为 "true", 则允许所有请求通过.
 // 否则会校验 bearer token 并设置用户上下文.
 func Auth(s *store.Store, verifier authVerifier) gin.HandlerFunc {
@@ -87,6 +92,7 @@ func Auth(s *store.Store, verifier authVerifier) gin.HandlerFunc {
 		}
 
 		// No bearer token at all; allow through as anonymous if enabled.
+		//
 		// 完全没有 bearer token 时, 如果启用了匿名访问则放行.
 		anonAccess, err := getCachedAnonAccess(s)
 		if err != nil {
@@ -108,6 +114,7 @@ func Auth(s *store.Store, verifier authVerifier) gin.HandlerFunc {
 
 // getCachedAnonAccess returns the anonymous_access setting, using a short-lived
 // cache to avoid querying the database on every request.
+//
 // getCachedAnonAccess 返回 anonymous_access 设置, 使用短生命周期缓存避免每个请求都查询数据库.
 func getCachedAnonAccess(s *store.Store) (string, error) {
 	anonAccessCache.Lock()
@@ -127,6 +134,7 @@ func getCachedAnonAccess(s *store.Store) (string, error) {
 }
 
 // AdminOnly requires role == "admin" from the gin context.
+//
 // AdminOnly 要求 gin context 中的 role 为 "admin".
 func AdminOnly() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -141,6 +149,7 @@ func AdminOnly() gin.HandlerFunc {
 }
 
 // CORS adds CORS headers. Only allows same-host origins and localhost.
+//
 // CORS 添加 CORS header. 只允许同 host origin 和 localhost.
 func CORS() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -163,6 +172,7 @@ func CORS() gin.HandlerFunc {
 }
 
 // MaxBodySize limits the request body size.
+//
 // MaxBodySize 限制请求体大小.
 func MaxBodySize(maxBytes int64) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -174,6 +184,7 @@ func MaxBodySize(maxBytes int64) gin.HandlerFunc {
 }
 
 // isAllowedOrigin checks if the origin host matches the request host or is localhost.
+//
 // isAllowedOrigin 检查 origin host 是否匹配请求 host 或是否为 localhost.
 func isAllowedOrigin(origin, requestHost string) bool {
 	u, err := url.Parse(origin)
@@ -183,6 +194,7 @@ func isAllowedOrigin(origin, requestHost string) bool {
 	originHost := u.Hostname()
 	reqHost := requestHost
 	// Strip port from request host if present.
+	//
 	// 如果请求 host 包含端口, 则移除端口.
 	if h, _, err := net.SplitHostPort(requestHost); err == nil {
 		reqHost = h

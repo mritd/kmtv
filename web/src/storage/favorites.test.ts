@@ -96,6 +96,7 @@ describe("ID helpers", () => {
   it("resultFavoriteIDs works when sources is an empty array", () => {
     const ids = resultFavoriteIDs({ title: "Empty", sources: [] });
     // Only the media ID is present when there are no sources.
+    //
     // 无 source 时只有 mediaID.
     expect(ids.has("empty:")).toBe(true);
     expect(ids.size).toBe(1);
@@ -186,6 +187,7 @@ describe("isFavoriteResult", () => {
 
   it("returns true when any source of the result is favorited", () => {
     // Favorite only via sourceB; isFavoriteResult should still match via source ID.
+    //
     // 仅收藏 sourceB; isFavoriteResult 应通过 source ID 匹配.
     toggleFavorite(makeFavorite(resultWithTwo, sourceB));
     expect(isFavoriteResult(resultWithTwo)).toBe(true);
@@ -193,6 +195,7 @@ describe("isFavoriteResult", () => {
 
   it("returns true when the media title+year matches a stored item", () => {
     // Favorite with sourceA; then check the same title via a different source list shape.
+    //
     // 通过 sourceA 收藏; 再以不同 source 列表检查同一标题.
     toggleFavorite(makeFavorite(resultWithTwo, sourceA));
     const sameMedia: SearchResult = {
@@ -244,6 +247,7 @@ describe("toggleFavorite", () => {
     toggleFavorite(item);
 
     // Simulate a re-read by calling listFavorites (reads from localStorage).
+    //
     // 通过 listFavorites 模拟重新读取 (从 localStorage 读取).
     const persisted = listFavorites();
     expect(persisted).toHaveLength(1);
@@ -279,6 +283,7 @@ describe("toggleResultFavorite", () => {
 
   it("removes by media ID — catches items added via a different source", () => {
     // Add an item via sourceA, then toggle the whole result (which uses both sources for matching).
+    //
     // 通过 sourceA 添加收藏, 再切换整个结果 (匹配两个 source).
     toggleFavorite(makeFavorite(resultWithTwo, sourceA));
     expect(listFavorites()).toHaveLength(1);
@@ -289,6 +294,7 @@ describe("toggleResultFavorite", () => {
   it("multi-source: adds once even when result has multiple sources (idempotent)", () => {
     toggleResultFavorite(resultWithTwo);
     // Should have exactly 1 item, not 2 (one per source).
+    //
     // 只应添加 1 条, 而非每个 source 各一条.
     expect(listFavorites()).toHaveLength(1);
   });
@@ -314,6 +320,7 @@ describe("localStorage round-trip and corruption guard", () => {
     const items = listFavorites();
     expect(items).toEqual([]);
     // After a corruption guard triggers, the corrupt entry is removed.
+    //
     // 损坏 JSON 触发防护后, 条目被清除.
     expect(window.localStorage.getItem(favoritesKey)).toBeNull();
   });
@@ -324,6 +331,7 @@ describe("localStorage round-trip and corruption guard", () => {
 
   it("returns [] and clears the key when localStorage contains a non-array JSON value", () => {
     // A non-array value like {} would cause .some()/.filter() to crash on the returned value.
+    //
     // 非数组值如 {} 会导致下游的 .some()/.filter() 崩溃.
     window.localStorage.setItem(favoritesKey, JSON.stringify({ bad: true }));
     expect(listFavorites()).toEqual([]);

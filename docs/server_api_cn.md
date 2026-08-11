@@ -268,6 +268,8 @@ Admin 接口. 通过 key-value map 更新设置.
 
 受保护接口. 聚合所有已启用且健康的视频源搜索结果.
 
+仅当 `title` 和 `year` 在去除首尾空白后完全相同时才合并结果. 中间空白, 标点, 符号和字母大小写都有意义, 文本不同的标题会保留为独立结果卡. 单个结果的 `sources` 中, 每个 `source_key` 最多保留一项.
+
 查询参数:
 
 | Name   | Required | Default | 说明        |
@@ -506,7 +508,8 @@ data: {"message":"search failed"}
 {"message": "watch history cleared"}
 ```
 
-`event_time_ms` 必须为正整数; 服务端会将超过自身时钟的值钳回当前时间,
+`event_time_ms` 必须为正整数. 服务端会保留最多比自身时钟快 1 秒的值,
+确保同一客户端连续生成的事件仍保持顺序; 更大的未来值会被钳回服务端当前时间,
 避免客户端时钟走快导致该用户后续写入被拒绝.
 
 常见错误: `400 InvalidRequest`, `401 NotLoggedIn`, `500 ServerError`.

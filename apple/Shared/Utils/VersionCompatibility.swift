@@ -4,6 +4,7 @@ enum VersionCompatibility {
     static let minimumServerVersion = "v1.0.0"
 
     /// Returns true when a server version satisfies the client minimum version.
+    ///
     /// 当服务端版本满足客户端最低版本要求时返回 true.
     static func isCompatible(_ version: String, minimum: String = minimumServerVersion) -> Bool {
         if isDevelopmentVersion(version) {

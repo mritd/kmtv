@@ -1,8 +1,10 @@
 /**
  * playbackState.test.ts — full TDD coverage for the pure playbackReducer + createInitialPlaybackState.
+ *
  * playbackState.test.ts — 纯 playbackReducer + createInitialPlaybackState 的完整 TDD 覆盖.
  *
  * All tests operate on plain data with no React, DOM, or ArtPlayer involvement.
+ *
  * 所有测试仅操作纯数据, 不涉及 React、DOM 或 ArtPlayer.
  */
 
@@ -11,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import { createInitialPlaybackState, playbackReducer } from "./playbackState";
 
 // Episode fixtures shared across test groups.
+//
 // 跨测试组共享的 Episode 固定值.
 const episodes = [
   [
@@ -54,6 +57,7 @@ describe("playback reducer", () => {
 
     it("clears url, mode, and error on selectEpisode", () => {
       // Start from a ready state so we can verify fields are cleared.
+      //
       // 从 ready 状态开始, 验证 url/mode/error 是否被清空.
       const ready = playbackReducer(createInitialPlaybackState(), {
         type: "selectEpisode",
@@ -112,6 +116,7 @@ describe("playback reducer", () => {
 
     it("enters idle when the selected group has no episodes", () => {
       // Empty group simulates a source that has not yet loaded its episode list.
+      //
       // 空组模拟尚未加载集数列表的 source.
       const switched = playbackReducer(createInitialPlaybackState(), {
         type: "selectSource",
@@ -136,6 +141,7 @@ describe("playback reducer", () => {
 
     it("clears url, mode, and error on selectSource", () => {
       // Start from a ready state so we can verify fields are cleared.
+      //
       // 从 ready 状态开始, 验证 url/mode/error 是否被清空.
       const ready = playbackReducer(createInitialPlaybackState(), {
         type: "resolveSuccess",
@@ -155,6 +161,7 @@ describe("playback reducer", () => {
 
     it("uses the out-of-bounds group index and selects first episode from the fallback empty slice", () => {
       // When groupIndex points beyond the groups array, episodes falls back to [].
+      //
       // groupIndex 超出数组范围时, episodes 回退到 [].
       const switched = playbackReducer(createInitialPlaybackState(), {
         type: "selectSource",
@@ -163,6 +170,7 @@ describe("playback reducer", () => {
       });
 
       // groups[99] is undefined → episodes = [] → status = "idle".
+      //
       // groups[99] 为 undefined → episodes = [] → status = "idle".
       expect(switched.status).toBe("idle");
       expect(switched.groupIndex).toBe(99);
@@ -249,6 +257,7 @@ describe("playback reducer", () => {
 
     it("clears url and mode on failure", () => {
       // Start from a ready state to ensure url+mode are cleared, not just absent.
+      //
       // 从 ready 状态开始, 确认 url+mode 被清除.
       const ready = playbackReducer(createInitialPlaybackState(), {
         type: "resolveSuccess",

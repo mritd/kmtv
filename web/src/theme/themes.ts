@@ -6,6 +6,7 @@
  *
  * 主题模型 — 内置主题定义, CSS 变量映射及规范化辅助函数.
  * 导出: BuiltInThemeID, ThemePreference, CustomTheme, ThemeDefinition, ThemeVariables,
+ *
  *       ThemeStore, builtInThemes, defaultThemePreference,
  *       normalizeThemePreference, applyThemeVariables, createMemoryThemeStore.
  *

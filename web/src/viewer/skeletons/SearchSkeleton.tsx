@@ -1,5 +1,6 @@
 /**
  * SearchSkeleton — Suspense fallback mirroring the SearchPage result list layout.
+ *
  * SearchSkeleton — 镜像 SearchPage 结果列表布局的 Suspense 回退组件.
  *
  * Responsibilities / 职责:
@@ -14,8 +15,11 @@
  *       .video-result-copy — title + year/type + description + meta row (centre column)
  *       .video-result-actions — play + favorite buttons (right column)
  *   Real result cards land exactly where the placeholders sat — zero paint shift.
+ *
  *   镜像 VideoResultCard 的三列网格:
+ *
  *     .video-result-card
+ *
  *       .poster-action     — 海报图片槽 (左列)
  *       .video-result-copy — 标题 + 年份/类型 + 描述 + meta 行 (中列)
  *       .video-result-actions — 播放 + 收藏按钮 (右列)
@@ -24,6 +28,7 @@
  * Usage context / 使用场景:
  *   Rendered by SearchPage while status="loading" (SSE stream in progress).
  *   Also reused by FavoritesSkeleton for its result-list placeholder cards.
+ *
  *   在 SearchPage 中 status="loading" 时渲染 (SSE 流进行中).
  *   也被 FavoritesSkeleton 复用作结果列表占位卡片.
  *
@@ -36,6 +41,7 @@
  *   No tests are needed: this component has no conditional branches, no state, and no callbacks.
  *   The `count` prop drives a static Array.from() — there is no branching logic.
  *   Visual correctness is validated by E2E Suspense observation and SearchPage.test.tsx integration.
+ *
  *   此文件匹配 vitest.config.ts 的 skeletons 目录覆盖率排除模式.
  *   无需测试: 该组件无条件分支、无状态、无回调.
  *   `count` prop 驱动静态 Array.from() — 无分支逻辑.
@@ -46,6 +52,7 @@ import { Skeleton } from "@/shared/ui/Skeleton";
 
 /**
  * SearchSkeleton — pure presentational loading placeholder for the search result list.
+ *
  * SearchSkeleton — 搜索结果列表的纯展示型加载占位符.
  *
  * @param count — number of VideoResultCard placeholders to render (default 4) — 渲染的 VideoResultCard 占位数量 (默认 4)

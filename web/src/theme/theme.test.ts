@@ -43,12 +43,14 @@ describe("theme model", () => {
 
   it("normalizes null to default (nocturne)", () => {
     // Guards the !value branch in normalizeThemePreference.
+    //
     // 覆盖 normalizeThemePreference 中的 !value 分支.
     expect(normalizeThemePreference(null)).toEqual({ id: "nocturne" });
   });
 
   it("normalizes non-object primitives to default (nocturne)", () => {
     // Guards the typeof !== "object" branch.
+    //
     // 覆盖 typeof !== "object" 分支.
     expect(normalizeThemePreference(42)).toEqual({ id: "nocturne" });
     expect(normalizeThemePreference("graphite")).toEqual({ id: "nocturne" });

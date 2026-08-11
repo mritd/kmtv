@@ -1,4 +1,5 @@
 // useFavoriteToggle tests.
+//
 // useFavoriteToggle 测试.
 
 import { act, renderHook } from "@testing-library/react-native";

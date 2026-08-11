@@ -1,4 +1,11 @@
 #!/bin/bash
+# device-refresh.sh periodically reinstalls KMTV on configured physical devices.
+# A per-run directory lock prevents overlapping launchd jobs from building the
+# same targets concurrently.
+#
+# device-refresh.sh 定期在指定物理设备上重新安装 KMTV. 每次运行使用目录锁,
+# 避免重叠的 launchd 任务并发构建同一 target.
+
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -39,6 +46,10 @@ is_due() {
 }
 
 acquire_lock() {
+    # mkdir is atomic for competing processes. Only the process that creates the
+    # directory installs the EXIT trap that removes it.
+    #
+    # 多进程竞争时 mkdir 具有原子性. 只有成功创建目录的进程才注册 EXIT trap 并负责清理.
     mkdir -p "$STATE_DIR"
     if mkdir "$LOCK_DIR" 2>/dev/null; then
         trap 'rm -rf "$LOCK_DIR"' EXIT

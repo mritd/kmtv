@@ -1,5 +1,6 @@
 /**
  * types — shared domain types for all API request and response shapes.
+ *
  * types — 所有 API 请求和响应形态的共享领域类型.
  *
  * Responsibilities / 职责:
@@ -23,23 +24,25 @@
  *
  * TIER 4 LOCKED — field names and types mirror the Go backend JSON tags.
  * Do not rename or remove fields without a coordinated backend change.
+ *
  * Tier 4 锁定 — 字段名和类型与 Go 后端 JSON tag 一一对应.
  * 不得在未与后端同步更改的情况下重命名或删除字段.
  */
 
 /**
  * UserRole is the set of valid user permission levels.
- * UserRole
+ *
  * 是有效用户权限级别的集合.
  *
  * "admin" has access to all admin panels; "user" sees viewer-only pages.
+ *
  * "admin" 可访问所有管理面板; "user" 仅能访问观看者页面.
  */
 export type UserRole = "admin" | "user";
 
 /**
  * User is the authenticated user profile returned by /auth/me and /auth/login.
- * User
+ *
  * 是 /auth/me 和 /auth/login 返回的已认证用户档案.
  */
 export interface User {
@@ -51,11 +54,12 @@ export interface User {
 
 /**
  * LoginResponse extends User with the bearer token fields returned on successful login.
- * LoginResponse
+ *
  * 在 User 基础上添加登录成功时返回的 Bearer token 字段.
  *
- * access_token is the base58 opaque token (ADR-012); expires_at is an ISO-8601 timestamp.
- * access_token 是 base58 不透明 token (ADR-012); expires_at 为 ISO-8601 时间戳.
+ * access_token is the base58 opaque token (ADR-011); expires_at is an ISO-8601 timestamp.
+ *
+ * access_token 是 base58 不透明 token (ADR-011); expires_at 为 ISO-8601 时间戳.
  */
 export interface LoginResponse extends User {
   access_token: string;
@@ -64,11 +68,12 @@ export interface LoginResponse extends User {
 
 /**
  * AuthSnapshot is the frontend representation of the current auth session.
- * AuthSnapshot
+ *
  * 是当前认证会话的前端表示.
  *
  * Stored in localStorage under the "kmtv.auth" key (see tokenStore.ts/authStorageKey).
  * Shape is validated by isAuthSnapshot before trusting persisted data.
+ *
  * 存储在 localStorage 的 "kmtv.auth" key 下; 持久化数据由 isAuthSnapshot 验证后方可信任.
  */
 export interface AuthSnapshot {
@@ -79,11 +84,12 @@ export interface AuthSnapshot {
 
 /**
  * APIErrorBody is the optional JSON payload returned alongside non-2xx responses.
- * APIErrorBody
+ *
  * 是随非 2xx 响应一起返回的可选 JSON 负载.
  *
  * code is a backend-specific numeric error code for programmatic handling.
  * error is the human-readable message shown to the user.
+ *
  * code 是后端特定的数字错误码, 用于程序化处理; error 是展示给用户的可读错误信息.
  */
 export interface APIErrorBody {
@@ -93,7 +99,7 @@ export interface APIErrorBody {
 
 /**
  * MessageResponse is the generic success body for mutation endpoints that return no entity.
- * MessageResponse
+ *
  * 是不返回实体的写操作端点使用的通用成功响应体.
  */
 export interface MessageResponse {
@@ -102,7 +108,7 @@ export interface MessageResponse {
 
 /**
  * SettingsResponse wraps the flat key-value settings map from /settings and /admin/settings.
- * SettingsResponse
+ *
  * 封装了来自 /settings 和 /admin/settings 的扁平键值配置映射.
  */
 export interface SettingsResponse {
@@ -111,12 +117,15 @@ export interface SettingsResponse {
 
 /**
  * Source is the full video source record as stored and returned by the backend.
- * Source
+ *
  * 是后端存储并返回的完整视频源记录.
  *
  * health is a string union; "checking" is emitted transiently while probe is in-flight.
+ *
  * health 是字符串联合; "checking" 在探测进行中时短暂出现.
+ *
  * The | string tail keeps the type open for forward-compatible backend additions.
+ *
  * | string 尾部保持类型开放, 兼容后端未来添加的新状态.
  */
 export interface Source {
@@ -137,17 +146,18 @@ export interface Source {
 
 /**
  * SourcePayload is the create/update body for a video source.
- * SourcePayload
+ *
  * 是创建/更新视频源时使用的请求体.
  *
  * Server-generated fields (id, health, timestamps) are excluded.
+ *
  * 不包含服务端生成的字段 (id, health, 时间戳).
  */
 export type SourcePayload = Omit<Source, "id" | "health" | "last_check" | "created_at" | "updated_at">;
 
 /**
  * SourcesResponse wraps the list of all configured video sources.
- * SourcesResponse
+ *
  * 封装所有已配置视频源的列表.
  */
 export interface SourcesResponse {
@@ -156,7 +166,7 @@ export interface SourcesResponse {
 
 /**
  * SourceHealthResponse is the result of a single-source health check probe.
- * SourceHealthResponse
+ *
  * 是单源健康检查探测的结果.
  */
 export interface SourceHealthResponse {
@@ -165,7 +175,7 @@ export interface SourceHealthResponse {
 
 /**
  * ImportSourcesResponse reports how many sources were created from a bulk import.
- * ImportSourcesResponse
+ *
  * 报告批量导入操作成功创建的源数量.
  */
 export interface ImportSourcesResponse {
@@ -174,10 +184,11 @@ export interface ImportSourcesResponse {
 
 /**
  * Subscription is a subscription record that auto-imports sources from a remote URL.
- * Subscription
+ *
  * 是从远程 URL 自动导入视频源的订阅记录.
  *
  * interval is in seconds. auto_update enables background polling.
+ *
  * interval 单位为秒; auto_update 启用后台轮询.
  */
 export interface Subscription {
@@ -191,14 +202,14 @@ export interface Subscription {
 
 /**
  * SubscriptionPayload is the create/update body for a subscription.
- * SubscriptionPayload
+ *
  * 是创建/更新订阅时使用的请求体.
  */
 export type SubscriptionPayload = Pick<Subscription, "url" | "auto_update" | "interval">;
 
 /**
  * SubscriptionsResponse wraps the list of all active subscriptions.
- * SubscriptionsResponse
+ *
  * 封装所有有效订阅的列表.
  */
 export interface SubscriptionsResponse {
@@ -207,7 +218,7 @@ export interface SubscriptionsResponse {
 
 /**
  * AdminUser is the user record as seen by admins (includes timestamps, no password).
- * AdminUser
+ *
  * 是管理员视角下的用户记录 (含时间戳, 不含密码).
  */
 export interface AdminUser {
@@ -221,7 +232,7 @@ export interface AdminUser {
 
 /**
  * CreateUserPayload is the admin request body for creating a new user.
- * CreateUserPayload
+ *
  * 是管理员创建新用户时使用的请求体.
  */
 export interface CreateUserPayload {
@@ -233,13 +244,15 @@ export interface CreateUserPayload {
 
 /**
  * UpdateUserPayload is the admin request body for updating an existing user.
- * UpdateUserPayload
+ *
  * 是管理员更新现有用户时使用的请求体.
  *
  * password is optional; omit to keep the existing password unchanged.
+ *
  * password 可选; 省略则保留现有密码不变.
  *
  * allow_adult_content is optional; omit to keep the existing policy unchanged.
+ *
  * allow_adult_content 可选; 省略则保留现有策略不变.
  */
 export interface UpdateUserPayload {
@@ -251,7 +264,7 @@ export interface UpdateUserPayload {
 
 /**
  * UsersResponse wraps the list of all users returned by the admin API.
- * UsersResponse
+ *
  * 封装管理员 API 返回的所有用户列表.
  */
 export interface UsersResponse {
@@ -260,10 +273,11 @@ export interface UsersResponse {
 
 /**
  * Episode is a single playable episode with a name and a raw playback URL.
- * Episode
+ *
  * 是带有名称和原始播放 URL 的单个可播放剧集.
  *
  * url is an un-proxied source URL; the backend wraps it via /playback/url.
+ *
  * url 是未经代理的源地址; 后端通过 /playback/url 封装.
  */
 export interface Episode {
@@ -273,10 +287,11 @@ export interface Episode {
 
 /**
  * SourceResult groups a video's episodes from a single video source.
- * SourceResult
+ *
  * 将来自单个视频源的视频剧集分组.
  *
  * duration_ms is present only for sources that report it; callers should treat it as a hint.
+ *
  * duration_ms 仅在视频源提供时存在; 调用方应将其视为参考值.
  */
 export interface SourceResult {
@@ -289,11 +304,14 @@ export interface SourceResult {
 
 /**
  * SearchResult is one title match from the aggregated search response.
- * SearchResult
+ *
  * 是聚合搜索响应中的单条标题匹配结果.
  *
- * A result may have sources from multiple video sources (consolidated by title match).
- * 一条结果可能包含来自多个视频源的 sources (按标题合并).
+ * A result may combine providers only when their edge-trimmed title and year match exactly.
+ * Variants in internal whitespace, punctuation, symbols, or letter case remain separate results.
+ *
+ * 只有去掉首尾空白后的标题和年份都完全一致时, 才会将多个站点合并到同一结果.
+ * 内部空白, 标点, 符号或字母大小写不同的标题保持为独立结果.
  */
 export interface SearchResult {
   title: string;
@@ -307,7 +325,7 @@ export interface SearchResult {
 
 /**
  * SearchResponse is the final aggregated results payload for a completed search.
- * SearchResponse
+ *
  * 是完成搜索后的最终聚合结果负载.
  */
 export interface SearchResponse {
@@ -315,11 +333,13 @@ export interface SearchResponse {
 }
 
 // SearchProgressPhase names the backend SSE progress stage.
+//
 // 搜索进度阶段名称来自后端 SSE.
 export type SearchProgressPhase = "searching" | "probing" | string;
 
 // SearchProgress carries anonymous phase counts;
 // source names are not part of SSE.
+//
 // 搜索进度只包含匿名阶段计数, SSE 不包含站点名.
 export interface SearchProgress {
   phase: SearchProgressPhase;
@@ -328,7 +348,7 @@ export interface SearchProgress {
 }
 
 // SearchStreamEvent is the normalized browser-side event union.
-// SearchStreamEvent
+//
 // 是浏览器端归一化后的 SSE 事件联合类型.
 export type SearchStreamEvent =
   | { type: "progress"; progress: SearchProgress }
@@ -337,10 +357,11 @@ export type SearchStreamEvent =
 
 /**
  * DetailResponse is the full detail payload for a single video title from /detail.
- * DetailResponse
+ *
  * 是来自 /detail 端点的单个视频标题的完整详情负载.
  *
  * episodes is a 2D array: outer dimension = episode groups (e.g. seasons), inner = episodes.
+ *
  * episodes 是二维数组: 外层为剧集组 (如季), 内层为单集.
  */
 export interface DetailResponse {
@@ -358,11 +379,12 @@ export interface DetailResponse {
 
 /**
  * PlaybackURLResponse is the resolved playback URL from /playback/url.
- * PlaybackURLResponse
+ *
  * 是 /playback/url 返回的已解析播放 URL.
  *
  * mode "proxy" means the URL goes through the backend proxy;
  * "direct" means the browser plays it directly.
+ *
  * mode "proxy" 表示 URL 通过后端代理; "direct" 表示浏览器直接播放.
  */
 export interface PlaybackURLResponse {
@@ -372,11 +394,12 @@ export interface PlaybackURLResponse {
 
 /**
  * WatchHistoryItem is one server-synchronized continue-watching entry.
- * WatchHistoryItem
+ *
  * 是一条服务端同步的继续观看记录.
  *
  * The backend deduplicates by the current user plus normalized title. source_key/video_id are the
  * latest watched source payload and may be replaced by later writes for the same title.
+ *
  * 后端按当前用户 + 归一化标题去重. source_key/video_id 是最近观看源的 payload,
  * 同标题后续写入可能覆盖它们.
  */
@@ -399,14 +422,14 @@ export interface WatchHistoryItem {
 
 /**
  * WatchHistoryPayload is the PUT /history request body.
- * WatchHistoryPayload
+ *
  * 是 PUT /history 请求体.
  */
 export type WatchHistoryPayload = Omit<WatchHistoryItem, "id" | "created_at" | "updated_at">;
 
 /**
  * WatchHistoryResponse wraps the GET /history item list.
- * WatchHistoryResponse
+ *
  * 封装 GET /history 的条目列表.
  */
 export interface WatchHistoryResponse {
@@ -415,7 +438,7 @@ export interface WatchHistoryResponse {
 
 /**
  * DoubanItem is a single item in a Douban recommendation section.
- * DoubanItem
+ *
  * 是豆瓣推荐分区中的单个条目.
  */
 export interface DoubanItem {
@@ -429,7 +452,7 @@ export interface DoubanItem {
 
 /**
  * DoubanHomeSection is a named section in the Douban home recommendations page.
- * DoubanHomeSection
+ *
  * 是豆瓣首页推荐中的一个命名分区.
  */
 export interface DoubanHomeSection {
@@ -441,7 +464,7 @@ export interface DoubanHomeSection {
 
 /**
  * DoubanHomeResponse is the top-level response from /douban/home.
- * DoubanHomeResponse
+ *
  * 是 /douban/home 的顶层响应.
  */
 export interface DoubanHomeResponse {
@@ -452,7 +475,7 @@ export interface DoubanHomeResponse {
  * DoubanListResponse is the paginated item payload returned by /douban/recommend/filter
  * (and /douban/list, /douban/recommend). It is intentionally a thin wrapper around items
  * so all Douban list endpoints share one response shape.
- * DoubanListResponse
+ *
  * 是 /douban/recommend/filter (以及 /douban/list、/douban/recommend) 返回的分页条目负载,
  * 刻意只对 items 做一层薄封装, 让所有豆瓣列表端点共用同一响应结构.
  */
@@ -462,12 +485,13 @@ export interface DoubanListResponse {
 
 /**
  * SubCategory is one sub-category filter option inside a CategoryGroup (e.g. a genre or ranking tag).
- * SubCategory
+ *
  * 是 CategoryGroup 内的一个子分类筛选项 (如题材或排行标签).
  *
  * `kind` and `format` are optional overrides: when `kind` is present the sub-category drives
  * both the Douban kind and format; when absent, the parent group's douban_kind/format apply.
  * This mirrors the iOS CategoriesViewModel filter-resolution contract — see store/categoriesStore.ts.
+ *
  * kind 和 format 为可选覆盖项: 当 kind 存在时, 由子分类同时决定 Douban kind 与 format;
  * 缺失时回退到父分组的 douban_kind/format. 该规则与 iOS CategoriesViewModel 的筛选解析契约一致,
  * 详见 store/categoriesStore.ts.
@@ -481,10 +505,11 @@ export interface SubCategory {
 
 /**
  * Region is one region filter option inside a CategoryGroup.
- * Region
+ *
  * 是 CategoryGroup 内的一个地区筛选项.
  *
  * `value` is the query value sent to the backend; `name` is the display label (may differ).
+ *
  * value 是发送给后端的查询值; name 是展示用标签 (二者可能不同).
  */
 export interface Region {
@@ -493,12 +518,11 @@ export interface Region {
 }
 
 /**
- * CategoryGroup is one top-level browse category (e.g. 电影 / 剧集) with its filter options.
- * CategoryGroup
- * 是一个顶层浏览分类 (如 电影 / 剧集) 及其筛选项.
- *
+ * CategoryGroup is one top-level browse category, such as movies or series, with its filter options.
  * `douban_kind` and `format` are the group-level defaults applied when the selected
  * sub-category does not override them. `regions` may be empty for groups without region filters.
+ *
+ * CategoryGroup 是一个顶层浏览分类 (如电影或剧集) 及其筛选项.
  * douban_kind 和 format 是分组级默认值, 当所选子分类未覆盖时生效.
  * 对于没有地区筛选的分组, regions 可能为空.
  */
@@ -513,7 +537,7 @@ export interface CategoryGroup {
 
 /**
  * DoubanCategoriesResponse is the top-level response from /douban/categories.
- * DoubanCategoriesResponse
+ *
  * 是 /douban/categories 的顶层响应.
  */
 export interface DoubanCategoriesResponse {
@@ -522,11 +546,12 @@ export interface DoubanCategoriesResponse {
 
 /**
  * DoubanRecommendFilter carries the resolved query parameters for /douban/recommend/filter.
- * DoubanRecommendFilter
+ *
  * 承载 /douban/recommend/filter 的已解析查询参数.
  *
  * `kind` is required by the backend; `tag`, `format`, and `region` are optional filters.
  * `start`/`count` drive pagination (count is capped at 50 server-side).
+ *
  * kind 为后端必填; tag、format、region 为可选筛选项.
  * start/count 驱动分页 (count 在服务端上限为 50).
  */

@@ -1,4 +1,5 @@
 // FavoritesScreen tests — empty state, list rendering, navigation, swipe delete.
+//
 // FavoritesScreen 测试 — 空态、列表渲染、导航、左滑删除.
 
 import { NavigationContainer } from "@react-navigation/native";
@@ -15,6 +16,7 @@ import { FavoritesScreen } from "./FavoritesScreen";
 beforeAll(async () => { await initI18n("en"); });
 
 // FavoritesScreen uses useFocusEffect which requires a NavigationContainer ancestor.
+//
 // FavoritesScreen 用了 useFocusEffect, 必须挂在 NavigationContainer 下.
 function wrap(child: ReactElement): ReactElement {
   return <NavigationContainer>{child}</NavigationContainer>;

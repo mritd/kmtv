@@ -1,4 +1,5 @@
 // ThemeSection — pill radio for system / light / dark. Persists via themeStore.
+//
 // ThemeSection — system / light / dark 三选一的 pill 单选, 通过 themeStore 持久化.
 
 import React from "react";
@@ -14,6 +15,7 @@ const OPTIONS: ThemeOverride[] = ["system", "light", "dark"];
 
 /**
  * ThemeSection — system / light / dark pill radio.
+ *
  * ThemeSection — system / light / dark 三选一的 pill 单选.
  */
 export function ThemeSection() {

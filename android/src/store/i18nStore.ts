@@ -1,4 +1,5 @@
 // Language store — global (not per-server). UI language persists across servers.
+//
 // 语言 store — 全局 (非按 server 隔离), UI 语言跨服务器持续.
 
 import { create } from "zustand";
@@ -21,6 +22,7 @@ function isLang(v: unknown): v is Lang {
 
 /**
  * Zustand store for the user's UI language.
+ *
  * 承载用户 UI 语言的 zustand store.
  */
 export const useI18nStore = create<I18nState>((set) => ({

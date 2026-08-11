@@ -6,6 +6,7 @@ struct ConnectingView: View {
     var body: some View {
         ZStack {
             // Gradient background.
+            //
             // 连接页背景渐变.
             LinearGradient(
                 colors: [
@@ -21,6 +22,7 @@ struct ConnectingView: View {
                 Spacer()
 
                 // App icon with glow (shape fallback - no image asset available).
+                //
                 // 带光晕的应用图标, 当前没有图片资源时使用形状兜底.
                 RoundedRectangle(cornerRadius: iconSize * 0.22)
                     .fill(
@@ -43,6 +45,7 @@ struct ConnectingView: View {
                     .padding(.bottom, 20)
 
                 // App name.
+                //
                 // 应用名称.
                 Text("KMTV")
                     .font(.system(size: titleSize, weight: .bold))
@@ -51,6 +54,7 @@ struct ConnectingView: View {
                     .padding(.bottom, 32)
 
                 // Spinner + status text.
+                //
                 // 加载指示器和连接状态文本.
                 HStack(spacing: 10) {
                     ProgressView()
@@ -62,6 +66,7 @@ struct ConnectingView: View {
                 .padding(.bottom, 10)
 
                 // Server address.
+                //
                 // 正在连接的服务器地址.
                 Text(serverAddress)
                     .font(.system(size: 11, design: .monospaced))

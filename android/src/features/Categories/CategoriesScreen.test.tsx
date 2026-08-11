@@ -1,5 +1,6 @@
 // CategoriesScreen integration tests: skeleton → tabs/chips/grid → tab switch resets,
 // poster tap fires onSearchTitle, error retry, N/A rating, unconfigured, empty, load-more.
+//
 // CategoriesScreen 集成测试: 骨架屏 → tabs/chips/grid → 切换 tab 重置, 海报点击触发 onSearchTitle,
 // 错误重试, N/A 评分, 未配置态, 空态, 加载更多.
 
@@ -120,6 +121,7 @@ describe("CategoriesScreen", () => {
     const api = buildAPI({ doubanCategories: jest.fn(async () => { throw new Error("boom"); }) });
     await renderScreen(api);
     // useCategoriesQuery sets `retry: 1`; retry backoff can push isError past 1s.
+    //
     // useCategoriesQuery 设置 retry: 1, 退避可能使 isError 超过 1s, 这里放宽到 3s.
     await waitFor(
       () => expect(screen.getByText("Failed to load categories")).toBeTruthy(),

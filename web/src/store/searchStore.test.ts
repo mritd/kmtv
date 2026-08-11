@@ -1,5 +1,6 @@
 /**
  * Tests for searchStore — SSE-backed search lifecycle store.
+ *
  * searchStore 测试 — 支持 SSE 的搜索生命周期 store.
  *
  * Baseline coverage: 71.79% statements / 63.63% branches.
@@ -22,7 +23,9 @@ import { searchStore } from "./searchStore";
 
 // ---------------------------------------------------------------------------
 // Reset before each test
+//
 // 每个测试前重置
+//
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
@@ -42,6 +45,7 @@ describe("searchStore", () => {
     // These tests verify the post-reset state enforced by resetAll() in beforeEach.
     // The module-level initial state is identical, but testing it in isolation would
     // require a fresh module import — these cases pin the resetAll() contract instead.
+    //
     // 这些测试验证 resetAll() 执行后的重置状态.
     // 模块级初始状态与重置后相同, 但隔离测试需要新 import — 此处锁定 resetAll() 契约.
     it("all fields return to blank initial values after resetAll()", () => {
@@ -100,6 +104,7 @@ describe("searchStore", () => {
 
     it("works without a previous controller (no-op abort path)", () => {
       // submitQuery when activeController is null must not throw.
+      //
       // activeController 为 null 时调用 submitQuery 不应抛出异常.
       expect(() => { searchStore.getState().submitQuery("query"); }).not.toThrow();
     });
@@ -122,10 +127,12 @@ describe("searchStore", () => {
 
     it("is a no-op when lastSubmittedQuery is empty (guard branch — was uncovered)", () => {
       // retryQuery with an empty lastSubmittedQuery must not change the status.
+      //
       // lastSubmittedQuery 为空时 retryQuery 不得改变状态.
       expect(searchStore.getState().lastSubmittedQuery).toBe("");
       searchStore.getState().retryQuery();
       // Status must remain idle — no spurious loading transition.
+      //
       // 状态必须保持 idle — 不得触发虚假的 loading 转换.
       expect(searchStore.getState().status).toBe("idle");
     });
@@ -157,6 +164,7 @@ describe("searchStore", () => {
       const ctrl = new AbortController();
       searchStore.getState().attachController(ctrl);
       // Simulate a backend sending an unexpected phase value.
+      //
       // 模拟后端发送未知 phase 值.
       searchStore.getState().applyProgressEvent(
         { phase: "unknown-phase" as "searching", completed: 0, total: 0 },
@@ -177,6 +185,7 @@ describe("searchStore", () => {
 
     it("accepts events with no controller (broadcast mode)", () => {
       // When controller is undefined the store does not filter by identity.
+      //
       // controller 为 undefined 时 store 不按身份过滤.
       searchStore.getState().submitQuery("q");
       searchStore.getState().applyProgressEvent({ phase: "searching", completed: 1, total: 5 });
@@ -273,12 +282,14 @@ describe("searchStore", () => {
   describe("detachController()", () => {
     it("clears activeController without aborting it (was uncovered)", () => {
       // detachController is distinct from cancel: it does not abort the signal.
+      //
       // detachController 与 cancel 不同: 不会 abort 信号.
       const ctrl = new AbortController();
       searchStore.getState().attachController(ctrl);
       searchStore.getState().detachController();
       expect(searchStore.getState().activeController).toBeNull();
       // The controller must NOT have been aborted — it may still be in use externally.
+      //
       // controller 不得被 abort — 外部可能仍在使用.
       expect(ctrl.signal.aborted).toBe(false);
     });
@@ -326,15 +337,18 @@ describe("searchStore", () => {
     it("only clears controller for reason=completed (status remains, was uncovered)", () => {
       // "completed" is a terminal marker — status is already "success" via completeStream.
       // completeStream itself nullifies the controller; this tests the cancel("completed") path directly.
+      //
       // "completed" 是终态标记 — 状态已由 completeStream 置为 "success"; 此处直接测试 cancel("completed") 路径.
       const ctrl = new AbortController();
       searchStore.getState().submitQuery("q");
       searchStore.getState().attachController(ctrl);
       // Force status to success to simulate completed stream state.
+      //
       // 强制 status 为 success 模拟已完成流状态.
       searchStore.getState().applyResults([{ title: "r", sources: [] }]);
       searchStore.getState().completeStream();
       // Re-attach a controller to test the abort path.
+      //
       // 重新附加 controller 测试 abort 路径.
       const ctrl2 = new AbortController();
       searchStore.getState().attachController(ctrl2);
@@ -343,6 +357,7 @@ describe("searchStore", () => {
 
       expect(ctrl2.signal.aborted).toBe(true);
       // Status must stay "success" — cancel("completed") must NOT reset it to idle.
+      //
       // status 必须保持 "success" — cancel("completed") 不得将其重置为 idle.
       expect(searchStore.getState().status).toBe("success");
       expect(searchStore.getState().activeController).toBeNull();
@@ -353,6 +368,7 @@ describe("searchStore", () => {
       searchStore.getState().submitQuery("q");
       searchStore.getState().failStream("err");
       // Re-attach to test the abort path.
+      //
       // 重新附加 controller 测试 abort 路径.
       searchStore.getState().attachController(ctrl);
 
@@ -360,6 +376,7 @@ describe("searchStore", () => {
 
       expect(ctrl.signal.aborted).toBe(true);
       // Status must stay "error" — cancel("failed") must NOT reset it to idle.
+      //
       // status 必须保持 "error" — cancel("failed") 不得将其重置为 idle.
       expect(searchStore.getState().status).toBe("error");
       expect(searchStore.getState().activeController).toBeNull();
@@ -367,6 +384,7 @@ describe("searchStore", () => {
 
     it("is a no-op on the controller when none is active", () => {
       // cancel() without an activeController must not throw.
+      //
       // 无活动 controller 时调用 cancel() 不应抛出异常.
       expect(searchStore.getState().activeController).toBeNull();
       expect(() => { searchStore.getState().cancel("user"); }).not.toThrow();
@@ -399,6 +417,7 @@ describe("searchStore", () => {
 
     it("does not throw when there is no active controller", () => {
       // resetAll without a controller must gracefully skip the abort call.
+      //
       // 无活动 controller 时 resetAll 必须优雅地跳过 abort 调用.
       expect(searchStore.getState().activeController).toBeNull();
       expect(() => { searchStore.getState().resetAll(); }).not.toThrow();

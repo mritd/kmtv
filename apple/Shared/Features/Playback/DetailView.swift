@@ -29,6 +29,7 @@ struct DetailView: View {
         #endif
         .task {
             // Create the player model lazily so navigation only loads detail once per view instance.
+            //
             // 懒加载播放器模型, 确保同一个详情页实例只请求一次详情.
             if viewModel == nil, let client = appVM.apiClient {
                 let vm = PlayerViewModel(
@@ -284,12 +285,14 @@ struct DetailView: View {
 
     /// Clean description: collapse whitespace and remove repeated content.
     /// Many sources return the same paragraph duplicated (e.g. "ABCABC").
+    ///
     /// 清洗简介: 合并空白并移除重复内容, 兼容部分源返回整段重复文本的情况.
     private static func cleanDescription(_ desc: String) -> String {
         let trimmed = desc.components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }.joined(separator: " ")
         guard !trimmed.isEmpty else { return trimmed }
         // Check if the string is a repeated substring.
+        //
         // 检查文本是否由同一段子串重复拼接而成.
         let len = trimmed.count
         for half in [len / 2, len / 2 + 1, len / 2 - 1] where half > 0 && half < len {

@@ -1,5 +1,6 @@
 /**
  * Jest configuration for the Android RN client.
+ *
  * Android RN 客户端的 Jest 配置.
  */
 module.exports = {

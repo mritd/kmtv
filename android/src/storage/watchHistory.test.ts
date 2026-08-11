@@ -1,4 +1,5 @@
 // watchHistory tests cover upsert dedup, trim to 100, recent ordering, clearAll, namespace isolation.
+//
 // watchHistory 测试覆盖 upsert 去重、保留上限 100、recent 排序、clearAll 与命名空间隔离.
 
 import { _resetForTests as _resetMMKV } from "./mmkv";

@@ -1,4 +1,5 @@
 // SectionRow tests: header text, items rendered, empty items still renders header.
+//
 // SectionRow 测试: header 文本、items 渲染、空 items 仍渲染 header.
 
 import { render } from "@testing-library/react-native";
@@ -50,6 +51,7 @@ describe("SectionRow", () => {
     };
     const { getAllByTestId } = render(wrap(<SectionRow baseURL="https://x" section={big} />));
     // initialNumToRender = 6 lower bound; the test renderer may mount more.
+    //
     // initialNumToRender = 6 是下界, 测试 renderer 可能挂载更多.
     expect(getAllByTestId("sectionCard").length).toBeGreaterThanOrEqual(6);
   });

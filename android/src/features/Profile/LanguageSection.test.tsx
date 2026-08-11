@@ -1,4 +1,5 @@
 // LanguageSection tests.
+//
 // LanguageSection 测试.
 
 import { fireEvent, render, waitFor } from "@testing-library/react-native";

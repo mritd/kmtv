@@ -1,4 +1,5 @@
 // Pure reducer for the playback state machine. No RN, no react-native-video, no async.
+//
 // 播放状态机的纯 reducer. 不依赖 RN, 不依赖 react-native-video, 也不涉及异步.
 
 import type { SourceResult, VideoDetail } from "@/api/types";
@@ -51,6 +52,7 @@ export interface PlayerState {
  * placeholder source so episode selection has something to anchor to until detailLoaded arrives.
  * The placeholder uses `sourceKey` as both key and human name; once detailLoaded fires it gets
  * swapped via the usual reducer transitions.
+ *
  * 由导航目标构造 reducer 初始 state. 当 `sources` 为空 (例如从继续观看进入, MMKV 仅持有 sourceKey
  * 与 videoId), 用占位 source 让剧集选择器在 detailLoaded 到达前有锚点. 占位 source_key 与
  * source_name 都用 sourceKey, detailLoaded 后由常规 reducer 转换替换为真实数据.
@@ -88,6 +90,7 @@ export function initialPlayerState(
 
 /**
  * Reducer action union — closed so unit tests can exhaustively check every transition.
+ *
  * Reducer action 联合类型, 封闭便于单测对每个迁移做穷尽校验.
  */
 export type PlayerAction =
@@ -125,6 +128,16 @@ function clampPlaybackTime(currentTime: number, duration: number): number {
   return duration > 0 ? Math.min(nonNegative, duration) : nonNegative;
 }
 
+/**
+ * Returns true when a native progress event is still too far from a just-committed seek target.
+ * Ignoring events more than two seconds from the target prevents stale pre-seek progress from
+ * snapping the UI backward. An event within the tolerance is accepted so the reducer can clear
+ * the pending target and resume normal progress updates.
+ *
+ * 当 native 进度事件与刚提交的 seek 目标仍相差超过 2 秒时返回 true.
+ * 忽略这些事件可防止 seek 前的旧进度把 UI 拉回原位. 进入容差范围的事件会被接受,
+ * reducer 随后可清除 pending 目标并恢复正常进度更新.
+ */
 export function shouldIgnoreProgressDuringPendingSeek(state: PlayerState, currentTime: number): boolean {
   return state.pendingSeekTime !== null
     && Math.abs(currentTime - state.pendingSeekTime) > PENDING_SEEK_TOLERANCE_SECONDS;
@@ -132,6 +145,7 @@ export function shouldIgnoreProgressDuringPendingSeek(state: PlayerState, curren
 
 /**
  * Pure state transition — never throws, never mutates the input state.
+ *
  * 纯状态迁移, 不抛错, 不修改输入 state.
  */
 export function playerReducer(state: PlayerState, action: PlayerAction): PlayerState {
@@ -180,6 +194,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
     case "error":
       // Clear playbackURL on error so the failover loop's early-return guard (`next.playbackURL`)
       // doesn't short-circuit on a stale URL when the same source is retried.
+      //
       // 错误时清空 playbackURL, 避免 failover 提前返回卡在已坏的 URL.
       return { ...state, errorMessage: action.message, isBuffering: false, playbackURL: null, pendingSeekTime: null };
     case "clearError":

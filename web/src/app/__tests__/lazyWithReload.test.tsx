@@ -14,6 +14,7 @@ describe("lazyWithReload", () => {
     originalReload = window.location.reload;
     // location.reload is read-only on real browsers but happy-dom lets us swap it via defineProperty.
     // happy-dom
+    //
     // 允许通过 defineProperty 替换只读 reload.
     Object.defineProperty(window.location, "reload", { configurable: true, value: reload });
   });
@@ -29,11 +30,13 @@ describe("lazyWithReload", () => {
     const Lazy = lazyWithReload(factory);
     // React.lazy lazily invokes the factory only when the component is rendered, but we can pry the promise out via the internal payload.
     // React.lazy
+    //
     // 仅在渲染时执行 factory, 这里通过内部 payload 拿到 promise.
     type LazyPayload = { _payload: { _result: unknown } };
     const payload = (Lazy as unknown as LazyPayload)._payload;
     await Promise.resolve();
     // Force evaluation by invoking the same path React would.
+    //
     // 通过 React 调用路径触发 evaluation.
     const ctor = (Lazy as unknown as { _init: (p: typeof payload) => unknown })._init;
     try {
@@ -58,6 +61,7 @@ describe("lazyWithReload", () => {
     } catch (suspense) {
       // The lazy factory returns a never-resolving promise after triggering reload; race it against a microtask.
       // lazy factory
+      //
       // 触发 reload 后返回永不 resolve 的 promise, 微任务竞速即可.
       await Promise.race([suspense as Promise<unknown>, Promise.resolve()]);
     }
@@ -113,6 +117,7 @@ describe("lazyWithReload", () => {
   it("treats errors with name=ChunkLoadError as chunk errors and reloads", async () => {
     // The ChunkLoadError name-based detection covers the Webpack runtime which sets
     // error.name rather than using a message pattern.
+    //
     // name=ChunkLoadError 的检测覆盖 Webpack 运行时, 后者通过 error.name 而非消息模式标识.
     const chunkError = Object.assign(new Error("chunk missing"), { name: "ChunkLoadError" });
     const factory = vi.fn(async () => {

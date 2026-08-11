@@ -1,12 +1,14 @@
 /**
  * LoginPromptCard.test.tsx — unit tests for the LoginPromptCard component.
+ *
  * LoginPromptCard.test.tsx — LoginPromptCard 组件的单元测试.
  *
  * Covers / 覆盖:
- *   - Renders the login CTA button. / 渲染登录 CTA 按钮.
+ *   - Renders the login CTA button.
  *   - Clicking the CTA navigates to /login?next=%2Faccount.
- *     点击 CTA 跳转至 /login?next=%2Faccount.
- *   - Renders the incognito avatar placeholder. / 渲染匿名头像占位符.
+ *
+ *   - 渲染登录 CTA 按钮.
+ *   - 点击 CTA 跳转至 /login?next=%2Faccount.
  */
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -16,6 +18,7 @@ import { describe, expect, it } from "vitest";
 import { LoginPromptCard } from "./LoginPromptCard";
 
 // LocationSpy surfaces the current router location for assertions.
+//
 // LocationSpy 暴露当前路由位置以供断言使用.
 function LocationSpy({ onLocation }: { onLocation: (pathname: string, search: string) => void }) {
   const location = useLocation();
@@ -54,6 +57,7 @@ describe("LoginPromptCard", () => {
   it("renders the section heading", () => {
     renderCard();
     // Section is labelled by the heading; any visible heading suffices.
+    //
     // Section 由标题标记; 任何可见标题都足够.
     expect(screen.getByRole("heading")).toBeInTheDocument();
   });

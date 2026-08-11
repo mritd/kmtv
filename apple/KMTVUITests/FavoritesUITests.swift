@@ -2,6 +2,9 @@ import XCTest
 
 /// UI tests for favorites: verify tapping a favorite navigates to search results.
 /// Server is started/stopped by the test itself via posix_spawn.
+///
+/// 收藏功能 UI 测试: 验证点击收藏项会进入搜索结果. 测试通过 posix_spawn
+/// 自行启动和停止服务端.
 @MainActor
 final class FavoritesUITests: XCTestCase {
     private let app = XCUIApplication()
@@ -110,6 +113,9 @@ final class FavoritesUITests: XCTestCase {
 
     /// Verify that tapping a favorite navigates to the search page (not player).
     /// This test requires existing favorites in the simulator — if none exist, it skips.
+    ///
+    /// 验证点击收藏项会进入搜索页而非播放器. 测试要求 simulator 中已有收藏项,
+    /// 没有收藏项时跳过.
     func testFavoriteTapNavigatesToSearch() throws {
         startServer()
         app.launch()

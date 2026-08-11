@@ -1,4 +1,5 @@
 // IconButton — pressable circular icon for inline actions (favorite star, edit pencil, etc).
+//
 // IconButton — 用于内嵌操作 (收藏星、编辑铅笔等) 的圆形可点击图标按钮.
 
 import { Ionicons } from "@expo/vector-icons";
@@ -9,6 +10,7 @@ import { useTheme } from "./useTheme";
 
 /**
  * Props for IconButton — wraps an Ionicons glyph in a pressable hit target.
+ *
  * IconButton 的 props — 把一个 Ionicons 字形包裹到可点击区域内.
  */
 export interface IconButtonProps {
@@ -24,6 +26,7 @@ export interface IconButtonProps {
 
 /**
  * IconButton — circular pressable wrapping an Ionicons glyph.
+ *
  * IconButton — 圆形可点击区域包裹的 Ionicons 字形.
  */
 export function IconButton({

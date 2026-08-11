@@ -31,6 +31,7 @@ type updateUserRequest struct {
 }
 
 // ListUsers returns all users.
+//
 // ListUsers 返回所有用户.
 func (h *Handler) ListUsers(c *gin.Context) {
 	users, err := h.store.ListUsers()
@@ -42,6 +43,7 @@ func (h *Handler) ListUsers(c *gin.Context) {
 }
 
 // CreateUser creates a new user.
+//
 // CreateUser 创建一个新用户.
 func (h *Handler) CreateUser(c *gin.Context) {
 	var req createUserRequest
@@ -73,6 +75,7 @@ func (h *Handler) CreateUser(c *gin.Context) {
 }
 
 // UpdateUser updates an existing user.
+//
 // UpdateUser 更新已有用户.
 func (h *Handler) UpdateUser(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -106,6 +109,7 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 	}
 
 	// Prevent demoting the last admin to a regular user.
+	//
 	// 防止把最后一个管理员降级为普通用户.
 	if req.Role == "user" {
 		if target.Role == "admin" {
@@ -131,6 +135,7 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 	}
 	if strings.TrimSpace(req.Password) != "" {
 		// Password changes invalidate all existing bearer tokens.
+		//
 		// 密码变更会使该用户现有 bearer token 全部失效.
 		if err := h.authSvc.RevokeUserAccessTokens(id); err != nil {
 			c.JSON(http.StatusInternalServerError, errs.ServerError.WithMsg("failed to revoke user tokens"))
@@ -138,6 +143,7 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 		}
 	} else if target.AllowAdultContent && !allowAdultContent {
 		// Adult-content downgrades must take effect immediately for bearer tokens.
+		//
 		// 成人内容访问降级必须对 bearer token 立即生效.
 		if err := h.authSvc.RevokeUserAccessTokens(id); err != nil {
 			c.JSON(http.StatusInternalServerError, errs.ServerError.WithMsg("failed to revoke user tokens"))
@@ -145,6 +151,7 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 		}
 	} else {
 		// Role or username changes must not keep stale cached user snapshots.
+		//
 		// 角色或用户名变更不能保留过期的用户快照缓存.
 		h.authSvc.InvalidateUserCache(id)
 	}
@@ -153,6 +160,7 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 }
 
 // DeleteUser deletes a user.
+//
 // DeleteUser 删除用户.
 func (h *Handler) DeleteUser(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -162,6 +170,7 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 	}
 
 	// Prevent admin from deleting themselves.
+	//
 	// 防止管理员删除自己.
 	if u, ok := c.Get("user"); ok {
 		if currentUser, ok := u.(*model.User); ok && currentUser.ID == id {
@@ -171,6 +180,7 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 	}
 
 	// Prevent deleting the last admin user.
+	//
 	// 防止删除最后一个管理员用户.
 	target, err := h.store.GetUserByID(id)
 	if err != nil {
@@ -194,6 +204,7 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 	}
 
 	// Deleted users must not keep usable bearer tokens.
+	//
 	// 被删除用户不能保留仍可使用的 bearer token.
 	if err := h.authSvc.RevokeUserAccessTokens(id); err != nil {
 		c.JSON(http.StatusInternalServerError, errs.ServerError.WithMsg("failed to revoke user tokens"))

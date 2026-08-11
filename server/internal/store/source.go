@@ -12,6 +12,7 @@ import (
 )
 
 // scanSource scans a single source row into a model.Source.
+//
 // scanSource 将单行 source 查询结果扫描为 model.Source.
 func scanSource(row interface{ Scan(...any) error }) (*model.Source, error) {
 	var src model.Source
@@ -31,6 +32,7 @@ func scanSource(row interface{ Scan(...any) error }) (*model.Source, error) {
 }
 
 // querySources executes a query and returns a slice of sources.
+//
 // querySources 执行查询并返回视频源切片.
 func (s *Store) querySources(query string, args ...any) ([]model.Source, error) {
 	rows, err := s.db.Query(query, args...)
@@ -41,6 +43,7 @@ func (s *Store) querySources(query string, args ...any) ([]model.Source, error) 
 
 	// Non-nil slice so an empty result marshals to JSON [] rather than null,
 	// which would otherwise break clients that call array methods on the field.
+	//
 	// 使用非 nil 切片, 让空结果序列化为 JSON [] 而非 null, 避免客户端对该字段调用数组方法时出错.
 	sources := []model.Source{}
 	for rows.Next() {
@@ -59,6 +62,7 @@ func (s *Store) querySources(query string, args ...any) ([]model.Source, error) 
 const sourceColumns = `id, key, name, api, detail, enabled, is_adult, searchable, comment, health, last_check, created_at, updated_at`
 
 // CreateSource inserts a new source.
+//
 // CreateSource 插入一个新视频源.
 func (s *Store) CreateSource(src *model.Source) (int64, error) {
 	result, err := s.db.Exec(
@@ -72,6 +76,7 @@ func (s *Store) CreateSource(src *model.Source) (int64, error) {
 }
 
 // GetSourceByID retrieves a source by ID.
+//
 // GetSourceByID 根据 ID 获取视频源.
 func (s *Store) GetSourceByID(id int64) (*model.Source, error) {
 	row := s.db.QueryRow(
@@ -88,6 +93,7 @@ func (s *Store) GetSourceByID(id int64) (*model.Source, error) {
 }
 
 // GetSourceByKey retrieves a source by its unique key.
+//
 // GetSourceByKey 根据唯一 key 获取视频源.
 func (s *Store) GetSourceByKey(key string) (*model.Source, error) {
 	row := s.db.QueryRow(
@@ -104,6 +110,7 @@ func (s *Store) GetSourceByKey(key string) (*model.Source, error) {
 }
 
 // ListSources retrieves all sources ordered by ID.
+//
 // ListSources 按 ID 顺序获取所有视频源.
 func (s *Store) ListSources() ([]model.Source, error) {
 	sources, err := s.querySources(`SELECT ` + sourceColumns + ` FROM sources ORDER BY id`)
@@ -114,6 +121,7 @@ func (s *Store) ListSources() ([]model.Source, error) {
 }
 
 // ListEnabledHealthySources retrieves sources that are enabled, searchable, and not unhealthy.
+//
 // ListEnabledHealthySources 获取已启用, 可搜索且非 unhealthy 的视频源.
 func (s *Store) ListEnabledHealthySources() ([]model.Source, error) {
 	sources, err := s.querySources(
@@ -126,6 +134,7 @@ func (s *Store) ListEnabledHealthySources() ([]model.Source, error) {
 }
 
 // ListEnabledSources retrieves all enabled sources.
+//
 // ListEnabledSources 获取所有已启用视频源.
 func (s *Store) ListEnabledSources() ([]model.Source, error) {
 	sources, err := s.querySources(
@@ -138,6 +147,7 @@ func (s *Store) ListEnabledSources() ([]model.Source, error) {
 }
 
 // UpdateSource updates a source's mutable fields.
+//
 // UpdateSource 更新视频源的可变字段.
 func (s *Store) UpdateSource(id int64, name, api, detail, comment string, enabled bool) error {
 	src, err := s.GetSourceByID(id)
@@ -151,6 +161,7 @@ func (s *Store) UpdateSource(id int64, name, api, detail, comment string, enable
 }
 
 // UpdateSourceFull updates a source's mutable fields including adult classification.
+//
 // UpdateSourceFull 更新视频源可变字段, 包括成人内容分类.
 func (s *Store) UpdateSourceFull(id int64, name, api, detail, comment string, enabled, isAdult bool) error {
 	result, err := s.db.Exec(
@@ -164,11 +175,14 @@ func (s *Store) UpdateSourceFull(id int64, name, api, detail, comment string, en
 }
 
 // BulkSetSourcesEnabled atomically sets the enabled flag for all given source ids.
+//
 // BulkSetSourcesEnabled 在单个事务中原子地把指定 id 集合的 enabled 字段置为相同值.
+//
 // All ids must match an existing row; otherwise the transaction rolls back and
 // returns an error wrapping errs.ErrNotFound. This avoids the partial-success
 // pitfall of concurrent per-row PUTs which fail unpredictably under WAL writer
 // lock contention.
+//
 // 所有 id 必须命中现有行, 否则整个事务回滚并返回包装 errs.ErrNotFound 的错误.
 // 这避免了并发逐行 PUT 在 WAL 写锁竞争下出现的不可预测的部分成功问题.
 func (s *Store) BulkSetSourcesEnabled(ids []int64, enabled bool) error {
@@ -212,6 +226,7 @@ func (s *Store) BulkSetSourcesEnabled(ids []int64, enabled bool) error {
 }
 
 // UpdateSourceHealth updates a source's health status and last_check timestamp.
+//
 // UpdateSourceHealth 更新视频源健康状态和 last_check 时间.
 func (s *Store) UpdateSourceHealth(id int64, health string) error {
 	_, err := s.db.Exec(
@@ -225,6 +240,7 @@ func (s *Store) UpdateSourceHealth(id int64, health string) error {
 }
 
 // UpdateSourceSearchable marks whether a source supports search.
+//
 // UpdateSourceSearchable 标记视频源是否支持搜索.
 func (s *Store) UpdateSourceSearchable(id int64, searchable bool) error {
 	_, err := s.db.Exec(
@@ -238,6 +254,7 @@ func (s *Store) UpdateSourceSearchable(id int64, searchable bool) error {
 }
 
 // DeleteSource deletes a source by ID.
+//
 // DeleteSource 根据 ID 删除视频源.
 func (s *Store) DeleteSource(id int64) error {
 	result, err := s.db.Exec(`DELETE FROM sources WHERE id = ?`, id)
@@ -248,6 +265,7 @@ func (s *Store) DeleteSource(id int64) error {
 }
 
 // UpsertSourceByKey inserts a source or updates it if the key already exists.
+//
 // UpsertSourceByKey 插入视频源, 如果 key 已存在则更新.
 func (s *Store) UpsertSourceByKey(src *model.Source) error {
 	_, err := s.db.Exec(

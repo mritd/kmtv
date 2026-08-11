@@ -47,6 +47,7 @@ describe("searchStore actions", () => {
     searchStore.getState().submitQuery("next");
     expect(previous.signal.aborted).toBe(true);
     // After submit, store is in loading with no controller until SSE attaches a new one.
+    //
     // 提交后处于 loading 状态, 新 SSE 附加前 controller 为 null.
     expect(searchStore.getState().activeController).toBeNull();
   });
@@ -76,11 +77,13 @@ describe("searchStore actions", () => {
     searchStore.getState().attachController(stale);
 
     // Submit a new query, which aborts the stale controller and clears activeController.
+    //
     // 提交新 query, 中止旧 controller 并清空 activeController.
     searchStore.getState().submitQuery("q2");
     expect(stale.signal.aborted).toBe(true);
 
     // The stale stream's late failStream callback must NOT change state.
+    //
     // 旧流的迟到 failStream 不能改变状态.
     searchStore.getState().failStream("stale error", stale);
     expect(searchStore.getState().status).toBe("loading");
@@ -88,6 +91,7 @@ describe("searchStore actions", () => {
 
     // Same for applyResults and completeStream.
     // applyResults
+    //
     // 和 completeStream 同理.
     searchStore.getState().applyResults([{ title: "stale", sources: [] }], stale);
     expect(searchStore.getState().results).toHaveLength(0);

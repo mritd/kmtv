@@ -20,6 +20,7 @@ import (
 )
 
 // ProxyM3U8 fetches and rewrites an M3U8 manifest via the proxy service.
+//
 // ProxyM3U8 通过代理服务拉取并重写 M3U8 manifest.
 func (h *Handler) ProxyM3U8(c *gin.Context) {
 	targetURL := c.Query("url")
@@ -56,6 +57,7 @@ func (h *Handler) ProxyM3U8(c *gin.Context) {
 }
 
 // ProxySegment proxies a video segment request.
+//
 // ProxySegment 代理视频分片请求.
 func (h *Handler) ProxySegment(c *gin.Context) {
 	targetURL := c.Query("url")
@@ -79,6 +81,7 @@ func (h *Handler) ProxySegment(c *gin.Context) {
 }
 
 // ProxyKey proxies an encryption key request.
+//
 // ProxyKey 代理加密密钥请求.
 func (h *Handler) ProxyKey(c *gin.Context) {
 	targetURL := c.Query("url")
@@ -102,6 +105,7 @@ func (h *Handler) ProxyKey(c *gin.Context) {
 }
 
 // requireMediaToken verifies a URL-bound media token before proxying media.
+//
 // requireMediaToken 在代理媒体前校验绑定 URL 的媒体 token.
 func (h *Handler) requireMediaToken(c *gin.Context, kind, targetURL string) (*model.MediaToken, bool) {
 	token := c.Query("mt")
@@ -155,6 +159,7 @@ func (h *Handler) requireMediaTokenSourceAccess(c *gin.Context, mediaToken *mode
 }
 
 // ProxyImage proxies a Douban image request with domain whitelist enforcement.
+//
 // ProxyImage 代理 Douban 图片请求, 并强制执行域名白名单.
 func (h *Handler) ProxyImage(c *gin.Context) {
 	rawURL := c.Query("url")
@@ -170,6 +175,7 @@ func (h *Handler) ProxyImage(c *gin.Context) {
 	}
 
 	// Domain whitelist: only allow *.doubanio.com.
+	//
 	// 域名白名单: 只允许 *.doubanio.com.
 	host := parsed.Hostname()
 	if !strings.HasSuffix(host, ".doubanio.com") && host != "doubanio.com" {
@@ -183,6 +189,7 @@ func (h *Handler) ProxyImage(c *gin.Context) {
 		return
 	}
 	// Forward real browser UA, falling back to default.
+	//
 	// 转发真实浏览器 UA, 缺失时使用默认值.
 	ua := c.Request.Header.Get("User-Agent")
 	if ua == "" {
@@ -219,6 +226,7 @@ func (h *Handler) ProxyImage(c *gin.Context) {
 	c.Header("Cache-Control", "public, max-age=15720000")
 
 	// Limit proxied image bodies to 10MB.
+	//
 	// 将代理图片响应限制为 10MB.
 	c.Status(http.StatusOK)
 	_, _ = io.Copy(c.Writer, io.LimitReader(resp.Body, 10<<20))
@@ -226,6 +234,7 @@ func (h *Handler) ProxyImage(c *gin.Context) {
 
 // publicBaseURL returns the configured public URL used in generated proxy links.
 // Priority: env, DB setting, then current forwarded-header fallback.
+//
 // publicBaseURL 返回生成代理链接时使用的外部访问根地址.
 // 优先级: 环境变量, 数据库设置, 最后回退当前 forwarded header 逻辑.
 func (h *Handler) publicBaseURL(r *http.Request) string {
@@ -252,6 +261,7 @@ func normalizePublicBaseURL(value string) string {
 
 // scheme returns the request scheme (http or https).
 // Trusts X-Forwarded-Proto from reverse proxy; falls back to r.TLS.
+//
 // scheme 返回请求 scheme, 即 http 或 https.
 // 信任反向代理传入的 X-Forwarded-Proto, 缺失时回退到 r.TLS.
 func scheme(r *http.Request) string {
@@ -266,6 +276,7 @@ func scheme(r *http.Request) string {
 
 // host returns the public-facing host (with port if present).
 // Trusts X-Forwarded-Host from reverse proxy; falls back to r.Host.
+//
 // host 返回对外可见的 host, 包括可能存在的端口.
 // 信任反向代理传入的 X-Forwarded-Host, 缺失时回退到 r.Host.
 func host(r *http.Request) string {

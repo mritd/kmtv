@@ -1,4 +1,5 @@
 // i18next setup — wires locales and exposes initI18n(language).
+//
 // i18next 初始化, 装配 locale 并暴露 initI18n(language).
 
 import i18next, { type i18n as I18nInstance } from "i18next";
@@ -38,12 +39,14 @@ const resources = {
 
 /**
  * Supported UI languages mirror the web client.
+ *
  * 支持的 UI 语言与 web 端一致.
  */
 export type Lang = "en" | "zh";
 
 /**
  * Initialise i18next with the embedded resources and the chosen language.
+ *
  * 使用内嵌资源与指定语言初始化 i18next.
  */
 export async function initI18n(lang: Lang): Promise<I18nInstance> {

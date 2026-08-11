@@ -1,4 +1,5 @@
 // authStore tests cover bootstrap, connect, login, logout, and 401 recovery paths.
+//
 // authStore 测试覆盖 bootstrap、connect、login、logout 与 401 恢复路径.
 
 import type { AuthAPI } from "../api/auth";
@@ -57,6 +58,7 @@ describe("authStore.bootstrap", () => {
     // Simulates a programmer-level bug (TypeError-style) in the factory pipeline; the outer
     // try/catch must NOT swallow it silently — it has to land in console.error so it is
     // visible during development and reaches the diagnostics ring buffer in production.
+    //
     // 模拟 factory 链上的编程级错误 (TypeError 等); 外层 try/catch 不得静默吞掉, 必须打到 console.error,
     // 开发期可见, 生产期亦能进入诊断环形缓冲.
     useServerStore.getState().setServerURL("https://k.example.com");
@@ -117,12 +119,14 @@ describe("authStore.logout", () => {
     });
     // The store does not accept a factory for logout — pre-set the createAuthAPI path via
     // injecting a token so the real client constructor runs, then verify state resets.
+    //
     // logout 不接受工厂参数, 这里只验证最终状态被清理.
     await useAuthStore.getState().logout();
     expect(useServerStore.getState().serverURL).toBeNull();
     expect(useAuthStore.getState().token).toBeNull();
     expect(useAuthStore.getState().status).toBe("serverSetup");
     // auth.logout is a different instance (real AuthAPI was constructed); just confirm reset.
+    //
     // auth.logout 是另一个实例 (内部构造的真实 AuthAPI), 这里只确认状态已重置.
     expect(auth).toBeDefined();
   });

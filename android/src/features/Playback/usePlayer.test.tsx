@@ -1,4 +1,5 @@
 // usePlayer tests — detail load, URL resolve, line failover, rate + progress wires.
+//
 // usePlayer 测试 — 详情加载、URL 解析、线路 failover、倍速与进度写入.
 
 import { act, renderHook, waitFor } from "@testing-library/react-native";
@@ -77,6 +78,7 @@ test("setRate stores rate and timeUpdate routes through reducer", async () => {
     usePlayer({ serverURL: "http://srv-a-rate", destination: dest, detailAPI: apis.detail, playbackAPI: apis.playback }),
   );
   // Wait for detailLoaded so the hook is in its final mounted state.
+  //
   // 等待详情加载完成, 让 hook 处于稳定状态.
   await waitFor(() => expect(result.current.state.detail).not.toBeNull());
   act(() => { result.current.actions.setRate(1.5); });
@@ -221,6 +223,7 @@ test("setSkipIntro and setSkipOutro persist to MMKV", async () => {
 test("onError walks line then source fallback, surfaces final error when all drained", async () => {
   const apis = mkAPIs();
   // Single-line detail + single source → both line and source fallback drain.
+  //
   // 单线路 detail + 单源 → 线路与源 fallback 都会耗尽.
   apis.detail.detail = jest.fn().mockResolvedValue({ ...detail, episodes: [[{ name: "E1", url: "raw://e1" }]] });
   apis.playback.playbackURL = jest.fn().mockRejectedValue(new Error("transport dead"));

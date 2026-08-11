@@ -1,14 +1,18 @@
 import Foundation
 
 /// Episode resume intent carried across fresh search navigation.
+///
 /// 跨重新搜索导航传递的分集恢复意图.
 struct EpisodeResumeIntent: Hashable, Sendable {
     let episodeIndex: Int
     let episodeName: String
 }
 
-/// Navigation value for triggering a search from home page card taps.
-/// 首页卡片点击后用于触发搜索导航的值.
+/// Navigation value for opening search from Home, Categories, or Favorites.
+/// iOS pushes it on the originating tab's path; tvOS passes it to the Search tab.
+///
+/// 从首页, 分类或收藏进入搜索时使用的导航值. iOS 将它压入来源 tab 的 path,
+/// tvOS 则将它传递给 Search tab.
 struct SearchQuery: Hashable, Identifiable {
     var id: String { "\(query)-\(coverHint)-\(resumeIntent?.episodeIndex ?? -1)-\(resumeIntent?.episodeName ?? "")" }
     let query: String
@@ -32,8 +36,12 @@ struct SearchQuery: Hashable, Identifiable {
     }
 }
 
-/// Navigation destination for play page.
-/// 播放详情页使用的导航目标.
+/// Navigation destination for the detail/player flow.
+/// `sourceKey` and `videoId` identify the selected provider entry; `sources`
+/// retains the other provider choices for source switching.
+///
+/// 详情与播放流程使用的导航目标. `sourceKey` 和 `videoId` 标识当前选中的视频源条目,
+/// `sources` 保留其他视频源选项供切换.
 struct PlayDestination: Hashable, Identifiable {
     var id: String { "\(title)-\(sourceKey)-\(videoId)-\(coverHint)-\(resumeIntent?.episodeIndex ?? -1)-\(resumeIntent?.episodeName ?? "")" }
     let title: String

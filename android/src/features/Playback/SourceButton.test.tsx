@@ -1,4 +1,5 @@
 // SourceButton tests — text, press, accessibilityState propagation.
+//
 // SourceButton 测试 — 文案、点击与 accessibilityState 传播.
 
 import { fireEvent, render } from "@testing-library/react-native";

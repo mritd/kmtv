@@ -1,9 +1,11 @@
 import SwiftUI
 
 /// Reusable playback source button shared by detail and player source pickers.
+///
 /// 详情页和播放器源选择器复用的视频源按钮.
 struct SourceButton: View {
     /// Button layout variants tuned for horizontal chips and compact grids.
+    ///
     /// 按钮布局变体, 分别适配横向 chip 和紧凑网格.
     enum Style {
         case bordered
@@ -75,6 +77,7 @@ struct SourceButton: View {
 #if os(iOS)
 private extension View {
     /// Applies the iOS source button chrome without changing the shared label content.
+    ///
     /// 在不改变共享标签内容的前提下应用 iOS 视频源按钮外观.
     @ViewBuilder
     func sourceButtonIOSStyle(style: SourceButton.Style, isSelected: Bool) -> some View {
@@ -93,6 +96,7 @@ private extension View {
 
 #if os(tvOS)
 /// tvOS label keeps focus, selected state, and latency in one stable view tree.
+///
 /// tvOS 标签把焦点, 选中态和延迟保持在稳定视图树中.
 private struct TVSourceButtonLabel: View {
     let name: String

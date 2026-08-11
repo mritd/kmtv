@@ -1,4 +1,5 @@
 // SectionRow renders a section title and a horizontal virtualised FlatList of VideoCards.
+//
 // SectionRow 渲染分区标题以及水平虚拟化 FlatList 形式的 VideoCard 列表.
 
 import React, { useCallback } from "react";
@@ -21,6 +22,7 @@ const CARD_STRIDE = sizes.cardWidth + CARD_GAP;
 
 /**
  * SectionRow — section title + horizontal virtualised FlatList of VideoCards.
+ *
  * SectionRow — 分区标题加 VideoCard 的水平虚拟化 FlatList.
  */
 export function SectionRow({ baseURL, section, onSelect }: Props) {

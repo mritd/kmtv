@@ -12,20 +12,30 @@ describe("APIClient", () => {
       user: { id: 1, username: "admin", role: "admin" },
     });
 
-    const fetcher = vi.fn(async () =>
-      new Response(JSON.stringify({ settings: { version: "v0.0.0-dev" } }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    const fetcher = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ settings: { version: "v0.0.0-dev" } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
     );
 
-    const client = createAPIClient({ baseURL: "https://kmtv.example", tokenStore: store, fetcher });
+    const client = createAPIClient({
+      baseURL: "https://kmtv.example",
+      tokenStore: store,
+      fetcher,
+    });
     const result = await client.getSettings();
 
     expect(result.settings.version).toBe("v0.0.0-dev");
-    expect(fetcher).toHaveBeenCalledWith("https://kmtv.example/api/v1/settings", expect.any(Object));
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://kmtv.example/api/v1/settings",
+      expect.any(Object),
+    );
     const [, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
-    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer Base58Token");
+    expect(new Headers(init.headers).get("Authorization")).toBe(
+      "Bearer Base58Token",
+    );
   });
 
   it("stores login tokens and clears them on logout", async () => {
@@ -44,9 +54,17 @@ describe("APIClient", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         ),
       )
-      .mockResolvedValueOnce(new Response(JSON.stringify({ message: "logged out" }), { status: 200 }));
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "logged out" }), {
+          status: 200,
+        }),
+      );
 
-    const client = createAPIClient({ baseURL: "/", tokenStore: store, fetcher });
+    const client = createAPIClient({
+      baseURL: "/",
+      tokenStore: store,
+      fetcher,
+    });
 
     await client.login("admin", "admin");
     expect(store.get()?.accessToken).toBe("LoginToken");
@@ -60,10 +78,13 @@ describe("APIClient", () => {
       baseURL: "/",
       tokenStore: createMemoryTokenStore(),
       fetcher: async () =>
-        new Response(JSON.stringify({ code: 1300, error: "internal server error" }), {
-          status: 500,
-          headers: { "content-type": "application/json" },
-        }),
+        new Response(
+          JSON.stringify({ code: 1300, error: "internal server error" }),
+          {
+            status: 500,
+            headers: { "content-type": "application/json" },
+          },
+        ),
     });
 
     await expect(client.search("slam dunk")).rejects.toMatchObject(
@@ -74,12 +95,32 @@ describe("APIClient", () => {
   it("builds search, detail, playback, and me requests", async () => {
     const fetcher = vi
       .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 1, username: "admin", role: "admin" }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ results: [] }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "9", title: "Demo", episodes: [] }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ mode: "direct", url: "https://cdn.example/a.m3u8" }), { status: 200 }));
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ id: 1, username: "admin", role: "admin" }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ results: [] }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "9", title: "Demo", episodes: [] }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ mode: "direct", url: "https://cdn.example/a.m3u8" }),
+          { status: 200 },
+        ),
+      );
 
-    const client = createAPIClient({ baseURL: "/", tokenStore: createMemoryTokenStore(), fetcher });
+    const client = createAPIClient({
+      baseURL: "/",
+      tokenStore: createMemoryTokenStore(),
+      fetcher,
+    });
 
     await client.me();
     await client.search("灌篮高手", 2);
@@ -92,7 +133,9 @@ describe("APIClient", () => {
       "/api/v1/detail?source=source-a&id=9",
       "/api/v1/playback/url",
     ]);
-    expect(JSON.parse((fetcher.mock.calls[3][1] as RequestInit).body as string)).toEqual({
+    expect(
+      JSON.parse((fetcher.mock.calls[3][1] as RequestInit).body as string),
+    ).toEqual({
       url: "https://cdn.example/a.m3u8",
       source: "source-a",
     });
@@ -110,18 +153,32 @@ describe("APIClient", () => {
       episode_index: 0,
       progress_sec: 90,
       duration_sec: 1200,
-    completed: false,
-    event_time_ms: 1,
+      completed: false,
+      event_time_ms: 1,
       created_at: "",
       updated_at: "",
     };
     const fetcher = vi
       .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [historyItem] }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(historyItem), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(historyItem), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ message: "watch history deleted" }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ message: "watch history cleared" }), { status: 200 }));
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ items: [historyItem] }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(historyItem), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(historyItem), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "watch history deleted" }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "watch history cleared" }), {
+          status: 200,
+        }),
+      );
 
     const tokenStore = createMemoryTokenStore({
       accessToken: "HistoryToken",
@@ -142,19 +199,19 @@ describe("APIClient", () => {
       episode_index: 0,
       progress_sec: 90,
       duration_sec: 1200,
-    completed: false,
-    event_time_ms: 2,
+      completed: false,
+      event_time_ms: 2,
     });
     await client.deleteWatchHistory("Demo Show");
-    await client.clearWatchHistory();
+    await client.clearWatchHistory(12345);
 
     expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
-    "/api/v1/history?limit=12&completed=false",
+      "/api/v1/history?limit=12&completed=false",
       "/api/v1/history/item?title=Demo+Show",
       "/api/v1/history",
       "/api/v1/history/item?title=Demo+Show",
-    expect.stringMatching(/^\/api\/v1\/history\?event_time_ms=\d+$/),
-  ]);
+      "/api/v1/history?event_time_ms=12345",
+    ]);
     expect((fetcher.mock.calls[2][1] as RequestInit).method).toBe("PUT");
     expect((fetcher.mock.calls[3][1] as RequestInit).method).toBe("DELETE");
     expect((fetcher.mock.calls[4][1] as RequestInit).method).toBe("DELETE");
@@ -162,25 +219,39 @@ describe("APIClient", () => {
 
   it("does not send protected watch-history requests without an access token", async () => {
     const fetcher = vi.fn(async () => new Response(null, { status: 401 }));
-    const client = createAPIClient({ baseURL: "/", tokenStore: createMemoryTokenStore(), fetcher });
+    const client = createAPIClient({
+      baseURL: "/",
+      tokenStore: createMemoryTokenStore(),
+      fetcher,
+    });
 
-    await expect(client.listWatchHistory()).rejects.toMatchObject({ status: 401 });
-    await expect(client.getWatchHistory("Demo Show")).rejects.toMatchObject({ status: 401 });
-    await expect(client.saveWatchHistory({
-      source_key: "source-a",
-      video_id: "video-a",
-      title: "Demo Show",
-      cover: "",
-      episode: "01",
-      group_index: 0,
-      episode_index: 0,
-      progress_sec: 90,
-      duration_sec: 1200,
-      completed: false,
-      event_time_ms: 1,
-    })).rejects.toMatchObject({ status: 401 });
-    await expect(client.deleteWatchHistory("Demo Show")).rejects.toMatchObject({ status: 401 });
-    await expect(client.clearWatchHistory()).rejects.toMatchObject({ status: 401 });
+    await expect(client.listWatchHistory()).rejects.toMatchObject({
+      status: 401,
+    });
+    await expect(client.getWatchHistory("Demo Show")).rejects.toMatchObject({
+      status: 401,
+    });
+    await expect(
+      client.saveWatchHistory({
+        source_key: "source-a",
+        video_id: "video-a",
+        title: "Demo Show",
+        cover: "",
+        episode: "01",
+        group_index: 0,
+        episode_index: 0,
+        progress_sec: 90,
+        duration_sec: 1200,
+        completed: false,
+        event_time_ms: 1,
+      }),
+    ).rejects.toMatchObject({ status: 401 });
+    await expect(client.deleteWatchHistory("Demo Show")).rejects.toMatchObject({
+      status: 401,
+    });
+    await expect(client.clearWatchHistory(12345)).rejects.toMatchObject({
+      status: 401,
+    });
 
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -228,10 +299,13 @@ describe("APIClient", () => {
     const client = createAPIClient({
       baseURL: "/",
       tokenStore: store,
-      fetcher: async () => new Response(null, { status: 401, statusText: "Unauthorized" }),
+      fetcher: async () =>
+        new Response(null, { status: 401, statusText: "Unauthorized" }),
     });
 
-    await expect(client.searchStream("Movie", vi.fn())).rejects.toThrow("Unauthorized");
+    await expect(client.searchStream("Movie", vi.fn())).rejects.toThrow(
+      "Unauthorized",
+    );
     expect(store.get()).toBeNull();
     expect(store.lastClearReason()).toBeNull();
   });
@@ -244,6 +318,7 @@ describe("APIClient", () => {
     });
     // The fetcher simulates the user logging in (new token swap) before the
     // in-flight request's 401 response is processed.
+    //
     // fetcher 模拟在 401 响应回来前用户已经重新登录, 拿到了新 token.
     const client = createAPIClient({
       baseURL: "/",
@@ -254,10 +329,13 @@ describe("APIClient", () => {
           expiresAt: "2099-01-01T00:00:00Z",
           user: { id: 1, username: "admin", role: "admin" },
         });
-        return new Response(JSON.stringify({ code: 1002, error: "not logged in" }), {
-          status: 401,
-          headers: { "content-type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({ code: 1002, error: "not logged in" }),
+          {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          },
+        );
       },
     });
 
@@ -285,7 +363,9 @@ describe("APIClient", () => {
       },
     });
 
-    await expect(client.searchStream("Movie", vi.fn())).rejects.toThrow("Unauthorized");
+    await expect(client.searchStream("Movie", vi.fn())).rejects.toThrow(
+      "Unauthorized",
+    );
     expect(store.get()?.accessToken).toBe("NewToken");
     expect(store.lastClearReason()).toBeNull();
   });
@@ -299,34 +379,64 @@ describe("APIClient", () => {
     const client = createAPIClient({
       baseURL: "/",
       tokenStore: store,
-      fetcher: async () => new Response(null, { status: 401, statusText: "Unauthorized" }),
+      fetcher: async () =>
+        new Response(null, { status: 401, statusText: "Unauthorized" }),
     });
 
-    await expect(client.searchStream("Movie", vi.fn())).rejects.toThrow("Unauthorized");
+    await expect(client.searchStream("Movie", vi.fn())).rejects.toThrow(
+      "Unauthorized",
+    );
     expect(store.get()).toBeNull();
   });
 
   it("builds douban categories and filtered recommend requests", async () => {
     const ok = (body: unknown) =>
-      new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
     const fetcher = vi
       .fn()
       .mockResolvedValueOnce(
         ok({
           categories: [
-            { key: "movie", name: "电影", douban_kind: "movie", format: "", subcategories: [], regions: [] },
+            {
+              key: "movie",
+              name: "电影",
+              douban_kind: "movie",
+              format: "",
+              subcategories: [],
+              regions: [],
+            },
           ],
         }),
       )
-      .mockResolvedValueOnce(ok({ items: [{ id: "1", title: "Movie", cover: "https://img", rate: "8.0", year: "2026" }] }))
+      .mockResolvedValueOnce(
+        ok({
+          items: [
+            {
+              id: "1",
+              title: "Movie",
+              cover: "https://img",
+              rate: "8.0",
+              year: "2026",
+            },
+          ],
+        }),
+      )
       .mockResolvedValueOnce(ok({ items: null }));
 
-    const client = createAPIClient({ baseURL: "/", tokenStore: createMemoryTokenStore(), fetcher });
+    const client = createAPIClient({
+      baseURL: "/",
+      tokenStore: createMemoryTokenStore(),
+      fetcher,
+    });
 
     const categories = await client.doubanCategories();
     expect(categories.categories[0].douban_kind).toBe("movie");
 
     // Full filter: every optional field present and pagination explicit.
+    //
     // 完整筛选: 所有可选字段均存在且分页显式.
     const page = await client.doubanRecommendFilter({
       kind: "movie",
@@ -341,6 +451,7 @@ describe("APIClient", () => {
     // Minimal filter: only kind; empty/absent optionals are omitted, start/count default.
     // The backend returns {"items": null} for an empty upstream result; the client must
     // normalize it to [] so downstream pagination/dedup stay array-safe.
+    //
     // 最小筛选: 仅 kind; 空/缺省的可选项被省略, start/count 取默认值.
     // 后端在上游结果为空时返回 {"items": null}; 客户端必须归一化为 [], 使下游分页/去重对数组安全.
     const empty = await client.doubanRecommendFilter({ kind: "tv" });
@@ -357,10 +468,13 @@ describe("APIClient", () => {
     const fetcher = vi
       .fn()
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ id: 1, username: "new-admin", role: "admin" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
+        new Response(
+          JSON.stringify({ id: 1, username: "new-admin", role: "admin" }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ message: "password updated" }), {
@@ -370,21 +484,35 @@ describe("APIClient", () => {
       )
       .mockResolvedValueOnce(
         new Response(
-          JSON.stringify({ id: 1, username: "new-admin", role: "admin", avatar: "/api/v1/avatar/new-admin" }),
+          JSON.stringify({
+            id: 1,
+            username: "new-admin",
+            role: "admin",
+            avatar: "/api/v1/avatar/new-admin",
+          }),
           { status: 200, headers: { "content-type": "application/json" } },
         ),
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ id: 1, username: "new-admin", role: "admin" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
+        new Response(
+          JSON.stringify({ id: 1, username: "new-admin", role: "admin" }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
       );
-    const client = createAPIClient({ baseURL: "/", tokenStore: createMemoryTokenStore(), fetcher });
+    const client = createAPIClient({
+      baseURL: "/",
+      tokenStore: createMemoryTokenStore(),
+      fetcher,
+    });
 
     await client.updateProfile("new-admin");
     await client.changePassword("old-password", "new-password");
-    await client.uploadAvatar(new File(["avatar"], "avatar.png", { type: "image/png" }));
+    await client.uploadAvatar(
+      new File(["avatar"], "avatar.png", { type: "image/png" }),
+    );
     await client.deleteAvatar();
 
     expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
@@ -393,20 +521,32 @@ describe("APIClient", () => {
       "/api/v1/auth/avatar",
       "/api/v1/auth/avatar",
     ]);
-    expect(JSON.parse((fetcher.mock.calls[0][1] as RequestInit).body as string)).toEqual({ username: "new-admin" });
-    expect(JSON.parse((fetcher.mock.calls[1][1] as RequestInit).body as string)).toEqual({
+    expect(
+      JSON.parse((fetcher.mock.calls[0][1] as RequestInit).body as string),
+    ).toEqual({ username: "new-admin" });
+    expect(
+      JSON.parse((fetcher.mock.calls[1][1] as RequestInit).body as string),
+    ).toEqual({
       old_password: "old-password",
       new_password: "new-password",
     });
-    expect((fetcher.mock.calls[2][1] as RequestInit).body).toBeInstanceOf(FormData);
+    expect((fetcher.mock.calls[2][1] as RequestInit).body).toBeInstanceOf(
+      FormData,
+    );
     expect((fetcher.mock.calls[3][1] as RequestInit).method).toBe("DELETE");
   });
 
   it("builds admin source, subscription, user, and settings requests", async () => {
     const ok = (body: unknown) =>
-      new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
     const created = (body: unknown) =>
-      new Response(JSON.stringify(body), { status: 201, headers: { "content-type": "application/json" } });
+      new Response(JSON.stringify(body), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      });
     const fetcher = vi
       .fn()
       .mockResolvedValueOnce(ok({ sources: [] }))
@@ -433,13 +573,24 @@ describe("APIClient", () => {
       .mockResolvedValueOnce(ok({ message: "source deleted" }))
       .mockResolvedValueOnce(ok({ subscriptions: [] }))
       .mockResolvedValueOnce(
-        created({ id: 2, url: "https://config.example", auto_update: true, interval: 3600, last_sync: "", updated_at: "" }),
+        created({
+          id: 2,
+          url: "https://config.example",
+          auto_update: true,
+          interval: 3600,
+          last_sync: "",
+          updated_at: "",
+        }),
       )
       .mockResolvedValueOnce(ok({ message: "subscription synced" }))
       .mockResolvedValueOnce(ok({ users: [] }))
       .mockResolvedValueOnce(created({ id: 3, username: "user", role: "user" }))
       .mockResolvedValueOnce(ok({ message: "settings updated" }));
-    const client = createAPIClient({ baseURL: "/", tokenStore: createMemoryTokenStore(), fetcher });
+    const client = createAPIClient({
+      baseURL: "/",
+      tokenStore: createMemoryTokenStore(),
+      fetcher,
+    });
 
     await client.listSources();
     await client.createSource({
@@ -466,10 +617,18 @@ describe("APIClient", () => {
     await client.checkSource(1);
     await client.deleteSource(1);
     await client.listSubscriptions();
-    await client.createSubscription({ url: "https://config.example", auto_update: true, interval: 3600 });
+    await client.createSubscription({
+      url: "https://config.example",
+      auto_update: true,
+      interval: 3600,
+    });
     await client.syncSubscription(2);
     await client.listUsers();
-    await client.createUser({ username: "user", password: "password", role: "user" });
+    await client.createUser({
+      username: "user",
+      password: "password",
+      role: "user",
+    });
     await client.updateSettings({ site_name: "KMTV" });
 
     expect(fetcher.mock.calls.map(([url]) => url)).toEqual([

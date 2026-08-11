@@ -1,4 +1,5 @@
 // Search history chip flow + Clear button. Wrap layout via flexDirection:row + flexWrap:wrap.
+//
 // 搜索历史胶囊流式布局 + 清空按钮. 通过 flexDirection:row + flexWrap:wrap 实现自动换行.
 
 import React from "react";
@@ -11,6 +12,7 @@ import type { SearchHistoryItem } from "@/storage/searchHistory";
 
 /**
  * Props for the search history block.
+ *
  * 搜索历史区块的 props.
  */
 export interface SearchHistoryFlowProps {
@@ -21,6 +23,7 @@ export interface SearchHistoryFlowProps {
 
 /**
  * SearchHistoryFlow renders the recent-queries chip block. Hidden when history is empty.
+ *
  * SearchHistoryFlow 渲染最近搜索胶囊区块. 历史为空时不渲染.
  */
 export function SearchHistoryFlow({ history, onSelect, onClear }: SearchHistoryFlowProps) {

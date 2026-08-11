@@ -1,5 +1,6 @@
 #!/usr/bin/env tsx
 // Verify Android i18n namespaces have matching keys across zh + en.
+//
 // 校验 Android i18n namespace 在 zh 与 en 之间 key 平价.
 
 import enAdmin from "../src/i18n/locales/en/admin";

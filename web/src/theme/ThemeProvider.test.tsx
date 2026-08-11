@@ -20,7 +20,11 @@ import { createMemoryThemeStore } from "./themes";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Wraps renderHook inside a ThemeProvider using an injected in-memory store. */
+/**
+ * Wraps renderHook inside a ThemeProvider using an injected in-memory store.
+ *
+ * 使用注入的内存 store, 在 ThemeProvider 内运行 renderHook.
+ */
 function renderWithProvider(store = createMemoryThemeStore()) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <ThemeProvider store={store}>{children}</ThemeProvider>
@@ -54,6 +58,7 @@ describe("ThemeProvider", () => {
   describe("default theme", () => {
     it("exposes the store's initial preference as the current preference", () => {
       // createMemoryThemeStore() defaults to nocturne.
+      //
       // createMemoryThemeStore() 默认使用 nocturne.
       const { result } = renderWithProvider();
       expect(result.current.preference).toEqual({ id: "nocturne" });
@@ -67,6 +72,7 @@ describe("ThemeProvider", () => {
     it("sets nocturne CSS variables on document.documentElement (spot-check --bg)", () => {
       renderWithProvider();
       // Nocturne --bg is #05070d per themes.ts builtInThemes definition.
+      //
       // Nocturne --bg 的值为 #05070d, 见 themes.ts builtInThemes 定义.
       expect(document.documentElement.style.getPropertyValue("--bg")).toBe("#05070d");
     });
@@ -99,6 +105,7 @@ describe("ThemeProvider", () => {
         result.current.setTheme({ id: "tech-purple" });
       });
       // Tech-purple --bg is #070611.
+      //
       // Tech-purple --bg 的值为 #070611.
       expect(document.documentElement.style.getPropertyValue("--bg")).toBe("#070611");
     });
@@ -188,6 +195,7 @@ describe("ThemeProvider", () => {
       const { result } = renderWithProvider();
       act(() => {
         // Missing 'text' — normalizeThemePreference should reject and return nocturne.
+        //
         // 缺少 'text' 字段 — normalizeThemePreference 应拒绝并回退到 nocturne.
         result.current.setTheme({
           id: "custom" as const,

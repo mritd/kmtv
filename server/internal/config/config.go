@@ -14,6 +14,7 @@ import (
 )
 
 // ParsedConfig is the result of parsing an imported source config.
+//
 // ParsedConfig 表示解析导入视频源配置后的结果.
 type ParsedConfig struct {
 	CacheTTL int
@@ -23,6 +24,7 @@ type ParsedConfig struct {
 // ParseSourceConfig parses imported source config data from an io.Reader.
 // It auto-detects whether the input is base58-encoded or plain JSON.
 // Returns sources sorted by key for deterministic order.
+//
 // ParseSourceConfig 从 io.Reader 解析导入视频源配置.
 // 它会自动检测输入是 base58 编码还是普通 JSON.
 // 返回的视频源按 key 排序, 保证顺序稳定.
@@ -34,6 +36,7 @@ func ParseSourceConfig(r io.Reader) (*ParsedConfig, error) {
 	raw = bytes.TrimSpace(raw)
 
 	// Auto-detect format: if it starts with '{', treat as JSON; otherwise try base58.
+	//
 	// 自动检测格式: 以 "{" 开头则按 JSON 处理, 否则尝试 base58.
 	data := raw
 	if len(raw) > 0 && raw[0] != '{' {
@@ -50,6 +53,7 @@ func ParseSourceConfig(r io.Reader) (*ParsedConfig, error) {
 	}
 
 	// Collect and sort keys for deterministic order.
+	//
 	// 收集并排序 key, 保证输出顺序稳定.
 	keys := make([]string, 0, len(cfg.Sites))
 	for k := range cfg.Sites {
@@ -78,12 +82,19 @@ func ParseSourceConfig(r io.Reader) (*ParsedConfig, error) {
 }
 
 // ParseEpisodes parses the video-source vod_play_url compatible format.
+//
 // ParseEpisodes 解析视频源 vod_play_url 兼容格式.
+//
 // Format: title$url#title$url$$$title$url#title$url.
+//
 // 格式: title$url#title$url$$$title$url#title$url.
+//
 // $$$ separates source groups, # separates episodes, $ separates name and URL.
+//
 // $$$ 分隔线路组, # 分隔分集, $ 分隔名称和 URL.
+//
 // Returns episodes from the first source group.
+//
 // 返回第一个线路组里的分集.
 func ParseEpisodes(raw string) []model.Episode {
 	groups := ParseAllEpisodeGroups(raw)
@@ -94,6 +105,7 @@ func ParseEpisodes(raw string) []model.Episode {
 }
 
 // ParseAllEpisodeGroups returns all source groups.
+//
 // ParseAllEpisodeGroups 返回所有线路组.
 func ParseAllEpisodeGroups(raw string) [][]model.Episode {
 	raw = strings.TrimSpace(raw)
@@ -123,6 +135,7 @@ func ParseAllEpisodeGroups(raw string) [][]model.Episode {
 			u := entry[idx+1:]
 			// Only accept .m3u8 URLs. Sources often store ordinary HTML watch-page links
 			// which are not playable via proxy.
+			//
 			// 只接受 .m3u8 URL. 视频源经常保存普通 HTML 播放页链接, 这些链接无法通过代理播放.
 			if !strings.HasSuffix(strings.SplitN(u, "?", 2)[0], ".m3u8") {
 				continue

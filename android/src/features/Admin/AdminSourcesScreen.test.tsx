@@ -1,4 +1,5 @@
 // AdminSourcesScreen tests — list / toggle / check-all / bulk enable-disable / delete-with-confirm.
+//
 // AdminSourcesScreen 测试 — 列表、开关、全部检查、批量启用禁用、二次确认删除.
 
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";

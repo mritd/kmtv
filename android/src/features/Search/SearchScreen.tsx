@@ -1,4 +1,5 @@
 // SearchScreen — input + SSE-driven streaming search + sync fallback + server-scoped history chips.
+//
 // SearchScreen — 输入框 + SSE 流式搜索 + 同步回退 + 按服务器隔离的历史胶囊.
 
 import { useNavigation } from "@react-navigation/native";
@@ -108,6 +109,7 @@ export interface SearchScreenProps {
 
 /**
  * SearchScreen — entry point exported to the per-tab native-stack.
+ *
  * SearchScreen — 导出给各 Tab 内 native-stack 的入口组件.
  */
 export function SearchScreen({ route }: SearchScreenProps) {
@@ -150,6 +152,7 @@ function Inner({ api, serverURL, initialQuery, resumeHint }: InnerProps) {
   const isTablet = layout !== "phone";
   // HomeStackParamList and CategoriesStackParamList both define "Player" with PlayDestination,
   // so typing as HomeStackParamList here works whether SearchScreen is mounted under either tab.
+  //
   // HomeStackParamList 与 CategoriesStackParamList 的 Player 都指向 PlayDestination, 在此用 HomeStackParamList
   // 类型化即可同时覆盖两个 Tab 的导航类型.
   const navigation = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
@@ -192,6 +195,7 @@ function Inner({ api, serverURL, initialQuery, resumeHint }: InnerProps) {
     } catch {
       if (controller.signal.aborted) return;
       // SSE failed → fall back to sync search (matches iOS SearchViewModel).
+      //
       // SSE 失败 → 回退到同步搜索 (与 iOS SearchViewModel 一致).
       try {
         const sync = await api.search(trimmed);
@@ -209,6 +213,7 @@ function Inner({ api, serverURL, initialQuery, resumeHint }: InnerProps) {
     // Re-fire whenever the navigation search context changes. native-stack reuses the SAME Search
     // instance when Home re-navigates to it, so both initialQuery and continue-watching resumeHint
     // must participate in the key.
+    //
     // 每次 navigation 搜索上下文变化都重跑. native-stack 会复用同一 Search 实例, 因此 initialQuery
     // 和继续观看传入的 resumeHint 都必须参与 key.
     if (initialQuery.trim().length > 0) {
@@ -219,6 +224,7 @@ function Inner({ api, serverURL, initialQuery, resumeHint }: InnerProps) {
     }
     return () => { controllerRef.current?.abort(); };
     // runSearch is stable for the screen's lifetime (deps are api, serverURL, t); intentionally omitted.
+    //
     // runSearch 在该屏幕生命期内稳定 (deps 是 api, serverURL, t), 故意不放进依赖.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuery, resumeKey]);
@@ -407,6 +413,7 @@ function SearchLoadingState(
  * `source_key:video_id` is unique per (title × source) pair. Falls back to `t:<title>:<index>`
  * when sources is empty (defensive — server always returns ≥1 source, but index disambiguates
  * if two source-less rows ever shared a title).
+ *
  * 后端 SearchResult 无顶层 id, 此处用首个源的 source_key:video_id 合成唯一 key;
  * sources 为空时退化到 t:<title>:<index> (服务端总会返回至少一个源, 索引仅作防御性消歧).
  */

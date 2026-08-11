@@ -1,8 +1,10 @@
 // Wire-format types shared by every API module. Mirrors apple/Shared/API model files.
+//
 // 所有 API 模块共享的 wire 格式类型, 镜像 apple/Shared/API 的模型文件.
 
 /**
  * Authenticated user representation.
+ *
  * 已认证用户的表示.
  */
 export interface User {
@@ -14,10 +16,12 @@ export interface User {
 
 /**
  * Bearer-token response from POST /api/v1/auth/login — flat shape with snake_case wire fields.
+ *
  * POST /api/v1/auth/login 返回的 bearer token 响应, 扁平结构, wire 字段使用 snake_case.
  *
  * The server returns a single object that extends the User shape with `access_token` and
  * `expires_at`; clients should NOT expect a nested `user` field.
+ *
  * 服务器返回单一对象, 在 User 之上追加 `access_token` 与 `expires_at`; 客户端不要预期 `user` 嵌套字段.
  */
 export interface LoginResponse extends User {
@@ -27,6 +31,7 @@ export interface LoginResponse extends User {
 
 /**
  * Generic message response used by DELETE endpoints + auth/logout.
+ *
  * DELETE 接口与 auth/logout 共享的通用 message 响应.
  */
 export interface MessageResponse {
@@ -35,6 +40,7 @@ export interface MessageResponse {
 
 /**
  * Server-synchronized continue-watching entry.
+ *
  * 服务端同步的继续观看条目.
  */
 export interface WatchHistoryResponseItem {
@@ -56,6 +62,7 @@ export interface WatchHistoryResponseItem {
 
 /**
  * GET /history response wrapper.
+ *
  * GET /history 的响应包装.
  */
 export interface WatchHistoryResponse {
@@ -64,12 +71,14 @@ export interface WatchHistoryResponse {
 
 /**
  * PUT /history request body.
+ *
  * PUT /history 请求体.
  */
 export type WatchHistoryRequest = Omit<WatchHistoryResponseItem, "id" | "created_at" | "updated_at">;
 
 /**
  * Server settings exposed through GET /api/v1/settings (subset used by M1).
+ *
  * GET /api/v1/settings 暴露的服务器设置 (M1 仅使用子集).
  */
 export interface SettingsResponse {
@@ -78,6 +87,7 @@ export interface SettingsResponse {
 
 /**
  * One Douban discovery item, mirrors apple `DoubanItem`.
+ *
  * Douban 发现条目, 与 apple `DoubanItem` 一致.
  */
 export interface DoubanItem {
@@ -90,6 +100,7 @@ export interface DoubanItem {
 
 /**
  * One section in the home discovery feed.
+ *
  * 首页发现信息流的单个分区.
  */
 export interface HomeSection {
@@ -101,6 +112,7 @@ export interface HomeSection {
 
 /**
  * Response shape of GET /api/v1/douban/home.
+ *
  * GET /api/v1/douban/home 的响应形状.
  */
 export interface DoubanHomeResponse {
@@ -109,10 +121,12 @@ export interface DoubanHomeResponse {
 
 /**
  * One sub-category option inside a CategoryGroup (e.g. a genre or ranking tag).
+ *
  * CategoryGroup 内的一个子分类筛选项 (如题材或排行标签).
  *
  * `kind` and `format` are optional overrides — see categoryFilter.resolveRecommendFilter for the
  * presence-test rule that decides when sub overrides the group-level format.
+ *
  * kind 和 format 为可选覆盖, 参见 categoryFilter.resolveRecommendFilter 关于子分类覆盖分组 format 的判定规则.
  */
 export interface SubCategory {
@@ -124,6 +138,7 @@ export interface SubCategory {
 
 /**
  * One region filter option inside a CategoryGroup.
+ *
  * CategoryGroup 内的一个地区筛选项.
  */
 export interface Region {
@@ -146,6 +161,7 @@ export interface CategoryGroup {
 
 /**
  * Top-level response from /douban/categories.
+ *
  * /douban/categories 的顶层响应.
  */
 export interface DoubanCategoriesResponse {
@@ -154,9 +170,11 @@ export interface DoubanCategoriesResponse {
 
 /**
  * Resolved query parameters for /douban/recommend/filter.
+ *
  * /douban/recommend/filter 的已解析查询参数.
  *
  * `kind` is required server-side; the rest are optional filters or pagination knobs.
+ *
  * kind 服务端必填; 其余字段为可选筛选项或分页参数.
  */
 export interface DoubanRecommendFilter {
@@ -170,6 +188,7 @@ export interface DoubanRecommendFilter {
 
 /**
  * Paginated item payload for /douban/recommend/filter (and sibling /douban/list endpoints).
+ *
  * /douban/recommend/filter (以及 /douban/list 系列端点) 返回的分页条目负载.
  */
 export interface DoubanListResponse {
@@ -178,6 +197,7 @@ export interface DoubanListResponse {
 
 /**
  * One playable episode (mirrors server `model.Episode`).
+ *
  * 一集可播放视频 (镜像 server `model.Episode`).
  */
 export interface Episode {
@@ -187,10 +207,12 @@ export interface Episode {
 
 /**
  * One source attached to a search result — mirrors server `model.SourceResult` (snake_case wire).
+ *
  * 一个搜索结果下的源, 镜像 server `model.SourceResult` (snake_case wire 格式).
  *
  * The `duration_ms` field is the upstream source's response time (used by the iOS picker to
  * surface slow sources); episodes is the full playable list — Detail / Player in M4 consume both.
+ *
  * duration_ms 是上游源的响应时间 (iOS 选源时用于标注慢源); episodes 是完整可播放列表, M4 Detail / Player 消费.
  */
 export interface SourceResult {
@@ -204,10 +226,12 @@ export interface SourceResult {
 
 /**
  * Single aggregated search result mirroring server `model.SearchResult`.
+ *
  * 单条聚合搜索结果, 镜像 server `model.SearchResult`.
  *
  * Backend has no top-level id; RN code synthesises a list key from the first source
  * (`source_key + ":" + video_id`).
+ *
  * 后端无顶层 id, RN 端基于首个源合成列表 key (source_key + ":" + video_id).
  */
 export interface SearchResult {
@@ -221,6 +245,7 @@ export interface SearchResult {
 
 /**
  * Final aggregated response of a search request — sync endpoint or SSE final frame.
+ *
  * 搜索请求的最终聚合响应 — 同步接口或 SSE 末帧.
  */
 export interface SearchResponse {
@@ -229,12 +254,14 @@ export interface SearchResponse {
 
 /**
  * SSE progress phase name emitted by the backend.
+ *
  * 后端推送的 SSE 进度阶段名称.
  */
 export type SearchProgressPhase = "searching" | "probing" | string;
 
 /**
  * SSE progress payload — anonymous counts only, no per-source names on the wire.
+ *
  * SSE 进度负载 — 仅包含匿名计数, 线上不带源名称.
  */
 export interface SearchProgress {
@@ -245,6 +272,7 @@ export interface SearchProgress {
 
 /**
  * Normalised SSE event union the search API surfaces to callers.
+ *
  * 搜索 API 对外暴露的归一化 SSE 事件联合类型.
  */
 export type SearchStreamEvent =
@@ -254,11 +282,13 @@ export type SearchStreamEvent =
 
 /**
  * Full detail of one video from one source, mirrors server `model.VideoDetail`.
+ *
  * 单个源返回的视频完整详情, 镜像 server `model.VideoDetail`.
  *
  * `episodes` is a 2-D array: outer index selects the CDN line, inner index selects the episode
  * inside that line. Lines whose inner array is empty are "dead" — render with strike-through and
  * disable selection. The PlayerScreen line picker mirrors this exact shape.
+ *
  * episodes 为二维数组: 外层选择 CDN 线路, 内层为该线路下的剧集. 内层为空表示死线路, 渲染为划线且禁用.
  * PlayerScreen 线路选择器结构与此严格对应.
  */
@@ -277,10 +307,12 @@ export interface VideoDetail {
 
 /**
  * Response from POST /api/v1/playback/url — playable URL plus the resolution mode.
+ *
  * POST /api/v1/playback/url 的响应, 包含可播放 URL 与解析模式.
  *
  * `mode` is "proxy" when the server wraps the URL in `/api/v1/proxy/m3u8?...&mt=<token>` and
  * "direct" when the URL is returned as-is. Clients treat both identically for playback.
+ *
  * mode 为 "proxy" 时服务端用 `/api/v1/proxy/m3u8?...&mt=<token>` 包装 URL; "direct" 时原样返回. 客户端播放时一视同仁.
  */
 export interface PlaybackURLResponse {
@@ -290,10 +322,12 @@ export interface PlaybackURLResponse {
 
 /**
  * Episode resume intent passed across navigation so a fresh DetailScreen lands on the right episode.
+ *
  * 跨导航传递的分集恢复意图, 让新打开的 DetailScreen 直接定位到对应剧集.
  *
  * Both fields are required — `episodeIndex` is the primary key, `episodeName` is used by
  * usePlayer's source-switch matcher to re-pick the episode after a source switch reshuffles the list.
+ *
  * 两个字段都必填: episodeIndex 是主键, episodeName 用于切源重排后由 usePlayer 重新定位.
  */
 export interface EpisodeResumeIntent {
@@ -304,11 +338,13 @@ export interface EpisodeResumeIntent {
 
 /**
  * Navigation params for the Detail route — carries everything DetailScreen needs to load and play.
+ *
  * Detail 路由的导航参数, 包含 DetailScreen 加载与播放所需的全部信息.
  *
  * `sources` is the list of candidate sources from search/continue-watching; `sourceKey` selects
  * the initial one. When invoked from continue-watching `sources` may be empty, in which case
  * usePlayer seeds a placeholder source from `sourceKey + videoId` and replaces it on detailLoaded.
+ *
  * sources 是搜索/继续观看带来的候选源列表; sourceKey 选定初始源. 从继续观看进入时 sources 可能为空,
  * 由 usePlayer 用 sourceKey + videoId 构造占位 source, detailLoaded 后替换为真实数据.
  */
@@ -323,6 +359,7 @@ export interface PlayDestination {
 
 /**
  * Body shape for PUT /api/v1/auth/profile.
+ *
  * PUT /api/v1/auth/profile 的请求体.
  */
 export interface ProfileRequest {
@@ -332,6 +369,7 @@ export interface ProfileRequest {
 /**
  * Body shape for PUT /api/v1/auth/password. Field names are snake_case on the wire,
  * matching `server/internal/handler/auth.go:181-182`.
+ *
  * PUT /api/v1/auth/password 的请求体, 字段使用 snake_case, 对齐 server/internal/handler/auth.go:181-182.
  */
 export interface PasswordRequest {
@@ -341,6 +379,7 @@ export interface PasswordRequest {
 
 /**
  * Source — admin record for a configured video source (mirrors server/internal/model/model.go:Source).
+ *
  * Source — 已配置视频源的管理记录 (镜像 server/internal/model/model.go:Source).
  */
 export interface Source {
@@ -361,6 +400,7 @@ export interface Source {
 
 /**
  * SourcesResponse — list-sources wrapper.
+ *
  * SourcesResponse — 列表接口返回值包装.
  */
 export interface SourcesResponse {
@@ -369,6 +409,7 @@ export interface SourcesResponse {
 
 /**
  * UpdateSourceRequest — admin update payload, must include the FULL editable surface.
+ *
  * UpdateSourceRequest — 管理更新负载, 必须包含完整可编辑字段以避免被清空.
  */
 export interface UpdateSourceRequest {
@@ -382,6 +423,7 @@ export interface UpdateSourceRequest {
 
 /**
  * BulkSetSourcesEnabledRequest — bulk enable/disable selected sources.
+ *
  * BulkSetSourcesEnabledRequest — 批量启用/禁用所选源.
  */
 export interface BulkSetSourcesEnabledRequest {
@@ -391,6 +433,7 @@ export interface BulkSetSourcesEnabledRequest {
 
 /**
  * ImportSourcesResponse — count of sources imported from the bundled JSON config.
+ *
  * ImportSourcesResponse — 从 JSON 配置导入的源数量.
  */
 export interface ImportSourcesResponse {
@@ -399,6 +442,7 @@ export interface ImportSourcesResponse {
 
 /**
  * HealthCheckResponse — single-source health probe response.
+ *
  * HealthCheckResponse — 单源健康探测返回值.
  */
 export interface HealthCheckResponse {
@@ -407,6 +451,7 @@ export interface HealthCheckResponse {
 
 /**
  * Subscription — admin record for a subscription URL.
+ *
  * Subscription — 订阅 URL 的管理记录.
  */
 export interface Subscription {
@@ -420,6 +465,7 @@ export interface Subscription {
 
 /**
  * SubscriptionsResponse — list-subscriptions wrapper.
+ *
  * SubscriptionsResponse — 列表接口返回值包装.
  */
 export interface SubscriptionsResponse {
@@ -428,6 +474,7 @@ export interface SubscriptionsResponse {
 
 /**
  * CreateSubscriptionRequest — admin create payload.
+ *
  * CreateSubscriptionRequest — 管理创建订阅负载.
  */
 export interface CreateSubscriptionRequest {
@@ -440,6 +487,7 @@ export interface CreateSubscriptionRequest {
  * AdminUser — user record returned by admin list/create. Timestamps are optional because
  * `POST /admin/users` returns a truncated payload without `created_at` / `updated_at`,
  * while `GET /admin/users` includes them.
+ *
  * AdminUser — 管理列表/创建接口返回的用户记录. 时间戳为可选: POST /admin/users 返回精简体不含时间戳,
  * GET /admin/users 包含时间戳.
  */
@@ -454,6 +502,7 @@ export interface AdminUser {
 
 /**
  * UsersResponse — list-users wrapper.
+ *
  * UsersResponse — 列表接口返回值包装.
  */
 export interface UsersResponse {
@@ -463,6 +512,7 @@ export interface UsersResponse {
 /**
  * CreateUserRequest — admin create payload. allow_adult_content is optional on the wire
  * (server defaults to false when absent); the RN admin form always sends an explicit value.
+ *
  * CreateUserRequest — 管理创建用户负载. allow_adult_content 在协议层可选, 缺失时服务端默认 false;
  * RN 管理表单始终显式发送.
  */

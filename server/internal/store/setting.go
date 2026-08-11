@@ -10,6 +10,7 @@ import (
 
 // GetSetting retrieves the value of a setting by key.
 // Returns empty string and no error if the key does not exist.
+//
 // GetSetting 根据 key 获取设置值.
 // 如果 key 不存在, 返回空字符串且不返回错误.
 func (s *Store) GetSetting(key string) (string, error) {
@@ -25,6 +26,7 @@ func (s *Store) GetSetting(key string) (string, error) {
 }
 
 // SetSetting inserts or updates a setting key-value pair.
+//
 // SetSetting 插入或更新设置 key-value.
 func (s *Store) SetSetting(key, value string) error {
 	_, err := s.db.Exec(
@@ -39,6 +41,7 @@ func (s *Store) SetSetting(key, value string) error {
 }
 
 // GetAllSettings retrieves all settings.
+//
 // GetAllSettings 获取所有设置.
 func (s *Store) GetAllSettings() ([]model.Setting, error) {
 	rows, err := s.db.Query("SELECT key, value, updated_at FROM settings ORDER BY key")
@@ -48,6 +51,7 @@ func (s *Store) GetAllSettings() ([]model.Setting, error) {
 	defer func() { _ = rows.Close() }()
 
 	// Non-nil slice so an empty result marshals to JSON [] rather than null.
+	//
 	// 使用非 nil 切片, 让空结果序列化为 JSON [] 而非 null.
 	settings := []model.Setting{}
 	for rows.Next() {

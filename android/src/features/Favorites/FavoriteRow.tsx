@@ -1,4 +1,5 @@
 // FavoriteRow — cover + title + type/year row used inside the Favorites list.
+//
 // FavoriteRow — 用于 Favorites 列表的封面 + 标题 + 类型/年份单行视图.
 
 import React from "react";
@@ -12,6 +13,7 @@ import type { FavoriteItem } from "@/storage/favorites";
 
 /**
  * Props for FavoriteRow — server-baseURL for cover URL composition and the tap target.
+ *
  * FavoriteRow 的 props — 提供拼接封面 URL 的 serverURL 与点击回调.
  */
 export interface FavoriteRowProps {
@@ -23,6 +25,7 @@ export interface FavoriteRowProps {
 
 /**
  * Single Favorites row — cover 50x75, title, type/year subtitle.
+ *
  * 单行收藏视图 — 50x75 封面 + 标题 + 类型/年份副标题.
  */
 export function FavoriteRow({ item, serverURL, onPress, testID }: FavoriteRowProps) {

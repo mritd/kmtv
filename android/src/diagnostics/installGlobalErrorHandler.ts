@@ -1,4 +1,5 @@
 // Install once: forward console.error + ErrorUtils.setGlobalHandler into the error log.
+//
 // 一次性安装: 将 console.error 与 ErrorUtils.setGlobalHandler 转发至错误日志.
 
 import { appendErrorEntry } from "./errorLog";
@@ -7,6 +8,7 @@ let installed = false;
 
 /**
  * Reset the install guard for tests. NEVER call from production.
+ *
  * 仅供测试重置安装标志, 生产路径不得调用.
  */
 export function __resetInstallGuard(): void {
@@ -21,6 +23,7 @@ function safeStringify(v: unknown): string {
  * Patch console.error + ErrorUtils.setGlobalHandler to capture entries into errorLog.
  * RN 0.85 declares ErrorUtils in globals.d.ts so no @ts-expect-error is required;
  * the typeof guard keeps this safe to import from non-RN contexts (tests, scripts).
+ *
  * 修补 console.error 与 ErrorUtils.setGlobalHandler 将错误转发至 errorLog.
  * RN 0.85 在 globals.d.ts 已声明 ErrorUtils, 无需 @ts-expect-error;
  * typeof 守卫保证非 RN 环境 (如脚本) 引入此模块也不会抛 ReferenceError.
@@ -44,7 +47,9 @@ export function installGlobalErrorHandler(): void {
       });
     /* istanbul ignore next — defensive catch; never let logging logging break logging. */
     } catch {
-      // swallow
+      // Ignore capture failures so the original console.error call still runs.
+      //
+      // 忽略捕获失败, 确保原始 console.error 调用仍会执行.
     }
     originalConsoleError.apply(console, args);
   };
@@ -61,7 +66,9 @@ export function installGlobalErrorHandler(): void {
         });
       /* istanbul ignore next — defensive catch, see console.error wrapper above. */
       } catch {
-        // swallow
+        // Ignore capture failures so the previous global handler still receives the error.
+        //
+        // 忽略捕获失败, 确保前一个全局处理器仍会收到错误.
       }
       previous?.(err, isFatal);
     });

@@ -3,6 +3,9 @@ set -euo pipefail
 
 # Build, install, and launch an Apple platform app on a simulator.
 # Keep simulator-specific choices in Taskfile.yml, and keep the flow here.
+#
+# 在 simulator 上构建, 安装并启动 Apple 平台 app. 设备和系统版本等选择保留在
+# Taskfile.yml 中, 本脚本只维护共享执行流程.
 
 usage() {
     cat <<'EOF'

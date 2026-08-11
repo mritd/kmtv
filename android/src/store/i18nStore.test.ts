@@ -1,4 +1,5 @@
 // i18nStore tests — verifies default, set, hydrate, and unsupported-value fallback.
+//
 // i18nStore 测试 — 校验默认值、setLang、hydrate 与非法值回退.
 
 import { _resetForTests } from "../storage/mmkv";

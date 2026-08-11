@@ -1,5 +1,6 @@
 /**
  * viewer/detail/EpisodePicker.tsx — episode selection control for the detail page sidebar.
+ *
  * viewer/detail/EpisodePicker.tsx — 详情页侧边栏的集数选择控件.
  *
  * Responsibilities / 职责:
@@ -22,10 +23,12 @@ import type { Episode } from "@/api/types";
 
 /**
  * EpisodePicker renders the episode list for the currently active source group.
+ *
  * EpisodePicker 渲染当前活动来源组的集数列表.
  *
  * When episodes is empty the section renders with an empty grid; no special empty-state
  * is shown because the parent DetailPage controls visibility based on available data.
+ *
  * episodes 为空时渲染空网格; 父级 DetailPage 根据数据可用性控制可见性, 此处不做特殊空态处理.
  *
  * @param episodes - The flat list of episodes for the current group — 当前组的集数平铺列表
@@ -49,6 +52,7 @@ export function EpisodePicker({
         {episodes.map((episode, index) => (
           <button
             // key uses name + index to remain stable within a group while tolerating duplicate names across sources.
+            //
             // key 使用 name + index, 在允许跨来源存在重名集数的同时保持组内稳定.
             className={index === selectedIndex ? "episode-button active" : "episode-button"}
             key={`${episode.name}-${index}`}

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bufio"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,6 +22,17 @@ func TestSearchStream_MissingQuery(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestSearchStream_BlankQueryAfterTrimIsRejected(t *testing.T) {
+	_, r := setupTestHandler(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/search/stream?q=+++%09+", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -52,17 +64,9 @@ func TestSearchStream_EmptyResults(t *testing.T) {
 	req.Header.Set("Authorization", bearer)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-	scanner := bufio.NewScanner(strings.NewReader(body))
-	hasResult := false
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "event: result" {
-			hasResult = true
-		}
-	}
-	if !hasResult {
-		t.Error("expected at least one 'event: result' in SSE stream")
+	results := parseSearchStreamResultEvent(t, w.Body.String())
+	if len(results) != 0 {
+		t.Fatalf("results = %+v, want empty array", results)
 	}
 }
 
@@ -120,4 +124,56 @@ func TestSearchStream_WithProgressAndResult(t *testing.T) {
 	if !strings.Contains(body, "event: result") || !strings.Contains(body, "Stream Movie") {
 		t.Fatalf("expected result event with movie, got %s", body)
 	}
+}
+
+func TestSearchStream_FinalResultMatchesRestRerankedOrder(t *testing.T) {
+	h, r, upstream := setupSearchTransportParityFixture(t)
+	defer upstream.Close()
+
+	disableAnonymousAccess(t, h)
+	createTestUser(t, h, "stream-parity", "pass", "user")
+	bearer := loginAndGetBearer(t, r, "stream-parity", "pass")
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/search/stream?q=Exact+Title", nil)
+	req.Header.Set("Authorization", bearer)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+
+	results := parseSearchStreamResultEvent(t, w.Body.String())
+	assertSearchTransportParityResults(t, results)
+}
+
+func parseSearchStreamResultEvent(t *testing.T, body string) []any {
+	t.Helper()
+
+	scanner := bufio.NewScanner(strings.NewReader(body))
+	inResultEvent := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		switch {
+		case line == "event: result":
+			inResultEvent = true
+		case inResultEvent && strings.HasPrefix(line, "data: "):
+			var payload map[string]any
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &payload); err != nil {
+				t.Fatalf("decode result event data: %v; line: %s", err, line)
+			}
+			results, ok := payload["results"].([]any)
+			if !ok {
+				t.Fatalf("result event payload results = %T, want array: %+v", payload["results"], payload)
+			}
+			return results
+		case line == "":
+			inResultEvent = false
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("scan SSE body: %v", err)
+	}
+	t.Fatalf("missing final result event in SSE body: %s", body)
+	return nil
 }

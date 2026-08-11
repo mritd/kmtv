@@ -1,8 +1,10 @@
 // ProfileScreen tests — sign-out flow with Alert + anonymous user hiding + admin entry gating.
+//
 // ProfileScreen 测试 — 含 Alert 的登出流程, 匿名用户隐藏, 管理员入口门控.
 
 // jest hoists jest.mock() factories above all variable declarations, so any reference inside the
 // factory MUST start with the `mock` prefix. mockNavigate is the supported escape hatch.
+//
 // jest 会把 jest.mock() factory 提升至所有变量声明之前. factory 内的引用必须以 mock 开头.
 const mockNavigate = jest.fn();
 jest.mock("@react-navigation/native", () => ({

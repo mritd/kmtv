@@ -57,6 +57,7 @@ describe("token stores", () => {
 
 // createMemoryStorage is an in-memory StorageLike for tests.
 // createMemoryStorage
+//
 // 是测试用的内存版 StorageLike.
 function createMemoryStorage(): import("./tokenStore").StorageLike {
   const map = new Map<string, string>();

@@ -1,11 +1,15 @@
 /**
  * HomePage.test — integration coverage for recommendations, authenticated history, and home navigation.
+ *
  * HomePage.test — 推荐内容, 已认证观看记录和首页导航的集成测试.
  *
  * Responsibilities / 职责:
  *   - Exercise HomePage through real QueryClient, AuthProvider, APIProvider, and router boundaries
+ *
  *     — 通过真实 QueryClient, AuthProvider, APIProvider 和 router 边界验证 HomePage
+ *
  *   - Guard recommendation, carousel, history, clear, error, and navigation behavior
+ *
  *     — 守护推荐, 轮播, 历史, 清空, 错误与导航行为
  *
  * Callers / 调用方:
@@ -23,12 +27,18 @@ import type { AuthSnapshot, DoubanHomeSection, WatchHistoryItem } from "@/api/ty
 import { APIProvider } from "@/api/context";
 import { createMemoryTokenStore } from "@/api/tokenStore";
 import { AuthProvider } from "@/auth/AuthContext";
+import {
+  anonymousWatchHistoryKey,
+  upsertAnonymousWatchHistory,
+} from "@/storage/anonymousWatchHistory";
+import { nextWatchHistoryEventTime } from "@/storage/watchHistoryClock";
 import { useToastStore } from "@/shared/ui/Toast";
 import { createTestAPI } from "@/test/testAPI";
 
 import { HomePage } from "./HomePage";
 
 // LocationDisplay captures the current router location for navigation assertions.
+//
 // LocationDisplay 捕获当前路由位置以用于导航断言.
 function LocationDisplay() {
   const location = useLocation();
@@ -85,7 +95,7 @@ function renderHome(
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const tokenStore = createMemoryTokenStore(options.authenticated === false ? null : makeAuthSnapshot());
 
-  return render(
+  const view = render(
     <APIProvider value={api}>
       <QueryClientProvider client={queryClient}>
         <AuthProvider api={api} tokenStore={tokenStore} queryClient={queryClient}>
@@ -97,14 +107,17 @@ function renderHome(
       </QueryClientProvider>
     </APIProvider>,
   );
+  return { ...view, api, queryClient, tokenStore };
 }
 
 // renderHomeError renders HomePage with a doubanHome query that rejects.
+//
 // renderHomeError 渲染 doubanHome query 会 reject 的 HomePage.
 //
 // Note: QueryClient default retry is false here, but useDoubanHomeQuery sets retry: 1 internally,
 // which overrides the QueryClient default. The error tests use a 5 s waitForElementToBeRemoved
 // timeout to accommodate the single retry attempt before the query settles to error state.
+//
 // 注意: QueryClient 默认 retry 为 false, 但 useDoubanHomeQuery 内部设置了 retry: 1 覆盖默认值.
 // error 测试使用 5 秒的 waitForElementToBeRemoved 超时以适应 query 在进入错误状态前的单次重试.
 function renderHomeError() {
@@ -131,6 +144,7 @@ async function waitForHome() {
 }
 
 afterEach(() => {
+  window.localStorage.removeItem(anonymousWatchHistoryKey);
   vi.restoreAllMocks();
   vi.useRealTimers();
   useToastStore.setState({ items: [] });
@@ -499,6 +513,7 @@ describe("HomePage", () => {
   // ---- loading state ----
   it("renders the loading skeleton with aria-busy while the query is in-flight", () => {
     // Do not await waitForHome — capture the loading state before data arrives.
+    //
     // 不等待 waitForHome — 在数据到达前捕获加载状态.
     renderHome();
 
@@ -510,19 +525,24 @@ describe("HomePage", () => {
 
   // ---- error state ----
   // useDoubanHomeQuery has retry: 1 so the query retries once before settling to error.
+  //
   // useDoubanHomeQuery 设置了 retry: 1, 因此 query 在失败前会重试一次.
+  //
   // We wait up to 5 s to cover the retry delay in happy-dom's microtask environment.
+  //
   // 等待最多 5 秒, 覆盖 happy-dom 微任务环境中的重试延迟.
   it("shows the error StatusState and search action when the Douban query fails", async () => {
     renderHomeError();
 
     // Wait for the skeleton to disappear (query settles to error after 1 retry).
+    //
     // 等待骨架屏消失 (query 重试 1 次后失败, 结束加载状态).
     await waitForElementToBeRemoved(() => document.querySelector(".home-skeleton"), { timeout: 5000 });
 
     expect(screen.getByText("推荐暂时不可用")).toBeInTheDocument();
     expect(screen.getByText("可以直接搜索影片或剧集.")).toBeInTheDocument();
     // The "去搜索" error action navigates to /search.
+    //
     // "去搜索" 错误操作导航至 /search.
     expect(screen.getByRole("button", { name: "去搜索" })).toBeInTheDocument();
   });
@@ -534,6 +554,7 @@ describe("HomePage", () => {
     await waitForElementToBeRemoved(() => document.querySelector(".home-skeleton"), { timeout: 5000 });
 
     // The error state should NOT also show an EmptyState.
+    //
     // 错误状态不应同时显示 EmptyState.
     expect(screen.queryByText("暂无推荐内容")).toBeNull();
 
@@ -552,6 +573,7 @@ describe("HomePage", () => {
     expect(screen.getByText("添加视频源后会显示推荐, 也可以直接搜索.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "搜索影片" })).toBeInTheDocument();
     // The EmptyState must not be accompanied by an error StatusState.
+    //
     // EmptyState 不应同时出现错误 StatusState.
     expect(screen.queryByText("推荐暂时不可用")).toBeNull();
   });
@@ -595,8 +617,21 @@ describe("HomePage", () => {
     expect(screen.getByRole("list", { name: "热门电影" })).toBeInTheDocument();
   });
 
-  it("does not request or render continue watching for anonymous viewers", async () => {
+  it("renders anonymous continue watching locally without requesting remote history", async () => {
     const listWatchHistory = vi.fn(async () => ({ items: [makeHistoryItem()] }));
+    upsertAnonymousWatchHistory({
+      source_key: "source-a",
+      video_id: "video-a",
+      title: "Anonymous Show",
+      cover: "",
+      episode: "01",
+      group_index: 0,
+      episode_index: 0,
+      progress_sec: 60,
+      duration_sec: 120,
+      completed: false,
+      event_time_ms: nextWatchHistoryEventTime(),
+    });
     renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }], {
       authenticated: false,
       apiOverrides: {
@@ -609,7 +644,77 @@ describe("HomePage", () => {
     await waitFor(() => expect(screen.getByRole("list", { name: "热门电影" })).toBeInTheDocument());
 
     expect(listWatchHistory).not.toHaveBeenCalled();
-    expect(screen.queryByRole("region", { name: "继续观看" })).toBeNull();
+    expect(screen.getByRole("region", { name: "继续观看" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Anonymous Show, 01" })).toBeInTheDocument();
+  });
+
+  it("clears anonymous continue watching locally without a network request", async () => {
+    const user = userEvent.setup();
+    const clearWatchHistory = vi.fn(async () => undefined);
+    upsertAnonymousWatchHistory({
+      source_key: "source-a",
+      video_id: "video-a",
+      title: "Anonymous Clear Me",
+      cover: "",
+      episode: "01",
+      group_index: 0,
+      episode_index: 0,
+      progress_sec: 60,
+      duration_sec: 120,
+      completed: false,
+      event_time_ms: nextWatchHistoryEventTime(),
+    });
+    renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }], {
+      authenticated: false,
+      apiOverrides: {
+        me: async () => ({ id: 0, username: "anonymous", role: "user" }),
+        clearWatchHistory,
+      },
+    });
+
+    await waitForHome();
+    expect(screen.getByRole("region", { name: "继续观看" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "清空观看记录" }));
+    await user.click(screen.getByRole("button", { name: "清空" }));
+
+    await waitFor(() => expect(screen.queryByRole("region", { name: "继续观看" })).toBeNull());
+    expect(clearWatchHistory).not.toHaveBeenCalled();
+  });
+
+  it("hides anonymous history after login and restores it after logout", async () => {
+    upsertAnonymousWatchHistory({
+      source_key: "source-a",
+      video_id: "video-a",
+      title: "Anonymous Restore",
+      cover: "",
+      episode: "01",
+      group_index: 0,
+      episode_index: 0,
+      progress_sec: 60,
+      duration_sec: 120,
+      completed: false,
+      event_time_ms: nextWatchHistoryEventTime(),
+    });
+    const { tokenStore } = renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }], {
+      authenticated: false,
+      apiOverrides: {
+        me: async () => ({ id: 0, username: "anonymous", role: "user" }),
+        listWatchHistory: async () => ({ items: [] }),
+      },
+    });
+
+    await waitForHome();
+    expect(screen.getByRole("button", { name: "Anonymous Restore, 01" })).toBeInTheDocument();
+
+    act(() => {
+      tokenStore.set(makeAuthSnapshot(7));
+    });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Anonymous Restore, 01" })).toBeNull());
+
+    act(() => {
+      tokenStore.clear("logout");
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Anonymous Restore, 01" })).toBeInTheDocument());
   });
 
   it("keeps recommendations usable when history fails", async () => {
@@ -645,7 +750,9 @@ describe("HomePage", () => {
     const clearWatchHistory = vi.fn(async () => undefined);
     renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }], {
       apiOverrides: {
-        listWatchHistory: async () => ({ items: [makeHistoryItem({ title: "Clear Me" })] }),
+        listWatchHistory: async () => ({
+          items: [makeHistoryItem({ title: "Clear Me", event_time_ms: 1 })],
+        }),
         clearWatchHistory,
       },
     });

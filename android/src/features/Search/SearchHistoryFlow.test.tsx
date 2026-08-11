@@ -1,4 +1,5 @@
 // SearchHistoryFlow renders empty / chips / Clear button + onSelect propagation.
+//
 // SearchHistoryFlow 渲染空态、胶囊与清空按钮, 验证 onSelect 传递.
 
 import { fireEvent, render, screen } from "@testing-library/react-native";

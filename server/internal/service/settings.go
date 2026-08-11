@@ -27,6 +27,7 @@ var allowedSettingKeys = map[string]bool{
 }
 
 // SettingDefaults returns the default value for each settable key so admin clients can show sane fallbacks.
+//
 // SettingDefaults 返回每个可设置项的默认值, 让管理端表单在 DB 缺失时也能展示合理初始值.
 func SettingDefaults() map[string]string {
 	return map[string]string{
@@ -65,18 +66,21 @@ type settingsReader interface {
 }
 
 // IsAllowedSettingKey reports whether admins may update the setting key.
+//
 // IsAllowedSettingKey 判断管理员是否允许更新指定设置项.
 func IsAllowedSettingKey(key string) bool {
 	return allowedSettingKeys[key]
 }
 
 // IsPublicSettingKey reports whether anonymous users may read the setting key.
+//
 // IsPublicSettingKey 判断匿名用户是否允许读取指定设置项.
 func IsPublicSettingKey(key string) bool {
 	return publicSettingKeys[key]
 }
 
 // ApplyRuntimeSetting applies settings that take effect without restarting.
+//
 // ApplyRuntimeSetting 应用无需重启即可生效的运行时设置.
 func ApplyRuntimeSetting(key, value string) {
 	switch key {
@@ -110,6 +114,7 @@ func ApplyRuntimeSetting(key, value string) {
 }
 
 // ApplyRuntimeSettingsFromReader loads all runtime settings from persistent storage.
+//
 // ApplyRuntimeSettingsFromReader 从持久化存储加载所有运行时设置.
 func ApplyRuntimeSettingsFromReader(reader settingsReader) {
 	for _, key := range runtimeSettingKeys {
@@ -122,6 +127,7 @@ func ApplyRuntimeSettingsFromReader(reader settingsReader) {
 }
 
 // ValidatePublicBaseURL validates the optional external base URL for generated links.
+//
 // ValidatePublicBaseURL 校验用于生成链接的可选外部访问根地址.
 func ValidatePublicBaseURL(value string) error {
 	value = strings.TrimSpace(value)

@@ -1,5 +1,6 @@
 /**
  * UsersPanel tests — happy path, empty state, error state, and row interactions.
+ *
  * UsersPanel 测试 — 正常路径、空状态、错误状态和行交互.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -50,6 +51,7 @@ describe("UsersPanel", () => {
 
       await screen.findByText("alice");
       // i18n key user.adultBadge = "NSFW"; alice is allowed, bob is not.
+      //
       // i18n key user.adultBadge = "NSFW"; alice 允许, bob 不允许.
       const badges = screen.getAllByText("NSFW");
       expect(badges).toHaveLength(1);
@@ -78,7 +80,9 @@ describe("UsersPanel", () => {
       renderPanel({ listUsers: async () => ({ users: [] }) });
 
       await screen.findByRole("heading", { name: "用户" });
-      // i18n key user.newButton = "新增用户"
+      // The zh translation for user.newButton is "新增用户".
+      //
+      // user.newButton 的中文翻译是 "新增用户".
       await user.click(screen.getByRole("button", { name: "新增用户" }));
 
       expect(adminModalStore.getState().current).toEqual({ kind: "user.new" });
@@ -101,8 +105,9 @@ describe("UsersPanel", () => {
       renderPanel({ listUsers: async () => ({ users: [adminUser] }) });
 
       await screen.findByText("alice");
-      // i18n key user.actionsAria.password = "修改 <username> 的密码"
-      // i18n key user.actionsAria.password = "修改 <username> 的密码"
+      // The zh translation for user.actionsAria.password is "修改 <username> 的密码".
+      //
+      // user.actionsAria.password 的中文翻译是 "修改 <username> 的密码".
       await user.click(screen.getByRole("button", { name: "修改 alice 的密码" }));
 
       expect(adminModalStore.getState().current).toEqual({
@@ -116,8 +121,9 @@ describe("UsersPanel", () => {
       renderPanel({ listUsers: async () => ({ users: [adminUser] }) });
 
       await screen.findByText("alice");
-      // i18n key user.actionsAria.delete = "删除 <username>"
-      // i18n key user.actionsAria.delete = "删除 <username>"
+      // The zh translation for user.actionsAria.delete is "删除 <username>".
+      //
+      // user.actionsAria.delete 的中文翻译是 "删除 <username>".
       await user.click(screen.getByRole("button", { name: "删除 alice" }));
 
       expect(adminModalStore.getState().current).toEqual({ kind: "user.delete", user: adminUser });

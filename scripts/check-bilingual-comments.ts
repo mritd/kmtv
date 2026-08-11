@@ -1,14 +1,17 @@
 #!/usr/bin/env tsx
-// check-bilingual-comments scans web/src/**/*.{ts,tsx} for exported functions whose preceding or trailing comment lacks the bilingual "English.
-// 中文." pattern.
-// check-bilingual-comments
-// 扫描 web/src 下的 TypeScript 文件, 报告导出函数缺少 "English. 中文." 双语注释的位置.
+// check-bilingual-comments scans configured TypeScript roots and reports exported
+// functions whose adjacent documentation does not contain English and Chinese prose.
+//
+// check-bilingual-comments 扫描指定的 TypeScript root, 报告相邻文档未同时包含英文和中文的导出函数.
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
-// CLI: --root <relative-path> (repeatable). Defaults to web/src for backward compatibility.
-// CLI: --root <相对路径> (可重复). 缺省值 web/src, 保持向后兼容.
+// CLI accepts repeatable --root <relative-path> arguments. With no argument it
+// scans web/src to preserve the original Web-only behavior.
+//
+// CLI 接受可重复的 --root <relative-path> 参数. 未传参数时扫描 web/src,
+// 保留原有仅检查 Web 的行为.
 function parseRoots(argv: string[]): string[] {
   const roots: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
@@ -40,14 +43,16 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-// CJK range covers common Chinese characters.
-// CJK
-// 范围覆盖常见中文.
+// CJK matches the common Han range used by this advisory checker.
+//
+// CJK 匹配该提示性 checker 使用的常见汉字区间.
 const CJK = /[一-鿿]/;
 
 // stripCommentMarkers removes leading `*`, `//`, `/**`, `*/` decorations so the bilingual
 // pattern can match across multi-line JSDoc blocks regardless of indent style.
-// stripCommentMarkers 去除注释装饰字符 (* / //), 让双语模式匹配可跨多行 JSDoc 块.
+//
+// stripCommentMarkers 去除 `*`, `//`, `/**`, `*/` 等注释装饰, 使双语模式不受
+// 多行 JSDoc 缩进风格影响.
 function stripCommentMarkers(text: string): string {
   return text
     .replace(/\/\*\*?/g, " ")
@@ -58,8 +63,8 @@ function stripCommentMarkers(text: string): string {
 
 // hasBilingualPattern checks for at least one period followed by CJK characters followed by
 // another period anywhere in the normalised comment text.
-// hasBilingualPattern
-// 检查归一化后的注释文本中至少存在一处 "句号 + 中文 + 句号" 模式.
+//
+// hasBilingualPattern 检查归一化注释中是否存在 "period + 汉字 + period" 模式.
 function hasBilingualPattern(text: string): boolean {
   const normalised = stripCommentMarkers(text).replace(/\s+/g, " ");
   return /\.\s+[^.]*[一-鿿]+[^.]*\./.test(normalised);
@@ -72,15 +77,17 @@ interface Finding {
 }
 
 // gatherPrecedingComment walks upwards from the export line, collecting any contiguous
-// `//` line comments OR a single `/** ... */` JSDoc block immediately above. Blank lines
-// between the comment and the export break the association.
-// gatherPrecedingComment 向上收集紧邻 export 的注释:
-// 既支持连续的 `//` 行注释, 也支持单个 `/** ... */` JSDoc 块. 中间出现空行视为不相邻.
+// `//` line comments or one `/** ... */` JSDoc block. It tolerates one raw blank line
+// between documentation and export; two or more blank lines break the association.
+//
+// gatherPrecedingComment 从 export 向上收集连续 `//` 注释或单个 `/** ... */` JSDoc 块.
+// 文档与 export 之间允许一个原始空行, 两个及以上空行则视为不相邻.
 function gatherPrecedingComment(lines: string[], exportIdx: number): string {
   const collected: string[] = [];
   let i = exportIdx - 1;
-  // Skip blank lines that could legitimately sit between comment and export; tolerate one.
-  // 容忍 export 与注释间的一行空行, 多行空行视为不相邻.
+  // Tolerate one raw blank line between documentation and export.
+  //
+  // 文档与 export 之间允许一个原始空行.
   if (i >= 0 && /^\s*$/.test(lines[i])) {
     i -= 1;
   }
@@ -88,6 +95,7 @@ function gatherPrecedingComment(lines: string[], exportIdx: number): string {
 
   if (/\*\//.test(lines[i])) {
     // Walk back to the matching /** start of a JSDoc block.
+    //
     // 向上找到匹配的 /** 起始.
     while (i >= 0) {
       collected.unshift(lines[i]);
@@ -111,6 +119,7 @@ function gatherPrecedingComment(lines: string[], exportIdx: number): string {
 function findExports(filePath: string, lines: string[]): Finding[] {
   const findings: Finding[] = [];
   // Pattern matches `export function foo(`, `export async function foo(`, `export const foo = (`, `export function* foo(`.
+  //
   // 匹配各种导出函数声明.
   const pattern = /^\s*export\s+(?:async\s+)?function\s+([A-Za-z0-9_]+)|^\s*export\s+const\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[A-Za-z0-9_]+)\s*=>/;
   for (let i = 0; i < lines.length; i += 1) {
@@ -119,6 +128,7 @@ function findExports(filePath: string, lines: string[]): Finding[] {
     if (!match) continue;
     const name = match[1] ?? match[2];
     // Look at the preceding comment block (line or JSDoc) plus the current line for any inline trailing comment.
+    //
     // 检查前面的注释块 (行注释或 JSDoc) 加上当前行末尾的内联注释.
     const preceding = gatherPrecedingComment(lines, i);
     const combined = `${preceding}\n${line}`;
@@ -153,7 +163,8 @@ if (findings.length === 0) {
 
 // Advisory mode:
 // print findings to stderr but exit 0 so CI can adopt this gradually.
-// 顾问模式: 仅打印至 stderr 不阻断, 待全量整改后切换为 exit 1.
+//
+// 提示模式: 仅向 stderr 输出问题并返回 0, 使 CI 可以逐步接入该检查.
 for (const f of findings) {
   const rel = relative(resolve(__dirname, ".."), f.file);
   console.error(`${rel}:${f.line}: ${f.message}`);

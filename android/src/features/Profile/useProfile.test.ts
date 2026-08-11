@@ -1,4 +1,5 @@
 // useProfile tests — covers username, password, avatar pick/delete, watch-history.
+//
 // useProfile 测试 — 覆盖 username、password、avatar 拾取/删除、观看历史.
 
 import { act, renderHook } from "@testing-library/react-native";
@@ -27,6 +28,7 @@ const user: User = { id: 1, username: "u", role: "user" };
 beforeEach(() => {
   _resetForTests();
   // Reset shared mocks between tests so call-history doesn't leak across cases.
+  //
   // 跨用例重置共享 mock, 防止调用记录串扰.
   const ImagePicker = require("expo-image-picker");
   const ImageManipulator = require("expo-image-manipulator");

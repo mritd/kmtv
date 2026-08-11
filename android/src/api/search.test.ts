@@ -1,4 +1,5 @@
 // Search API tests: sync /search GET + react-native-sse driven stream.
+//
 // 搜索 API 测试: 同步 /search GET + 由 react-native-sse 驱动的流.
 
 import type { APIClient } from "./client";

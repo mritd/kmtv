@@ -3,6 +3,7 @@ package service
 import "strings"
 
 // DoubanCategory represents a browsable category.
+//
 // DoubanCategory 表示可浏览分类.
 type DoubanCategory struct {
 	Name string `json:"name"`
@@ -10,6 +11,7 @@ type DoubanCategory struct {
 }
 
 // DoubanItem represents a single movie/TV item from Douban.
+//
 // DoubanItem 表示一个 Douban 影视条目.
 type DoubanItem struct {
 	ID    string `json:"id"`
@@ -38,6 +40,7 @@ func (r doubanSubjectDetailResponse) bestDescription() string {
 }
 
 // doubanAPIItem is the raw JSON shape from the Douban API.
+//
 // doubanAPIItem 表示 Douban API 返回的原始 JSON 结构.
 type doubanAPIItem struct {
 	ID    string `json:"id"`
@@ -45,10 +48,12 @@ type doubanAPIItem struct {
 	Cover string `json:"cover"`
 	Rate  string `json:"rate"`
 	// Year is not directly in the API response; we leave it empty.
+	//
 	// API 响应不直接包含 Year, 因此保持为空.
 }
 
 // recentHotItem is the raw JSON shape from the Douban recent_hot mobile API.
+//
 // recentHotItem 表示 Douban recent_hot 移动端 API 的原始 JSON 结构.
 type recentHotItem struct {
 	ID           string `json:"id"`
@@ -68,6 +73,7 @@ type recentHotResponse struct {
 }
 
 // SubCategory represents a browsable subcategory/tag filter.
+//
 // SubCategory 表示可浏览的子分类或标签过滤器.
 type SubCategory struct {
 	Name   string `json:"name"`
@@ -77,6 +83,7 @@ type SubCategory struct {
 }
 
 // Region represents a region filter option.
+//
 // Region 表示地区过滤选项.
 type Region struct {
 	Name  string `json:"name"`
@@ -84,6 +91,7 @@ type Region struct {
 }
 
 // CategoryGroup represents a top-level category group with subcategory and region filters.
+//
 // CategoryGroup 表示包含子分类和地区过滤器的顶层分类组.
 type CategoryGroup struct {
 	Key           string        `json:"key"`
@@ -95,6 +103,7 @@ type CategoryGroup struct {
 }
 
 // recommendItem is the raw JSON shape from the Douban recommend mobile API.
+//
 // recommendItem 表示 Douban recommend 移动端 API 的原始 JSON 结构.
 type recommendItem struct {
 	ID    string `json:"id"`
@@ -115,6 +124,7 @@ type recommendResponse struct {
 }
 
 // HomeSection represents a section on the home page.
+//
 // HomeSection 表示首页的一个内容分区.
 type HomeSection struct {
 	Name  string       `json:"name"`

@@ -43,6 +43,7 @@ struct AdminView: View {
     private func adminContent(_ vm: AdminViewModel) -> some View {
         VStack(spacing: 0) {
             // Segmented picker instead of nested TabView.
+            //
             // 使用分段选择器替代嵌套 TabView, 避免平台导航层级互相干扰.
             Picker("", selection: $selectedTab) {
                 Text("Sources").tag(0)
@@ -79,6 +80,7 @@ struct AdminView: View {
     // MARK: - Sources Tab
 
     /// Sort: normal sources first, adult sources below.
+    ///
     /// 排序视频源: 普通源优先, 成人源靠后.
     private var sortedSources: [Source] {
         guard let vm = viewModel else { return [] }
@@ -477,6 +479,7 @@ struct AdminView: View {
     }
 
     /// Builds a picker binding for TTL settings stored as seconds.
+    ///
     /// 为以秒为单位保存的 TTL 设置构建 Picker binding.
     private func ttlBinding(_ vm: AdminViewModel, key: String, defaultValue: String) -> Binding<String> {
         Binding(
@@ -494,6 +497,7 @@ struct AdminView: View {
     }
 
     /// Keeps playback mode aligned with backend values: proxy or direct.
+    ///
     /// 让播放模式与后端取值保持一致: proxy 或 direct.
     private func playbackModeBinding(_ vm: AdminViewModel) -> Binding<String> {
         Binding(
@@ -512,6 +516,7 @@ struct AdminView: View {
 }
 
 /// A numeric text field that only commits on Enter or focus loss.
+///
 /// 仅在回车或失焦时提交的数字输入框.
 private struct NumericSettingField: View {
     let label: String

@@ -1,4 +1,5 @@
 // SourceButton — pill button for a single source pick inside SourceSwitcher.
+//
 // SourceButton — SourceSwitcher 中的单源选择胶囊按钮.
 
 import React from "react";
@@ -14,6 +15,7 @@ const LATENCY_BAD = "#fb4667";
 
 /**
  * Single-source pill — selection state drives accent fill, accessibilityState mirrors it.
+ *
  * 单源胶囊按钮, 选中态填 accent, accessibilityState 保持一致.
  */
 export interface SourceButtonProps {
@@ -25,6 +27,7 @@ export interface SourceButtonProps {
 
 /**
  * SourceButton — renders the source name; selected version uses accent background.
+ *
  * SourceButton — 渲染源名称, 选中时使用 accent 背景.
  */
 export function SourceButton({ source, isSelected, onPress, compact = false }: SourceButtonProps) {
@@ -74,6 +77,14 @@ function formatLatency(durationMs: number): string {
   return `${(durationMs / 1000).toFixed(1)} s`;
 }
 
+/**
+ * Maps a source probe duration to its latency indicator color: under 1 second is good,
+ * 1 to under 3 seconds is warning, and 3 seconds or more is bad. Missing, non-finite,
+ * or non-positive durations return null so the caller can use its neutral fallback color.
+ *
+ * 将视频源探测耗时映射为延迟指示色: 低于 1 秒为良好, 1 秒至不足 3 秒为警告,
+ * 3 秒及以上为较差. 缺失, 非有限或非正数耗时返回 null, 由调用方使用中性回退颜色.
+ */
 export function latencyColorForDuration(durationMs: number): string | null {
   if (!Number.isFinite(durationMs) || durationMs <= 0) return null;
   if (durationMs < 1000) return LATENCY_GOOD;

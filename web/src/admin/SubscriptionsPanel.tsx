@@ -1,13 +1,19 @@
 /**
  * SubscriptionsPanel — admin panel for managing source bundle subscriptions.
+ *
  * SubscriptionsPanel — 管理源包订阅的管理面板.
  *
  * Responsibilities / 职责:
  *   - List subscriptions with their URL, sync interval, auto-update status, and last-sync date.
+ *
  *     展示订阅的 URL、同步间隔、自动更新状态和最近同步时间.
+ *
  *   - Provide per-row actions: manual sync, edit, delete.
+ *
  *     提供逐行操作: 手动同步、编辑、删除.
+ *
  *   - Provide a panel-level "new subscription" action.
+ *
  *     提供面板级 "新建订阅" 操作.
  *
  * Key exports / 主要导出:
@@ -31,9 +37,11 @@ import { AdminTableSkeleton } from "./skeletons/AdminTableSkeleton";
 
 /**
  * SubscriptionsPanel renders the full subscriptions list with row actions.
+ *
  * SubscriptionsPanel 渲染完整的订阅列表及逐行操作.
  *
  * Renders a skeleton while loading, an error state on failure, and the table on success.
+ *
  * 加载中显示骨架屏, 失败时显示错误状态, 成功时显示表格.
  */
 export function SubscriptionsPanel() {
@@ -45,7 +53,7 @@ export function SubscriptionsPanel() {
   if (query.isError) return <StatusState title={t("subscription.loadFailed")} tone="error" />;
 
   // handleSync triggers a manual sync for one subscription and surfaces errors via toast.
-  // handleSync
+  //
   // 触发单条订阅的手动同步, 并通过 toast 展示错误.
   function handleSync(subscription: Subscription) {
     mutations.sync.mutate(subscription.id, {

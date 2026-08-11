@@ -1,9 +1,11 @@
 /**
  * Tests for categoriesStore — browse-page filter selection store.
+ *
  * categoriesStore 测试 — 浏览页筛选选择 store.
  *
  * Covers: initial state, selectGroup reset semantics + same-key no-op, selectSub/selectRegion,
  * and reset().
+ *
  * 覆盖: 初始状态、selectGroup 重置语义 + 同 key 无操作、selectSub/selectRegion、reset().
  */
 

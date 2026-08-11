@@ -1,4 +1,5 @@
 // RootNavigator selects Bootstrap / ServerSetup / MainTabs based on authStore.status.
+//
 // RootNavigator 依据 authStore.status 选择 Bootstrap / ServerSetup / MainTabs.
 
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -13,6 +14,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 /**
  * Root stack navigator driven by authStore.status.
+ *
  * 由 authStore.status 驱动的根 stack 导航器.
  */
 export function RootNavigator() {

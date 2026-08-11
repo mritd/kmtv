@@ -1,40 +1,65 @@
 /**
  * heroCandidates.test.ts — unit tests for the selectHeroCandidates pure helper.
+ *
  * heroCandidates.test.ts — selectHeroCandidates 纯函数的单元测试.
  *
  * Strategy / 策略:
  *   All tests are fully deterministic: the random() function is injected and controlled
  *   per test, so shuffle results are predictable without relying on Math.random.
+ *
  *   所有测试完全确定: 每个测试注入并控制 random() 函数, shuffle 结果可预测, 无需依赖 Math.random.
  *
  * Branches covered / 覆盖分支:
  *   1. Empty sections list — returns [].
+ *
  *      空分区列表 — 返回 [].
+ *
  *   2. Single item with description — returns that one candidate.
+ *
  *      单条有描述条目 — 返回该候选项.
+ *
  *   3. Multiple items across sections — flattens and keeps sectionName.
+ *
  *      多分区多条目 — 展平并保留 sectionName.
+ *
  *   4. Deduplication by id — same id across sections, first one wins.
+ *
  *      按 id 去重 — 多分区同 id, 第一个保留.
  *   5. Deduplication by title — blank id falls back to title.
+ *
  *      按 title 去重 — 空 id 退回 title.
  *   6. Items without description excluded — missing desc, blank desc.
+ *
  *      无描述条目被排除 — 缺失 desc, 空白 desc.
+ *
  *   7. Items without title excluded — blank title.
+ *
  *      无标题条目被排除 — 空白 title.
+ *
  *   8. Shuffle re-orders results according to the random source.
+ *
  *      shuffle 按 random 源重排结果.
+ *
  *   9. limit param caps the returned count.
+ *
  *      limit 参数限制返回数量.
+ *
  *  10. Zero limit — returns [].
+ *
  *      limit 为 0 — 返回 [].
  *  11. Limit larger than candidates count — returns all.
+ *
  *      limit 超过候选数量 — 返回全部.
  *  12. Candidate key uses id when id is non-blank.
+ *
  *      候选 key 使用非空 id.
+ *
  *  13. Candidate key uses trimmed title when id is blank.
+ *
  *      id 为空时候选 key 使用 trim 后的 title.
+ *
  *  14. Only whitespace id treated as blank — deduplication uses title.
+ *
  *      仅含空格的 id 视为空 — 去重使用 title.
  */
 
@@ -46,7 +71,9 @@ import { selectHeroCandidates } from "./heroCandidates";
 
 // ---------------------------------------------------------------------------
 // Helpers
+//
 // 辅助函数
+//
 // ---------------------------------------------------------------------------
 
 function section(name: string, ids: string[]): DoubanHomeSection {
@@ -57,13 +84,16 @@ function section(name: string, ids: string[]): DoubanHomeSection {
 }
 
 // always() returns the same value for every shuffle call — fully predictable ordering.
+//
 // always() 每次 shuffle 调用返回相同值 — 排序完全可预测.
 const alwaysHigh = () => 0.99; // minimal swap — roughly preserves insertion order
 const alwaysZero = () => 0;     // maximal swap — reverses insertion order at each step
 
 // ---------------------------------------------------------------------------
 // Tests
+//
 // 测试用例
+//
 // ---------------------------------------------------------------------------
 
 describe("selectHeroCandidates", () => {
@@ -237,6 +267,7 @@ describe("selectHeroCandidates", () => {
   // ---- 12: key uses non-blank id ----
   it("uses the item id as deduplication key when id is non-blank", () => {
     // Two items with the same title but different ids should both be kept.
+    //
     // 同 title 但不同 id 的两个条目均应保留.
     const candidates = selectHeroCandidates(
       [
@@ -258,6 +289,7 @@ describe("selectHeroCandidates", () => {
   // ---- 13: key uses trimmed title when id is blank ----
   it("uses the trimmed title as deduplication key when id is blank", () => {
     // "  Same Title  " trimmed → "Same Title"; second with blank id and same title is a duplicate.
+    //
     // trim 后相同 title、id 为空的第二个条目是重复项.
     const candidates = selectHeroCandidates(
       [
@@ -279,6 +311,7 @@ describe("selectHeroCandidates", () => {
   // ---- 14: whitespace-only id treated as blank ----
   it("treats a whitespace-only id as blank and falls back to title for deduplication", () => {
     // An id of "   " trims to "" — deduplication should fall back to title.
+    //
     // id "   " trim 后为 "" — 去重应退回 title.
     const candidates = selectHeroCandidates(
       [
@@ -290,6 +323,7 @@ describe("selectHeroCandidates", () => {
     );
 
     // Both have the same blank-trimmed id and same title → only the first is kept.
+    //
     // 两者的 id trim 后均为空且 title 相同 → 只保留第一个.
     expect(candidates).toHaveLength(1);
   });

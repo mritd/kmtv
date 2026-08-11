@@ -1,4 +1,5 @@
 // CategoriesStack — CategoriesRoot + Search. Same pattern as HomeStack.
+//
 // CategoriesStack — CategoriesRoot + Search. 与 HomeStack 同样的模式.
 
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -13,6 +14,7 @@ const Stack = createNativeStackNavigator<CategoriesStackParamList>();
 
 /**
  * Native-stack navigator hosted under CategoriesTab.
+ *
  * CategoriesTab 内承载的 native-stack 导航器.
  */
 export function CategoriesStack() {

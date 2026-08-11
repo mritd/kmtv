@@ -1,5 +1,6 @@
 /**
  * API client — typed HTTP wrapper for all /api/v1 endpoints.
+ *
  * API 客户端 — 覆盖所有 /api/v1 端点的类型化 HTTP 封装.
  *
  * Responsibilities / 职责:
@@ -15,7 +16,7 @@
  *   App.tsx (creates the singleton client)
  *   APIContext (makes client available via useAPI hook)
  *
- * ADR refs: ADR-012 (base58 bearer tokens, stale-401 guard)
+ * ADR refs: ADR-011 (base58 bearer tokens, stale-401 guard)
  */
 
 import type {
@@ -46,15 +47,19 @@ import type {
   WatchHistoryResponse,
   UsersResponse,
 } from "./types";
-import { searchStream as runSearchStream, type SearchStreamOptions } from "./searchStream";
+import {
+  searchStream as runSearchStream,
+  type SearchStreamOptions,
+} from "./searchStream";
 import type { TokenStore } from "./tokenStore";
 
 /**
  * APIError is thrown for every non-2xx HTTP response.
- * APIError
+ *
  * 每个非 2xx HTTP 响应都会抛出此错误.
  *
  * `status` carries the HTTP status code; `code` is the optional backend error code from the JSON body.
+ *
  * status 包含 HTTP 状态码; code 是 JSON 响应体中可选的后端错误码.
  */
 export class APIError extends Error {
@@ -70,11 +75,12 @@ export class APIError extends Error {
 
 /**
  * APIClientOptions configures a new client instance.
- * APIClientOptions
+ *
  * 配置新 client 实例.
  *
  * `baseURL` defaults to "" (same-origin); pass a full origin for dev proxy or tests.
  * fetcher is injectable for testing without real network.
+ *
  * baseURL 默认为 ""（同源）; 测试或开发代理时传入完整 origin.
  * fetcher 可注入, 便于在测试中绕过真实网络.
  */
@@ -86,15 +92,17 @@ export interface APIClientOptions {
 
 /**
  * APIClient is the primary contract for all API operations.
- * APIClient
+ *
  * 是所有 API 操作的主要契约接口.
  *
  * The interface is separated from the implementation so the test helper
  * `createTestAPI` (src/test/testAPI.ts) can provide a minimal in-memory stub
  * for component tests without touching real HTTP.
+ *
  * 接口与实现分离, 让 createTestAPI 无需触碰真实 HTTP 即可为组件测试提供最小内存存根.
  *
  * All paths are relative to /api/v1 and are Tier 4 locked — never change them here.
+ *
  * 所有路径均相对于 /api/v1, 属于 Tier 4 锁定 — 不得在此修改.
  */
 export interface APIClient {
@@ -110,6 +118,7 @@ export interface APIClient {
   search(query: string, page?: number): Promise<SearchResponse>;
   // searchStream exposes protected SSE search without leaking token storage to UI code.
   // searchStream
+  //
   // 暴露受保护的 SSE 搜索, 但不把 token 存储泄露给 UI 层.
   searchStream(
     query: string,
@@ -120,18 +129,22 @@ export interface APIClient {
   doubanHome(): Promise<DoubanHomeResponse>;
   // doubanCategories fetches the browse category metadata (groups + sub-categories + regions).
   // doubanCategories
+  //
   // 获取浏览分类元数据 (分组 + 子分类 + 地区).
   doubanCategories(): Promise<DoubanCategoriesResponse>;
   // doubanRecommendFilter fetches one filtered, paginated recommendation page.
   // doubanRecommendFilter
+  //
   // 获取一页经筛选的分页推荐结果.
-  doubanRecommendFilter(filter: DoubanRecommendFilter): Promise<DoubanListResponse>;
+  doubanRecommendFilter(
+    filter: DoubanRecommendFilter,
+  ): Promise<DoubanListResponse>;
   playbackURL(url: string, source: string): Promise<PlaybackURLResponse>;
   listWatchHistory(limit?: number): Promise<WatchHistoryResponse>;
   getWatchHistory(title: string): Promise<WatchHistoryItem>;
   saveWatchHistory(payload: WatchHistoryPayload): Promise<WatchHistoryItem>;
   deleteWatchHistory(title: string): Promise<void>;
-  clearWatchHistory(): Promise<void>;
+  clearWatchHistory(eventTimeMS: number): Promise<void>;
   listSources(): Promise<SourcesResponse>;
   createSource(source: SourcePayload): Promise<Source>;
   updateSource(id: number, source: SourcePayload): Promise<void>;
@@ -142,7 +155,10 @@ export interface APIClient {
   importSources(data: Record<string, unknown>): Promise<ImportSourcesResponse>;
   listSubscriptions(): Promise<SubscriptionsResponse>;
   createSubscription(subscription: SubscriptionPayload): Promise<Subscription>;
-  updateSubscription(id: number, subscription: SubscriptionPayload): Promise<void>;
+  updateSubscription(
+    id: number,
+    subscription: SubscriptionPayload,
+  ): Promise<void>;
   deleteSubscription(id: number): Promise<void>;
   syncSubscription(id: number): Promise<void>;
   listUsers(): Promise<UsersResponse>;
@@ -153,11 +169,13 @@ export interface APIClient {
 
 // RequestBody covers the two payload shapes the client serialises: plain objects and absent bodies.
 // RequestBody
+//
 // 覆盖 client 序列化的两种负载类型: 普通对象 和 无 body.
 type RequestBody = object | undefined;
 
 // normalizeBaseURL strips trailing slashes and treats "/" as same-origin ("").
 // normalizeBaseURL
+//
 // 去掉末尾斜杠并将 "/" 视为同源 ("").
 function normalizeBaseURL(baseURL: string | undefined): string {
   if (!baseURL || baseURL === "/") {
@@ -169,8 +187,13 @@ function normalizeBaseURL(baseURL: string | undefined): string {
 
 // toAPIURL assembles the full request URL including the /api/v1 prefix and optional query string.
 // toAPIURL
+//
 // 拼接包含 /api/v1 前缀和可选查询字符串的完整请求 URL.
-function toAPIURL(baseURL: string, path: string, query?: URLSearchParams): string {
+function toAPIURL(
+  baseURL: string,
+  path: string,
+  query?: URLSearchParams,
+): string {
   const url = `${baseURL}/api/v1${path}`;
   const qs = query?.toString();
   return qs ? `${url}?${qs}` : url;
@@ -180,6 +203,7 @@ function toAPIURL(baseURL: string, path: string, query?: URLSearchParams): strin
 // Returning undefined as T for non-JSON bodies is intentional — the callers
 // of void-returning methods never inspect the body.
 // parseJSON
+//
 // 仅在 Content-Type 确认时解码 JSON.
 // 对非 JSON body 返回 undefined as T 是故意的 — 返回 void 的方法调用方从不检查 body.
 async function parseJSON<T>(response: Response): Promise<T> {
@@ -193,10 +217,11 @@ async function parseJSON<T>(response: Response): Promise<T> {
 
 /**
  * createAPIClient constructs a fully configured APIClient bound to the given token store.
- * createAPIClient
+ *
  * 构造一个绑定到指定 token store 的完整 APIClient.
  *
  * The returned object is a plain object implementing APIClient — no class, no prototype chain.
+ *
  * 返回对象是实现 APIClient 的普通对象 — 无类, 无原型链.
  */
 export function createAPIClient(options: APIClientOptions): APIClient {
@@ -214,12 +239,14 @@ export function createAPIClient(options: APIClientOptions): APIClient {
     // sentAccessToken captures the specific token this request carried, so a 401
     // can only clear the store when the live snapshot still matches. A stale 401
     // from an old token must not wipe a newer login.
-    // sentAccessToken
-    // 捕获本次请求使用的具体 token, 401 仅在当前快照仍然匹配时才清除, 避免陈旧 401 抹掉新登录.
+    //
+    // sentAccessToken 记录本次请求实际携带的 token. 只有当它仍与当前快照一致时, 401 才会清除 store,
+    // 避免旧 token 的延迟 401 抹掉更新的登录状态.
     const sentAccessToken = snapshot?.accessToken ?? null;
 
     // Watch-history endpoints require a real user. Refuse locally when no token exists
     // so anonymous playback cannot create a repeating stream of guaranteed 401 requests.
+    //
     // 观看历史端点要求真实用户. 没有 token 时在本地拒绝,
     // 避免匿名播放持续发送必然返回 401 的请求.
     if (requiresAuth && !sentAccessToken) {
@@ -243,7 +270,9 @@ export function createAPIClient(options: APIClientOptions): APIClient {
     });
 
     if (!response.ok) {
-      const errorBody = await parseJSON<{ code?: number; error?: string }>(response);
+      const errorBody = await parseJSON<{ code?: number; error?: string }>(
+        response,
+      );
       if (
         response.status === 401 &&
         sentAccessToken &&
@@ -251,7 +280,11 @@ export function createAPIClient(options: APIClientOptions): APIClient {
       ) {
         tokenStore.clear("unauthorized");
       }
-      throw new APIError(response.status, errorBody?.code, errorBody?.error ?? response.statusText);
+      throw new APIError(
+        response.status,
+        errorBody?.code,
+        errorBody?.error ?? response.statusText,
+      );
     }
 
     return parseJSON<T>(response);
@@ -287,7 +320,8 @@ export function createAPIClient(options: APIClientOptions): APIClient {
       }
     },
     me: (signal?: AbortSignal) => request<User>("/auth/me", { signal }),
-    updateProfile: (username) => request<User>("/auth/profile", { method: "PUT", bodyJSON: { username } }),
+    updateProfile: (username) =>
+      request<User>("/auth/profile", { method: "PUT", bodyJSON: { username } }),
     async changePassword(oldPassword, newPassword) {
       await request<MessageResponse>("/auth/password", {
         method: "PUT",
@@ -302,7 +336,10 @@ export function createAPIClient(options: APIClientOptions): APIClient {
     deleteAvatar: () => request<User>("/auth/avatar", { method: "DELETE" }),
     getSettings: () => request<SettingsResponse>("/settings"),
     async updateSettings(settings) {
-      await request<MessageResponse>("/admin/settings", { method: "PUT", bodyJSON: settings });
+      await request<MessageResponse>("/admin/settings", {
+        method: "PUT",
+        bodyJSON: settings,
+      });
     },
     search: (query, page = 1) => {
       const params = new URLSearchParams({ q: query, page: String(page) });
@@ -310,6 +347,7 @@ export function createAPIClient(options: APIClientOptions): APIClient {
     },
     // Reuse this API client's base URL, fetcher, and auth snapshot for streaming search.
     // Capture the access token at call time so a stale 401 cannot wipe a newer token.
+    //
     // 复用当前 API client 的 baseURL, fetcher 和认证快照执行流式搜索.
     // 在调用时锁定 accessToken, 防止陈旧 401 抹掉更新后的 token.
     searchStream: (query, onEvent, streamOptions = {}) => {
@@ -336,11 +374,13 @@ export function createAPIClient(options: APIClientOptions): APIClient {
       return request<DetailResponse>(`/detail?${params.toString()}`);
     },
     doubanHome: () => request<DoubanHomeResponse>("/douban/home"),
-    doubanCategories: () => request<DoubanCategoriesResponse>("/douban/categories"),
+    doubanCategories: () =>
+      request<DoubanCategoriesResponse>("/douban/categories"),
     async doubanRecommendFilter(filter) {
       // `kind` is the only required parameter; optional filters are appended only when
       // non-empty so the backend reads them identically to an omitted value ("" === absent).
       // start/count are always sent to make pagination explicit.
+      //
       // kind 是唯一必填参数; 可选筛选项仅在非空时附加, 此时后端读取结果与缺省值一致 ("" 等同缺省);
       // start/count 始终发送, 使分页显式化.
       const params = new URLSearchParams({ kind: filter.kind });
@@ -349,10 +389,13 @@ export function createAPIClient(options: APIClientOptions): APIClient {
       if (filter.region) params.set("region", filter.region);
       params.set("start", String(filter.start ?? 0));
       params.set("count", String(filter.count ?? 20));
-      const data = await request<DoubanListResponse>(`/douban/recommend/filter?${params.toString()}`);
+      const data = await request<DoubanListResponse>(
+        `/douban/recommend/filter?${params.toString()}`,
+      );
       // Normalize items to []: unlike the server-normalized list endpoints, the Douban
       // recommend/filter handler returns a nil slice as JSON `null` for empty upstream results.
       // Doing it once here keeps every consumer (pagination, render-time dedup) array-safe (ADR-005).
+      //
       // 将 items 归一化为 []: 与已在服务端归一化的列表端点不同, Douban recommend/filter 处理器
       // 在上游结果为空时会把 nil slice 序列化为 JSON `null`. 在此统一处理一次, 让所有消费者
       // (分页、渲染期去重) 都对数组安全 (ADR-005).
@@ -364,12 +407,19 @@ export function createAPIClient(options: APIClientOptions): APIClient {
         bodyJSON: { url, source },
       }),
     listWatchHistory: (limit = 10) => {
-      const params = new URLSearchParams({ limit: String(limit), completed: "false" });
-      return request<WatchHistoryResponse>(`/history?${params.toString()}`, { requiresAuth: true });
+      const params = new URLSearchParams({
+        limit: String(limit),
+        completed: "false",
+      });
+      return request<WatchHistoryResponse>(`/history?${params.toString()}`, {
+        requiresAuth: true,
+      });
     },
     getWatchHistory: (title) => {
       const params = new URLSearchParams({ title });
-      return request<WatchHistoryItem>(`/history/item?${params.toString()}`, { requiresAuth: true });
+      return request<WatchHistoryItem>(`/history/item?${params.toString()}`, {
+        requiresAuth: true,
+      });
     },
     saveWatchHistory: (payload) =>
       request<WatchHistoryItem>("/history", {
@@ -379,16 +429,28 @@ export function createAPIClient(options: APIClientOptions): APIClient {
       }),
     async deleteWatchHistory(title) {
       const params = new URLSearchParams({ title });
-      await request<MessageResponse>(`/history/item?${params.toString()}`, { method: "DELETE", requiresAuth: true });
+      await request<MessageResponse>(`/history/item?${params.toString()}`, {
+        method: "DELETE",
+        requiresAuth: true,
+      });
     },
-    async clearWatchHistory() {
-      const params = new URLSearchParams({ event_time_ms: String(Date.now()) });
-      await request<MessageResponse>(`/history?${params.toString()}`, { method: "DELETE", requiresAuth: true });
+    async clearWatchHistory(eventTimeMS) {
+      const params = new URLSearchParams({
+        event_time_ms: String(eventTimeMS),
+      });
+      await request<MessageResponse>(`/history?${params.toString()}`, {
+        method: "DELETE",
+        requiresAuth: true,
+      });
     },
     listSources: () => request<SourcesResponse>("/admin/sources"),
-    createSource: (source) => request<Source>("/admin/sources", { method: "POST", bodyJSON: source }),
+    createSource: (source) =>
+      request<Source>("/admin/sources", { method: "POST", bodyJSON: source }),
     async updateSource(id, source) {
-      await request<MessageResponse>(`/admin/sources/${id}`, { method: "PUT", bodyJSON: source });
+      await request<MessageResponse>(`/admin/sources/${id}`, {
+        method: "PUT",
+        bodyJSON: source,
+      });
     },
     async bulkSetSourcesEnabled(ids, enabled) {
       await request<MessageResponse>("/admin/sources/bulk-enabled", {
@@ -397,32 +459,60 @@ export function createAPIClient(options: APIClientOptions): APIClient {
       });
     },
     async deleteSource(id) {
-      await request<MessageResponse>(`/admin/sources/${id}`, { method: "DELETE" });
+      await request<MessageResponse>(`/admin/sources/${id}`, {
+        method: "DELETE",
+      });
     },
-    checkSource: (id) => request<SourceHealthResponse>(`/admin/sources/${id}/check`, { method: "POST" }),
+    checkSource: (id) =>
+      request<SourceHealthResponse>(`/admin/sources/${id}/check`, {
+        method: "POST",
+      }),
     async checkAllSources() {
-      await request<MessageResponse>("/admin/sources/check-all", { method: "POST" });
+      await request<MessageResponse>("/admin/sources/check-all", {
+        method: "POST",
+      });
     },
-    importSources: (data) => request<ImportSourcesResponse>("/admin/sources/import", { method: "POST", bodyJSON: data }),
-    listSubscriptions: () => request<SubscriptionsResponse>("/admin/subscriptions"),
+    importSources: (data) =>
+      request<ImportSourcesResponse>("/admin/sources/import", {
+        method: "POST",
+        bodyJSON: data,
+      }),
+    listSubscriptions: () =>
+      request<SubscriptionsResponse>("/admin/subscriptions"),
     createSubscription: (subscription) =>
-      request<Subscription>("/admin/subscriptions", { method: "POST", bodyJSON: subscription }),
+      request<Subscription>("/admin/subscriptions", {
+        method: "POST",
+        bodyJSON: subscription,
+      }),
     async updateSubscription(id, subscription) {
-      await request<MessageResponse>(`/admin/subscriptions/${id}`, { method: "PUT", bodyJSON: subscription });
+      await request<MessageResponse>(`/admin/subscriptions/${id}`, {
+        method: "PUT",
+        bodyJSON: subscription,
+      });
     },
     async deleteSubscription(id) {
-      await request<MessageResponse>(`/admin/subscriptions/${id}`, { method: "DELETE" });
+      await request<MessageResponse>(`/admin/subscriptions/${id}`, {
+        method: "DELETE",
+      });
     },
     async syncSubscription(id) {
-      await request<MessageResponse>(`/admin/subscriptions/${id}/sync`, { method: "POST" });
+      await request<MessageResponse>(`/admin/subscriptions/${id}/sync`, {
+        method: "POST",
+      });
     },
     listUsers: () => request<UsersResponse>("/admin/users"),
-    createUser: (user) => request<AdminUser>("/admin/users", { method: "POST", bodyJSON: user }),
+    createUser: (user) =>
+      request<AdminUser>("/admin/users", { method: "POST", bodyJSON: user }),
     async updateUser(id, user) {
-      await request<MessageResponse>(`/admin/users/${id}`, { method: "PUT", bodyJSON: user });
+      await request<MessageResponse>(`/admin/users/${id}`, {
+        method: "PUT",
+        bodyJSON: user,
+      });
     },
     async deleteUser(id) {
-      await request<MessageResponse>(`/admin/users/${id}`, { method: "DELETE" });
+      await request<MessageResponse>(`/admin/users/${id}`, {
+        method: "DELETE",
+      });
     },
   };
 }

@@ -1,8 +1,10 @@
 // AdminPanelScreen tests — gates non-admin, renders four navigation rows for admin.
+//
 // AdminPanelScreen 测试 — 非管理员被阻挡, 管理员看到四个导航行.
 
 // jest hoists jest.mock() factories above all variable declarations, so any reference inside the
 // factory MUST start with the `mock` prefix. mockNavigate is the supported escape hatch.
+//
 // jest 会把 jest.mock() factory 提升至所有变量声明之前. factory 内的引用必须以 mock 开头.
 const mockNavigate = jest.fn();
 jest.mock("@react-navigation/native", () => ({

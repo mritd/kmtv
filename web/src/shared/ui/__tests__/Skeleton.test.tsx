@@ -22,6 +22,7 @@ describe("Skeleton", () => {
     render(<Skeleton width={200} height="3rem" standalone />);
     const node = screen.getByRole("status");
     // Inline style attribute keeps the literal values (happy-dom normalizes 3rem in computed style).
+    //
     // 行内 style 保留原值, happy-dom 在计算样式时会归一化.
     expect(node.getAttribute("style")).toContain("width: 200px");
     expect(node.getAttribute("style")).toContain("height: 3rem");

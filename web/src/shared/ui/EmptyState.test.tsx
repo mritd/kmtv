@@ -1,4 +1,5 @@
 // Tests for the EmptyState placeholder component.
+//
 // EmptyState 空状态占位组件测试.
 //
 // Coverage targets: title-only, with description, with action, with both.
@@ -43,6 +44,7 @@ describe("EmptyState", () => {
         />,
       );
       // The action element must be present and accessible.
+      //
       // 操作元素必须存在且可访问.
       expect(screen.getByRole("button", { name: "Add item" })).toBeInTheDocument();
     });

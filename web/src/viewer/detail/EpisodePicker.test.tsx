@@ -1,9 +1,11 @@
 /**
  * EpisodePicker tests — selection UI for a flat episode list.
+ *
  * EpisodePicker 测试 — 平铺集数列表的选择 UI.
  *
  * Covers: empty list, rendering, current-item highlight, click selects, index boundary,
  * and that the heading and play labels come from the locale rather than the source.
+ *
  * 覆盖: 空列表、渲染、当前项高亮、点击选择、索引边界,
  * 以及标题与播放标签取自语言资源而非源码.
  */
@@ -28,6 +30,7 @@ describe("EpisodePicker", () => {
       render(<EpisodePicker episodes={[]} selectedIndex={0} onSelect={vi.fn()} />);
 
       // Section and heading always render; absence of buttons confirms the empty path.
+      //
       // 区块和标题始终渲染; 无按钮证实空列表路径.
       expect(screen.getByRole("heading", { name: "选集" })).toBeInTheDocument();
       expect(screen.queryAllByRole("button")).toHaveLength(0);
@@ -77,6 +80,7 @@ describe("EpisodePicker", () => {
       render(<EpisodePicker episodes={episodes} selectedIndex={0} onSelect={vi.fn()} />);
 
       // aria-label contains the episode name so assistive technology announces the episode.
+      //
       // aria-label 包含集数名称, 使辅助技术能够播报集数.
       expect(screen.getByRole("button", { name: "播放 03" })).toHaveAttribute("aria-label", "播放 03");
     });
@@ -85,6 +89,7 @@ describe("EpisodePicker", () => {
       // The heading was hardcoded as "选集" until it was noticed on screen — every English
       // user had been reading it. The setup file resets the language before each test, so
       // switching here does not leak into the assertions above.
+      //
       // 标题此前一直硬编码为 "选集", 直到有人在界面上发现 — 所有英文用户看到的都是它.
       // setup 文件会在每个测试前重置语言, 因此这里的切换不会影响上面的断言.
       await i18n.changeLanguage("en");
@@ -97,6 +102,7 @@ describe("EpisodePicker", () => {
 
     it("does not highlight any button when selectedIndex is out of bounds", () => {
       // selectedIndex may momentarily exceed the episode count when switching sources.
+      //
       // 切换来源时 selectedIndex 可能短暂超出集数数量.
       render(<EpisodePicker episodes={episodes} selectedIndex={99} onSelect={vi.fn()} />);
 

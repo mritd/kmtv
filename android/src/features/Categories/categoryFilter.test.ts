@@ -1,4 +1,5 @@
 // categoryFilter pure-function tests (resolveSelection + resolveRecommendFilter).
+//
 // categoryFilter 纯函数测试 (resolveSelection + resolveRecommendFilter).
 
 import type { CategoryGroup } from "@/api/types";

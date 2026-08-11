@@ -129,6 +129,7 @@ segment001.ts
 // tests below call ssrfSafeDialContext directly to exercise its DNS/IP-block
 // logic, and must pass a stamped context so they hit that logic instead of
 // the (separately tested) fail-closed path for unstamped requests.
+//
 // directDialContext 将 context 标记为已解析的 "直连" 请求, 即
 // proxyDecisionTransport 对非代理请求会产出的结果. 下面这些测试直接调用
 // ssrfSafeDialContext 以验证其 DNS/IP 拦截逻辑, 因此必须传入已标记的 context,
@@ -514,6 +515,8 @@ func (errReadCloser) Close() error {
 }
 
 // Helper: build a wrapped client whose proxy answer is fully controlled.
+//
+// 测试 helper: 构造一个包装后的 client, 使测试可以完全控制代理解析结果.
 func testOutboundClient(resolver func(*http.Request) (*url.URL, error)) *http.Client {
 	return &http.Client{Transport: &proxyDecisionTransport{
 		base:     newOutboundTransport(),
@@ -523,6 +526,9 @@ func testOutboundClient(resolver func(*http.Request) (*url.URL, error)) *http.Cl
 
 // A request that legitimately traverses the proxy must be dialable even though
 // forward proxies normally sit on loopback or private addresses.
+//
+// 合法的代理请求必须允许拨号到 loopback 或私有地址上的正向代理. 该例确保 SSRF
+// 防护只放行运维配置的代理连接, 不会误伤代理部署.
 func TestProxyDecisionAllowsDialingTheProxy(t *testing.T) {
 	var proxied int64
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -550,6 +556,9 @@ func TestProxyDecisionAllowsDialingTheProxy(t *testing.T) {
 // The resolver must run exactly once per request. net/http calls
 // Transport.Proxy during connect, so a second evaluation there would be a
 // separate decision the dialer could not see.
+//
+// 每个请求只能执行一次 resolver. net/http 会在建连时调用 Transport.Proxy,
+// 如果此处再次解析, dialer 将无法得知第二次产生的独立决策.
 func TestProxyResolverCalledExactlyOnce(t *testing.T) {
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -580,6 +589,10 @@ func TestProxyResolverCalledExactlyOnce(t *testing.T) {
 // the proxy address, Go bypasses the proxy and connects directly. The dial
 // address is then byte-identical to the proxy's, so an address allowlist would
 // wave it through. The context stamp must still classify it as direct.
+//
+// 这是 loopback 绕过漏洞的回归测试: 当攻击目标等于代理地址时, Go 会绕过代理并直连.
+// 此时拨号地址与代理地址完全相同, 基于地址的 allowlist 会错误放行. context stamp
+// 必须仍把该连接识别为直连并执行 SSRF 检查.
 func TestProxyDecisionBlocksTargetEqualToProxyAddress(t *testing.T) {
 	victim := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -592,6 +605,8 @@ func TestProxyDecisionBlocksTargetEqualToProxyAddress(t *testing.T) {
 	}
 
 	// Mirrors ProxyFromEnvironment: nil (direct) for a loopback target.
+	//
+	// 模拟 ProxyFromEnvironment 对 loopback 目标返回 nil, 即选择直连.
 	client := testOutboundClient(func(req *http.Request) (*url.URL, error) {
 		if host, _, splitErr := net.SplitHostPort(req.URL.Host); splitErr == nil {
 			if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
@@ -613,11 +628,16 @@ func TestProxyDecisionBlocksTargetEqualToProxyAddress(t *testing.T) {
 // A resolver whose answer changes between calls must not be able to leave the
 // dialer trusting a stale "via proxy" decision. Two loopback servers let us
 // see whether the origin was reached directly with the guard skipped.
+//
+// resolver 在多次调用间改变答案时, dialer 不能继续信任已经过期的 "走代理" 决策.
+// 两个 loopback server 用于检测 origin 是否在跳过 SSRF 防护后被直接访问.
 func TestProxyStampCannotDrift(t *testing.T) {
 	var reachedDirectly int64
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A proxied request arrives with an absolute URI; origin-form means
 		// the transport connected to us directly.
+		//
+		// 代理请求使用 absolute URI; 收到 origin-form 表示 transport 实际进行了直连.
 		if !r.URL.IsAbs() {
 			atomic.AddInt64(&reachedDirectly, 1)
 		}
@@ -656,6 +676,9 @@ func TestProxyStampCannotDrift(t *testing.T) {
 
 // Without the stamp there is no way to know whether an address is the proxy or
 // an origin, so the dialer must refuse rather than guess.
+//
+// 缺少 stamp 时无法判断地址代表代理还是 origin, 因此 dialer 必须拒绝请求,
+// 不能猜测后继续拨号.
 func TestSSRFDialerFailsClosedWithoutProxyDecision(t *testing.T) {
 	_, err := ssrfSafeDialContext(context.Background(), "tcp", "93.184.216.34:80")
 	if !errors.Is(err, errUnstampedRequest) {
@@ -665,6 +688,8 @@ func TestSSRFDialerFailsClosedWithoutProxyDecision(t *testing.T) {
 
 // A transport used without the wrapper must fail at the Proxy hook rather than
 // quietly proceeding with the guard disabled.
+//
+// 未经 wrapper 使用 transport 时必须在 Proxy hook 失败, 不能静默关闭 SSRF 防护后继续请求.
 func TestBareOutboundTransportFailsClosed(t *testing.T) {
 	client := &http.Client{Transport: newOutboundTransport()}
 	if _, err := client.Get("http://media.invalid/index.m3u8"); err == nil {
@@ -674,6 +699,8 @@ func TestBareOutboundTransportFailsClosed(t *testing.T) {
 
 // Covers the Proxy-hook half of fail-closed directly; the dialer's own check
 // would otherwise mask a regression here.
+//
+// 该测试直接覆盖 fail-closed 的 Proxy hook 路径, 避免 dialer 自身的检查掩盖这里的回归.
 func TestOutboundTransportProxyHookFailsClosed(t *testing.T) {
 	tr := newOutboundTransport()
 	req := httptest.NewRequest(http.MethodGet, "http://media.invalid/x.m3u8", nil)
@@ -683,6 +710,8 @@ func TestOutboundTransportProxyHookFailsClosed(t *testing.T) {
 }
 
 // A direct (non-proxied) request keeps the full SSRF check.
+//
+// 直连请求必须保留完整 SSRF 检查, 不能继承代理连接的私有地址放行条件.
 func TestProxyDecisionKeepsSSRFCheckOnDirectRequests(t *testing.T) {
 	client := testOutboundClient(func(*http.Request) (*url.URL, error) { return nil, nil })
 	if _, err := client.Get("http://127.0.0.1:9/nothing"); err == nil {
@@ -716,6 +745,11 @@ func TestOutboundTransportPoolSettings(t *testing.T) {
 // earlier test triggered that cache. The check compares function identity,
 // not mere non-nilness, so swapping in any other non-nil resolver stub is
 // still caught.
+//
+// 该测试确保 http_proxy 确实生效. 测试检查 resolver 字段而不修改环境变量, 因为
+// http.ProxyFromEnvironment 会通过 sync.Once 在进程级缓存环境
+// (net/http/transport.go:965). 如果更早的测试已触发缓存, t.Setenv 将不会改变结果.
+// 这里比较函数 identity 而非只检查非 nil, 因此替换成其他 resolver stub 也会被发现.
 func TestOutboundClientUsesEnvironmentResolver(t *testing.T) {
 	want := reflect.ValueOf(http.ProxyFromEnvironment).Pointer()
 	for name, client := range map[string]*http.Client{
@@ -743,11 +777,17 @@ func TestTimeoutConstants(t *testing.T) {
 	// 60s bounds a manifest request's TOTAL lifetime; the payload is capped at
 	// 10 MB so this is generous. Failing to fetch the manifest fails playback
 	// outright, hence the conservative value.
+	//
+	// 60s 限制 manifest 请求的总时长. 响应体已限制为 10 MB, 因此该值留有充足余量;
+	// manifest 拉取失败会直接导致播放失败, 所以不能使用更激进的超时值.
 	if m3u8FetchTimeout != 60*time.Second {
 		t.Errorf("m3u8FetchTimeout = %v, want 60s", m3u8FetchTimeout)
 	}
 	// 30s bounds SILENCE on the segment path, not total duration: a slow link
 	// keeps resetting the timer, only a stalled peer trips it.
+	//
+	// 30s 限制分片路径的静默时长, 而非总传输时长. 慢速链路只要持续收到字节就会重置
+	// timer, 只有停止传输的对端才会触发超时.
 	if segmentIdleTimeout != 30*time.Second {
 		t.Errorf("segmentIdleTimeout = %v, want 30s", segmentIdleTimeout)
 	}
@@ -760,6 +800,12 @@ func TestTimeoutConstants(t *testing.T) {
 // window (200ms), or an implementation that wrongly capped TOTAL duration
 // would pass too. Meanwhile the 40ms chunk interval stays well under the
 // watchdog's 100ms tick, so a healthy body cannot trip it.
+//
+// 该用例覆盖旧 30s Client.Timeout 会中断的场景: body 虽慢但持续传输时必须完成.
+//
+// 两组时间都直接决定测试有效性. 总传输约 600ms, 必须超过 200ms idle window,
+// 否则错误限制总时长的实现也会通过. 40ms chunk 间隔则明显短于 watchdog 的
+// 100ms tick, 保证健康传输不会误触发 idle timeout.
 func TestProxySegmentCompletesSlowContinuousBody(t *testing.T) {
 	original := segmentIdleTimeout
 	segmentIdleTimeout = 200 * time.Millisecond
@@ -795,6 +841,10 @@ func TestProxySegmentCompletesSlowContinuousBody(t *testing.T) {
 // The deadline must be observed on the CLIENT side. A server handler cannot see
 // it: an incoming request's context does not inherit the caller's deadline, so
 // asserting r.Context().Deadline() would silently always be false.
+//
+// deadline 必须从 client 侧观察. server handler 收到的 request context 不会继承
+// 调用方 deadline, 因此在 handler 中断言 r.Context().Deadline() 会始终得到 false,
+// 无法证明 FetchM3U8 设置了 deadline.
 func TestFetchM3U8AppliesItsOwnDeadline(t *testing.T) {
 	original := m3u8FetchTimeout
 	m3u8FetchTimeout = 50 * time.Millisecond
@@ -803,12 +853,18 @@ func TestFetchM3U8AppliesItsOwnDeadline(t *testing.T) {
 	// Blocked on a channel rather than time.Sleep: httptest.Server.Close waits
 	// for handlers to return, so a sleeping handler would add its full duration
 	// to the test even though FetchM3U8 gave up long before.
+	//
+	// 使用 channel 阻塞而非 time.Sleep: httptest.Server.Close 会等待 handler 返回.
+	// 如果 handler 直接 sleep, 即使 FetchM3U8 已提前放弃, 测试仍会额外等待完整 sleep 时长.
 	release := make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-release
 		_, _ = w.Write([]byte("#EXTM3U\n"))
 	}))
 	// Ordering matters: release the handler before closing the server.
+	//
+	// defer 按后进先出执行, 因此先注册 server.Close, 再注册 close(release),
+	// 保证实际清理时先解除 handler 阻塞, 再等待 server 关闭.
 	defer upstream.Close()
 	defer close(release)
 
@@ -816,6 +872,8 @@ func TestFetchM3U8AppliesItsOwnDeadline(t *testing.T) {
 	signer := func(kind, rawURL, sourceKey string) (string, error) { return "tok", nil }
 
 	// Caller passes a context with no deadline of its own.
+	//
+	// 调用方传入不含 deadline 的 context, 以证明 deadline 由 FetchM3U8 自己添加.
 	start := time.Now()
 	_, err := ps.FetchM3U8(context.Background(), upstream.URL+"/i.m3u8", "http://localhost:8080", "src", http.Header{}, signer)
 	elapsed := time.Since(start)
@@ -832,6 +890,8 @@ func TestFetchM3U8AppliesItsOwnDeadline(t *testing.T) {
 }
 
 // The stalled-body case on the real segment path, not just on the reader.
+//
+// 该测试在真实分片代理路径验证 body 停滞, 而不只测试 idleTimeoutReader 单元.
 func TestProxySegmentAbortsSilentUpstream(t *testing.T) {
 	original := segmentIdleTimeout
 	segmentIdleTimeout = 100 * time.Millisecond
@@ -850,6 +910,9 @@ func TestProxySegmentAbortsSilentUpstream(t *testing.T) {
 		<-release // then go silent
 	}))
 	// Ordering matters: release the handler before closing the server.
+	//
+	// defer 按后进先出执行, 因此先注册 server.Close, 再注册 close(release),
+	// 保证实际清理时先解除 handler 阻塞, 再等待 server 关闭.
 	defer upstream.Close()
 	defer close(release)
 

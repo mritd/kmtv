@@ -316,6 +316,7 @@ final class PlaybackCoordinator {
     ///
     /// 两者需求相反: 进度条必须跟上每一次采样, 否则就会停住不动,
     /// 而日志必须在整段会话中保持可读. 因此只对日志做节流.
+    ///
     /// Reports the buffer to the UI without touching the log's cadence.
     ///
     /// 向 UI 上报缓冲, 不影响日志的节奏.

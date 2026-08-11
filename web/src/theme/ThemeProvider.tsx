@@ -81,22 +81,26 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
  * 主题系统的根 Provider, 在应用根节点附近挂载一次.
  *
  * Props:
+ *
  *   - children — 需要主题化的 React 子树.
  *   - store    — 可选 ThemeStore; 默认使用 createLocalThemeStore() (localStorage 持久化).
  *                测试时注入内存 store 以避免触及 window.localStorage.
  */
 export function ThemeProvider({ children, store = createLocalThemeStore() }: { children: ReactNode; store?: ThemeStore }): React.JSX.Element {
   // Lazy initializer reads from the store once; subsequent updates come from setPreference.
+  //
   // 惰性初始化从 store 读取一次; 后续更新通过 setPreference 触发.
   const [preference, setPreference] = useState<ThemePreference>(() => store.get());
 
   // useLayoutEffect instead of useEffect: CSS variables must be on the DOM before the browser
   // paints, otherwise the page flashes with default (un-themed) styles on first render.
+  //
   // 使用 useLayoutEffect 而非 useEffect: CSS 变量必须在浏览器绘制前写入 DOM,
   // 否则首次渲染时页面会以默认 (未主题化) 样式闪烁.
   useLayoutEffect(() => {
     const root = document.documentElement;
     // Re-normalise in the effect to guard against any state value that bypassed setTheme.
+    //
     // 在 effect 中再次规范化, 防御任何绕过 setTheme 的状态值.
     const normalized = normalizeThemePreference(preference);
     root.dataset.theme = normalized.id;
@@ -112,6 +116,7 @@ export function ThemeProvider({ children, store = createLocalThemeStore() }: { c
       setTheme(next) {
         const normalized = normalizeThemePreference(next);
         // Persist first so a re-render triggered by setPreference reads the already-written value.
+        //
         // 先持久化再触发重渲染, 确保重渲染时已写入的值可被读取.
         store.set(normalized);
         setPreference(normalized);
@@ -139,6 +144,7 @@ export function ThemeProvider({ children, store = createLocalThemeStore() }: { c
 export function useTheme(): ThemeContextValue {
   // useContext returns null when no ThemeProvider is present.
   // The fallback keeps consumers functional without crashing.
+  //
   // useContext 在无 ThemeProvider 时返回 null; 后备值确保消费者正常工作.
   return useContext(ThemeContext) ?? { preference: defaultThemePreference, setTheme: () => undefined };
 }

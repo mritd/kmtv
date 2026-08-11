@@ -12,6 +12,7 @@ import (
 
 // busyTimeoutMillis is applied to every new SQLite connection so concurrent
 // writers queue against the WAL writer lock instead of failing with SQLITE_BUSY.
+//
 // busyTimeoutMillis 应用到每条新连接, 让并发写者在 WAL 写锁上排队, 而不是立即返回 SQLITE_BUSY.
 const busyTimeoutMillis = 5000
 
@@ -21,6 +22,7 @@ func init() {
 	// that moment. database/sql later opens additional connections on demand,
 	// and those default to busy_timeout=0, which surfaces as SQLITE_BUSY under
 	// concurrent writes. A connection hook reliably configures every new conn.
+	//
 	// PRAGMA busy_timeout 是连接级设置, 通过 db.Exec 一次性写入只对当时借出的
 	// 那条连接生效; 池中后续按需创建的连接会回退到 busy_timeout=0, 并发写时
 	// 立刻返回 SQLITE_BUSY. 连接钩子能保证每条新连接都正确配置.
@@ -37,6 +39,7 @@ func init() {
 }
 
 // checkRowsAffected returns ErrNotFound if no rows were affected.
+//
 // checkRowsAffected 在没有行被影响时返回 ErrNotFound.
 func checkRowsAffected(result sql.Result) error {
 	n, err := result.RowsAffected()
@@ -50,12 +53,14 @@ func checkRowsAffected(result sql.Result) error {
 }
 
 // Store wraps a SQLite database connection.
+//
 // Store 封装 SQLite 数据库连接.
 type Store struct {
 	db *sql.DB
 }
 
 // IsMemoryDSN reports whether dsn selects an ephemeral in-memory database.
+//
 // IsMemoryDSN 判断 dsn 是否指向临时内存数据库.
 func IsMemoryDSN(dsn string) bool {
 	return dsn == ":memory:" || strings.Contains(dsn, "mode=memory")
@@ -64,6 +69,7 @@ func IsMemoryDSN(dsn string) bool {
 // New opens a SQLite database at the given DSN and runs migrations.
 // A ":memory:" DSN (or one carrying mode=memory) opens an ephemeral in-memory
 // database that never touches disk and resets on restart.
+//
 // New 打开指定 DSN 的 SQLite 数据库并执行迁移. ":memory:" (或带 mode=memory 的 DSN)
 // 打开不落盘、重启即重置的临时内存数据库.
 func New(dsn string) (*Store, error) {
@@ -77,6 +83,7 @@ func New(dsn string) (*Store, error) {
 		// to a single, never-recycled connection: every query then targets the
 		// same in-memory database, and it stays alive for the whole process.
 		// Recycling that one connection would destroy the database mid-run.
+		//
 		// 纯 :memory: 库是每连接私有的, 因此把连接池钉死为唯一且永不回收的连接:
 		// 所有查询命中同一个内存库, 且它在整个进程生命周期内存活. 回收这条连接
 		// 会导致内存库中途蒸发.
@@ -86,6 +93,7 @@ func New(dsn string) (*Store, error) {
 		db.SetConnMaxIdleTime(0)
 		// WAL is meaningless for :memory: (SQLite silently keeps an in-memory
 		// journal), so skip it; memory mode depends on no disk journal.
+		//
 		// WAL 对 :memory: 无意义 (SQLite 静默保持内存 journal), 跳过; 内存模式
 		// 不依赖任何磁盘 journal.
 	} else {
@@ -105,6 +113,7 @@ func New(dsn string) (*Store, error) {
 }
 
 // Close closes the underlying database connection.
+//
 // Close 关闭底层数据库连接.
 func (s *Store) Close() error {
 	return s.db.Close()

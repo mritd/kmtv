@@ -37,6 +37,7 @@ func (s stubAuthVerifier) VerifyAccessToken(token string) (*model.AuthSession, *
 }
 
 // newTestStore creates an in-memory store for middleware tests.
+//
 // newTestStore 为 middleware 测试创建内存 store.
 func newTestStore(t *testing.T) *store.Store {
 	t.Helper()
@@ -49,6 +50,7 @@ func newTestStore(t *testing.T) *store.Store {
 }
 
 // performRequest executes a request against a gin engine.
+//
 // performRequest 对 gin engine 执行一次请求.
 func performRequest(r *gin.Engine, method, path, bearer string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, nil)

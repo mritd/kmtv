@@ -1,16 +1,22 @@
 import Foundation
 
 /// Search response containing deduplicated results.
+///
 /// 搜索响应, 包含去重后的结果.
 struct SearchResponse: Codable, Sendable {
     let results: [SearchResult]
 }
 
 /// One deduplicated search result merged across sources.
+///
 /// 跨视频源合并后的单条去重搜索结果.
 struct SearchResult: Codable, Sendable, Identifiable {
-    /// Stable id derived from business fields to avoid SwiftUI list thrashing.
-    /// 使用业务字段派生稳定 id, 避免 SwiftUI 列表重复刷新.
+    /// Legacy business id used for protocol conformance, not list uniqueness.
+    /// Rows with the same title/provider but different years can collide, so SearchView
+    /// uses a namespaced row index for rendering identity.
+    ///
+    /// 为满足协议保留的业务 id, 不能作为列表唯一标识. 同标题和视频源但年份不同的结果
+    /// 可能发生碰撞, 因此 SearchView 使用带命名空间的行下标作为渲染 identity.
     var id: String { title + (sources.first?.sourceKey ?? "") }
     let title: String
     let type: String
@@ -21,10 +27,15 @@ struct SearchResult: Codable, Sendable, Identifiable {
 }
 
 /// One source entry for a searched video.
+///
 /// 搜索结果中某个视频源对应的视频条目.
 struct SourceResult: Codable, Sendable, Identifiable, Hashable {
-    /// Stable SwiftUI identity for one source entry.
-    /// 单个视频源条目的稳定 SwiftUI 标识.
+    /// Provider identity within one merged result.
+    /// The backend retains at most one entry per `sourceKey` in a result; `videoId`
+    /// remains the provider-specific video identity used for detail and history.
+    ///
+    /// 单个合并结果内的视频源 identity. 后端在一个结果中最多保留一个相同 `sourceKey`,
+    /// `videoId` 仍是详情与观看历史使用的视频源内视频 identity.
     var id: String { sourceKey }
     let sourceKey: String
     let sourceName: String
@@ -53,6 +64,7 @@ struct SourceResult: Codable, Sendable, Identifiable, Hashable {
     }
 
     /// Creates a source result, usually for tests or view-model transformations.
+    ///
     /// 创建视频源结果, 通常用于测试或 view model 转换.
     init(sourceKey: String, sourceName: String, videoId: String, durationMs: Double,
          episodes: [Episode], isAdult: Bool = false) {
@@ -66,9 +78,11 @@ struct SourceResult: Codable, Sendable, Identifiable, Hashable {
 }
 
 /// One playable episode or line item.
+///
 /// 单个可播放分集或线路条目.
 struct Episode: Codable, Sendable, Identifiable, Hashable {
     /// Stable identity derived from name and URL.
+    ///
     /// 使用名称和 URL 派生的稳定标识.
     var id: String { name + url }
     let name: String

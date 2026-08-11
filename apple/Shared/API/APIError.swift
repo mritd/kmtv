@@ -1,6 +1,7 @@
 import Foundation
 
 /// Client-side API error normalized from URLSession, HTTP status, and JSON decoding failures.
+///
 /// 从 URLSession、HTTP 状态码和 JSON 解码失败归一化得到的客户端 API 错误.
 enum APIError: Error, LocalizedError {
     case invalidURL
@@ -10,12 +11,14 @@ enum APIError: Error, LocalizedError {
     case decodingError(Error)
 
     /// LocalizedError bridge used by SwiftUI alerts and generic Error rendering.
+    ///
     /// 供 SwiftUI alert 与通用 Error 展示使用的 LocalizedError 桥接.
     var errorDescription: String? {
         localizedMessage
     }
 
     /// User-friendly localized message for UI surfaces.
+    ///
     /// 面向 UI 展示的人类可读错误信息.
     var localizedMessage: String {
         switch self {
@@ -46,6 +49,7 @@ enum APIError: Error, LocalizedError {
     }
 
     /// Maps backend error codes to stable localized client messages.
+    ///
     /// 将后端错误码映射为稳定的客户端本地化提示.
     private static func localizedError(for code: Int) -> String? {
         switch code {
@@ -71,6 +75,7 @@ enum APIError: Error, LocalizedError {
 }
 
 /// Backend structured error response.
+///
 /// 后端结构化错误响应.
 struct ServerErrorResponse: Decodable {
     let error: String

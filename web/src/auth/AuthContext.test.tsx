@@ -10,6 +10,7 @@ import { createMemoryTokenStore } from "@/api/tokenStore";
 import { AuthProvider, useAuth } from "./AuthContext";
 
 // Test QueryClient with retry disabled so failed queries do not slow tests.
+//
 // 测试用 QueryClient 关闭重试以避免拖慢测试.
 function makeTestQueryClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -39,6 +40,7 @@ describe("AuthProvider", () => {
       user: { id: 1, username: "admin", role: "admin" },
     });
     // Mock api.logout mirrors the real client which clears tokenStore on success.
+    //
     // 模拟 api.logout 与真实客户端一致, 成功后清除 tokenStore.
     const api: APIClient = {
       login: vi.fn(),
@@ -63,6 +65,7 @@ describe("AuthProvider", () => {
 
     expect(api.logout).toHaveBeenCalledOnce();
     // The post-logout probe lands on anonymous because me() resolves with id=0.
+    //
     // logout 之后的探测命中匿名身份 (me() 返回 id=0).
     await waitFor(() => expect(screen.getByText("anonymous")).toBeInTheDocument());
   });
@@ -110,6 +113,7 @@ describe("AuthProvider", () => {
     tokenStore.set({ accessToken: "a", expiresAt: "2099", user: { id: 1, username: "x", role: "user" } });
 
     // me() returns 401 so the post-clear re-probe lands on unauthenticated.
+    //
     // me() 返回 401 让外部 clear 之后的重新探测落到 unauthenticated.
     const fetcher = vi.fn(async () => new Response(null, { status: 401 }));
     const api = createAPIClient({ tokenStore, fetcher });

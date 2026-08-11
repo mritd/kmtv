@@ -1,4 +1,5 @@
 // Expo config plugin for the KMTV Android orientation bridge.
+//
 // KMTV Android orientation bridge 的 Expo config plugin.
 
 import type { ConfigPlugin } from "@expo/config-plugins";

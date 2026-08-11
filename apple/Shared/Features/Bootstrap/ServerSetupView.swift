@@ -166,6 +166,7 @@ struct ServerSetupView: View {
                 throw URLError(.timedOut)
             }
             // Ensure loading is visible for at least 0.5s.
+            //
             // 至少展示 0.5 秒加载状态, 避免快速成功时按钮闪烁.
             let elapsed = ContinuousClock.now - startTime
             if elapsed < .milliseconds(500) {
@@ -179,6 +180,7 @@ struct ServerSetupView: View {
             }
         } catch is CancellationError {
             // Task cancelled, ignore.
+            //
             // 视图消失或用户离开时取消任务, 不需要向用户展示错误.
         } catch let error as URLError where error.code == .timedOut {
             errorMessage = String(localized: "Connection timed out")

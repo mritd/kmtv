@@ -1,4 +1,5 @@
 // Resolve a hero/poster URL by joining relative covers to the API base.
+//
 // 通过将相对 cover 拼接到 API base, 解析 hero/poster URL.
 
 export function heroImageURL(baseURL: string, cover: string): string | null {

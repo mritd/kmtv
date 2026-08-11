@@ -1,17 +1,24 @@
 /**
  * AvatarField.test.tsx — unit tests for the AvatarField component.
+ *
  * AvatarField.test.tsx — AvatarField 组件的单元测试.
  *
  * Covers / 覆盖:
- *   - Initial render (avatar vs. initials). / 初始渲染 (头像 vs. 首字母).
+ *   - Initial render (avatar vs. initials).
  *   - File type validation (rejected types do not call uploadAvatar).
- *     文件类型校验 (被拒绝的类型不调用 uploadAvatar).
  *   - File size validation (files > 256 KB rejected client-side).
- *     文件大小校验 (> 256 KB 的文件在客户端被拒绝).
- *   - Successful upload updates auth snapshot. / 成功上传后更新 auth 快照.
- *   - Upload error surfaces toast message. / 上传失败时显示 toast 消息.
- *   - Delete button hidden when no avatar. / 无头像时隐藏删除按钮.
- *   - Successful delete removes avatar. / 成功删除后移除头像.
+ *   - Successful upload updates auth snapshot.
+ *   - Upload error surfaces toast message.
+ *   - Delete button hidden when no avatar.
+ *   - Successful delete removes avatar.
+ *
+ *   - 初始渲染 (头像或首字母).
+ *   - 文件类型校验 (被拒绝的类型不调用 uploadAvatar).
+ *   - 文件大小校验 (大于 256 KB 的文件在客户端被拒绝).
+ *   - 成功上传后更新 auth 快照.
+ *   - 上传失败时显示 toast 消息.
+ *   - 无头像时隐藏删除按钮.
+ *   - 成功删除后移除头像.
  */
 import { QueryClient } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -69,6 +76,7 @@ function renderAvatarField({ hasAvatar = false }: RenderOptions = {}) {
 
 function makeFile(name: string, type: string, size: number): File {
   // Create a File with a realistic size by filling a Blob with zeros.
+  //
   // 创建指定大小的 File, 用零填充 Blob.
   const content = new Uint8Array(size);
   return new File([content], name, { type });
@@ -83,6 +91,7 @@ describe("AvatarField", () => {
     it("shows the username initial instead of an image", () => {
       renderAvatarField();
       // Username is "testuser" → initial "T".
+      //
       // 用户名 "testuser" → 首字母 "T".
       expect(screen.getByText("T")).toBeInTheDocument();
       expect(screen.queryByRole("img")).toBeNull();
@@ -91,6 +100,7 @@ describe("AvatarField", () => {
     it("hides the delete button", () => {
       renderAvatarField();
       // Delete button should not be present when user has no avatar.
+      //
       // 用户无头像时不应出现删除按钮.
       expect(screen.queryByRole("button", { name: /删除|delete/i })).toBeNull();
     });
@@ -100,6 +110,7 @@ describe("AvatarField", () => {
     it("renders the avatar image element", () => {
       const { container } = renderAvatarField({ hasAvatar: true });
       // The avatar img has alt="" and its wrapper has aria-hidden="true", so we query the DOM directly.
+      //
       // 头像 img 的 alt="" 且其容器有 aria-hidden="true", 因此直接查询 DOM.
       const img = container.querySelector<HTMLImageElement>("img.avatar-field-image img, img");
       expect(img).not.toBeNull();
@@ -109,6 +120,7 @@ describe("AvatarField", () => {
     it("shows the delete button", () => {
       renderAvatarField({ hasAvatar: true });
       // Delete button must be present when user already has an avatar.
+      //
       // 用户已有头像时必须出现删除按钮.
       expect(screen.getByRole("button", { name: /删除|delete/i })).toBeInTheDocument();
     });
@@ -122,6 +134,7 @@ describe("AvatarField", () => {
 
       const uploadBtn = screen.getByRole("button", { name: /上传|upload/i });
       // Simulate file input change directly since we cannot open the native file picker.
+      //
       // 直接模拟 file input change, 因为无法打开原生文件选择器.
       const input = document.querySelector<HTMLInputElement>("input[type='file']")!;
       await user.upload(input, makeFile("test.txt", "text/plain", 1024));
@@ -137,6 +150,7 @@ describe("AvatarField", () => {
 
       const input = document.querySelector<HTMLInputElement>("input[type='file']")!;
       // One byte over the limit.
+      //
       // 超出限制一字节.
       await user.upload(input, makeFile("big.png", "image/png", MAX_AVATAR_BYTES + 1));
 
@@ -150,6 +164,7 @@ describe("AvatarField", () => {
 
       const input = document.querySelector<HTMLInputElement>("input[type='file']")!;
       // Exactly at the limit (boundary value).
+      //
       // 恰好在限制边界.
       await user.upload(input, makeFile("ok.png", "image/png", MAX_AVATAR_BYTES));
 
@@ -162,6 +177,7 @@ describe("AvatarField", () => {
       const user = userEvent.setup();
       // Override uploadAvatar to return the same test user (testuser) with a new avatar URL.
       // Avoids a false-identity mismatch where the default mock returns "admin" instead of "testuser".
+      //
       // 覆盖 uploadAvatar 返回相同测试用户 (testuser) 并带新头像 URL.
       // 避免默认 mock 返回 "admin" 而不是 "testuser" 导致的身份不匹配.
       const api = createTestAPI({
@@ -190,6 +206,7 @@ describe("AvatarField", () => {
       await user.upload(input, makeFile("avatar.jpg", "image/jpeg", 1024));
 
       // After successful upload the avatar image should appear (queried via DOM since alt="" + aria-hidden).
+      //
       // 成功上传后头像图片应出现 (因 alt="" + aria-hidden 使用 DOM 查询).
       await waitFor(() => {
         const img = container.querySelector<HTMLImageElement>("img");
@@ -231,6 +248,7 @@ describe("AvatarField", () => {
       await user.upload(input, makeFile("fail.png", "image/png", 1024));
 
       // Error toast title from zh locale: account.avatar.uploadFailed.
+      //
       // 错误 toast 标题来自 zh locale: account.avatar.uploadFailed.
       await screen.findByText("头像上传失败");
     });
@@ -240,6 +258,7 @@ describe("AvatarField", () => {
     it("calls deleteAvatar and removes the avatar image on success", async () => {
       const user = userEvent.setup();
       // deleteAvatar returns user without avatar.
+      //
       // deleteAvatar 返回无头像的用户.
       const api = createTestAPI({
         deleteAvatar: async () => ({ id: 1, username: "testuser", role: "admin" }),
@@ -267,9 +286,11 @@ describe("AvatarField", () => {
       await user.click(deleteBtn);
 
       // After deletion, the initials placeholder replaces the image.
+      //
       // 删除后, 首字母占位符替代图片.
       await screen.findByText("T");
       // The img element should be gone from the DOM.
+      //
       // img 元素应从 DOM 中消失.
       expect(document.querySelector("img")).toBeNull();
     });

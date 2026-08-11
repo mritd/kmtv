@@ -1,15 +1,23 @@
 /**
  * ThemeSettings — theme selection and custom palette editor panel shown on the AccountPage.
+ *
  * ThemeSettings — 在 AccountPage 显示的主题选择和自定义调色板编辑面板.
  *
  * Responsibilities / 职责:
  *   - Render a button grid for each built-in theme with name, description, and three color swatches.
+ *
  *     渲染每个内置主题的按钮网格, 包含名称、描述和三个色板色块.
+ *
  *   - Render a "custom" theme button that activates the inline color picker form.
+ *
  *     渲染 "自定义" 主题按钮, 激活内联色彩选择器表单.
+ *
  *   - When the custom theme is active, show four <input type="color"> fields and a reset button.
+ *
  *     当自定义主题激活时, 显示四个 <input type="color"> 字段和重置按钮.
+ *
  *   - Delegate all reads and writes to useTheme() from ThemeProvider.
+ *
  *     所有读取和写入委托给来自 ThemeProvider 的 useTheme().
  *
  * Key exports / 主要导出:
@@ -20,6 +28,7 @@
  *
  * TIER 4 LOCKED — localStorage key for theme preference is managed by themeStore.
  * Do not change the theme IDs used here; they map to CSS variables loaded by ThemeProvider.
+ *
  * Tier 4 锁定 — 主题偏好的 localStorage key 由 themeStore 管理.
  * 不得更改此处使用的主题 ID; 它们映射到 ThemeProvider 加载的 CSS 变量.
  */
@@ -31,11 +40,13 @@ import { Button } from "@/shared/ui/Button";
 
 // defaultCustomPalette is the starting point applied when the user first switches to "custom".
 // It uses a dark-purple palette to avoid a jarring all-white or all-black flash.
+//
 // defaultCustomPalette 是用户首次切换到 "自定义" 时应用的初始值.
 // 使用深紫色调以避免出现刺眼的全白或全黑闪烁.
 const defaultCustomPalette: CustomTheme = { background: "#0b0d11", surface: "#151821", accent: "#8b5cf6", text: "#f8fafc" };
 
 // defaultCustom is the ThemePreference passed to setTheme() when the custom button is clicked.
+//
 // defaultCustom 是点击自定义按钮时传给 setTheme() 的 ThemePreference.
 const defaultCustom: ThemePreference = {
   id: "custom",
@@ -44,10 +55,12 @@ const defaultCustom: ThemePreference = {
 
 /**
  * ThemeSettings renders the theme selector panel.
+ *
  * ThemeSettings 渲染主题选择器面板.
  *
  * `themeLabel` and `themeDescription` fall back to built-in values when the i18n key is missing,
  * so new themes added to the themes array do not require a translation update to render correctly.
+ *
  * `themeLabel` 和 `themeDescription` 在 i18n key 缺失时回退到内置值,
  * 因此向主题数组添加新主题时无需同步更新翻译.
  */
@@ -58,6 +71,7 @@ export function ThemeSettings() {
 
   // themeLabel / themeDescription look up the i18n key and fall back to the built-in string.
   // The `as never` cast silences the TypeScript exhaustive-key check because theme IDs are dynamic.
+  //
   // themeLabel / themeDescription 查找 i18n key, 缺失时回退到内置字符串.
   // `as never` 类型转换消除 TypeScript 穷举 key 检查, 因为主题 ID 是动态的.
   function themeLabel(id: string, fallback: string): string {

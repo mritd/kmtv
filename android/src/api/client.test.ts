@@ -1,4 +1,5 @@
 // API client tests cover URL construction, bearer injection, 401 dispatch, and timeout.
+//
 // API client 测试覆盖 URL 构造、bearer 注入、401 派发与超时.
 
 import { createAPIClient } from "./client";
@@ -186,6 +187,7 @@ describe("createAPIClient", () => {
     expect(captured!.headers.get("Authorization")).toBe("Bearer tk");
     // Fetch must auto-attach a multipart/form-data Content-Type WITH a boundary token. We never
     // set it ourselves — verifying the boundary segment exists is the real signal.
+    //
     // 由 fetch 自动追加带 boundary 的 multipart/form-data Content-Type; 我们不手动设置, 校验
     // boundary 段存在即代表流程正确.
     const contentType = captured!.headers.get("Content-Type");

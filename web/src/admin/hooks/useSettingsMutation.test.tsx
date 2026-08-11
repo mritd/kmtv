@@ -1,5 +1,6 @@
 /**
  * useSettingsMutation tests — happy path, cache invalidation, and playback reset.
+ *
  * useSettingsMutation 测试 — 正常路径、缓存失效和播放状态重置.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -13,6 +14,7 @@ import { createTestAPI } from "@/test/testAPI";
 import { useSettingsMutation } from "./useSettingsMutation";
 
 // makeSpyWrapper creates a wrapper with a spy on invalidateQueries.
+//
 // makeSpyWrapper 创建带 invalidateQueries spy 的包装器.
 function makeSpyWrapper(api = createTestAPI()) {
   const queryClient = new QueryClient({
@@ -47,6 +49,7 @@ describe("useSettingsMutation", () => {
 
     it("calls detailStore.resetAllPlayback() on success to flush cached playback URLs", async () => {
       // Import detailStore here to spy on the method the mutation is contractually required to call.
+      //
       // 导入 detailStore 以监视 mutation 契约要求调用的方法.
       const { detailStore } = await import("@/store/detailStore");
       const spy = vi.spyOn(detailStore.getState(), "resetAllPlayback");

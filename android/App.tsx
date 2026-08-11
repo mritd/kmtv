@@ -1,4 +1,5 @@
 // App root that wires QueryClient, ThemeProvider, NavigationContainer, and i18n init.
+//
 // 应用根组件, 装配 QueryClient、ThemeProvider、NavigationContainer 与 i18n 初始化.
 
 import { NavigationContainer } from "@react-navigation/native";
@@ -21,6 +22,7 @@ const queryClient = new QueryClient({
 
 /**
  * Root component registered as the Expo entry. Bootstraps stored theme + language, then renders.
+ *
  * 作为 Expo 入口注册的根组件. 引导持久化的主题与语言后再渲染.
  */
 export default function App() {
@@ -31,6 +33,7 @@ export default function App() {
   useEffect(() => {
     // Install diagnostics first so any errors during hydrate / initI18n are captured.
     // Never let a diagnostics failure block boot.
+    //
     // 先装配诊断, 让 hydrate / initI18n 阶段的错误也能被捕获. 诊断失败不得阻塞启动.
     try { installGlobalErrorHandler(); } catch { /* swallow */ }
     useThemeStore.getState().hydrate();

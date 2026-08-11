@@ -30,6 +30,7 @@ type watchHistoryRequest struct {
 const maxWatchHistoryBodyBytes = 64 << 10
 
 // ListWatchHistory returns the current user's recent watch history.
+//
 // ListWatchHistory 返回当前用户最近的观看历史.
 func (h *Handler) ListWatchHistory(c *gin.Context) {
 	user := h.currentUser(c)
@@ -69,6 +70,7 @@ func (h *Handler) ListWatchHistory(c *gin.Context) {
 }
 
 // UpsertWatchHistory records the current user's latest playback state for a title.
+//
 // UpsertWatchHistory 记录当前用户某个标题的最新播放状态.
 func (h *Handler) UpsertWatchHistory(c *gin.Context) {
 	user := h.currentUser(c)
@@ -113,6 +115,7 @@ func (h *Handler) UpsertWatchHistory(c *gin.Context) {
 }
 
 // GetWatchHistory returns one watch history item selected by title.
+//
 // GetWatchHistory 根据标题返回一条观看历史.
 func (h *Handler) GetWatchHistory(c *gin.Context) {
 	user := h.currentUser(c)
@@ -143,6 +146,7 @@ func (h *Handler) GetWatchHistory(c *gin.Context) {
 }
 
 // DeleteWatchHistory removes one title from the current user's history.
+//
 // DeleteWatchHistory 从当前用户历史中删除一个标题.
 func (h *Handler) DeleteWatchHistory(c *gin.Context) {
 	user := h.currentUser(c)
@@ -172,6 +176,7 @@ func (h *Handler) DeleteWatchHistory(c *gin.Context) {
 }
 
 // ClearWatchHistory removes all history for the current user.
+//
 // ClearWatchHistory 删除当前用户的全部观看历史.
 func (h *Handler) ClearWatchHistory(c *gin.Context) {
 	user := h.currentUser(c)

@@ -1,5 +1,6 @@
 /**
  * FavoritesSkeleton — Suspense fallback mirroring the FavoritesPage layout.
+ *
  * FavoritesSkeleton — 镜像 FavoritesPage 布局的 Suspense 回退组件.
  *
  * Responsibilities / 职责:
@@ -13,8 +14,11 @@
  *       .page-header — eyebrow + h1 + summary line
  *       .result-list  — VideoResultCard placeholders (poster + copy + actions)
  *   Card shape is identical to SearchSkeleton's .video-result-card placeholders.
+ *
  *   镜像 FavoritesPage:
+ *
  *     .favorites-skeleton
+ *
  *       .page-header — eyebrow + h1 + 摘要行
  *       .result-list  — VideoResultCard 占位 (海报 + 文案 + 操作)
  *   卡片形状与 SearchSkeleton 的 .video-result-card 占位相同.
@@ -27,6 +31,7 @@
  *   No tests are needed: this component has no conditional branches, no state, and no callbacks.
  *   The `count` prop drives a static Array.from() — there is no branching logic.
  *   Visual correctness is validated by E2E Suspense observation.
+ *
  *   此文件匹配 vitest.config.ts 的 skeletons 目录覆盖率排除模式.
  *   无需测试: 该组件无条件分支、无状态、无回调.
  *   `count` prop 驱动静态 Array.from() — 无分支逻辑.
@@ -37,6 +42,7 @@ import { Skeleton } from "@/shared/ui/Skeleton";
 
 /**
  * FavoritesSkeleton — pure presentational Suspense fallback for FavoritesPage.
+ *
  * FavoritesSkeleton — FavoritesPage 的纯展示型 Suspense 回退.
  *
  * @param count — number of VideoResultCard placeholders to render (default 4) — 渲染的 VideoResultCard 占位数量 (默认 4)

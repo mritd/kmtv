@@ -50,11 +50,13 @@ describe("Modal", () => {
       </Modal>,
     );
     // Clicking content does NOT close.
+    //
     // 点击内容不关闭.
     await user.click(screen.getByRole("button", { name: "Inside" }));
     expect(onClose).not.toHaveBeenCalled();
 
     // Clicking the backdrop closes (mousedown + mouseup on backdrop itself).
+    //
     // 点击遮罩关闭.
     const backdrop = document.querySelector<HTMLElement>(".modal-backdrop");
     expect(backdrop).not.toBeNull();
@@ -78,6 +80,9 @@ describe("Modal", () => {
 
     // Simulate selecting text in the input and releasing outside the dialog:
     // mousedown on input -> mouseup on backdrop -> synthetic click on backdrop (LCA).
+    //
+    // 模拟在输入框中选择文本后在弹窗外松开:
+    // 在 input 上 mousedown -> 在背景层上 mouseup -> 在最近公共祖先节点 (背景层) 上合成 click.
     fireEvent.mouseDown(input);
     fireEvent.mouseUp(backdrop);
     fireEvent.click(backdrop);
@@ -118,6 +123,7 @@ describe("Modal", () => {
 
     // FocusTrap moves focus to the first focusable inside the dialog on mount.
     // FocusTrap
+    //
     // 挂载时把焦点移入对话框内第一个可聚焦元素.
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "First" }));
 
@@ -125,6 +131,7 @@ describe("Modal", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Second" }));
 
     // Tab from the last item wraps to the first inside the trap.
+    //
     // 从最后一个 Tab 时循环到首个.
     await user.tab();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "First" }));

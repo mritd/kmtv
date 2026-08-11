@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -75,7 +76,7 @@ func TestSearchProbeConcurrencyLimitUsesProbeSetting(t *testing.T) {
 	}
 }
 
-func TestDeduplicateResults(t *testing.T) {
+func TestMergeRankSearchResults(t *testing.T) {
 	// 3 raw results: 2 with same title+year, 1 different
 	raw := []rawSearchResult{
 		{
@@ -98,7 +99,9 @@ func TestDeduplicateResults(t *testing.T) {
 		},
 	}
 
-	results := deduplicateResults(raw)
+	entries := mergeSearchResults(raw)
+	rankSearchEntries("", entries)
+	results := searchEntriesToResults(entries)
 
 	if len(results) != 2 {
 		t.Fatalf("expected 2 deduplicated results, got %d", len(results))
@@ -142,12 +145,213 @@ func TestDeduplicateResults(t *testing.T) {
 	}
 }
 
+func TestRankSearchEntriesRelevanceBeatsSourceCount(t *testing.T) {
+	entries := mergeSearchResults([]rawSearchResult{
+		rawSearchFixture("source-a", "Source A", false, 10, "Unrelated Popular", "2024", 101, "", ""),
+		rawSearchFixture("source-b", "Source B", false, 20, "Unrelated Popular", "2024", 102, "", ""),
+		rawSearchFixture("source-c", "Source C", false, 30, "Unrelated Popular", "2024", 103, "", ""),
+		rawSearchFixture("source-d", "Source D", false, 100, "The Matrix", "1999", 201, "", ""),
+	})
+
+	rankSearchEntries("The Matrix", entries)
+	results := searchEntriesToResults(entries)
+
+	if got := results[0].Title; got != "The Matrix" {
+		t.Fatalf("first title = %q, want relevant single-source result before unrelated multi-source result", got)
+	}
+	if got := len(results[1].Sources); got != 3 {
+		t.Fatalf("second result source count = %d, want unrelated merged result with 3 sources", got)
+	}
+}
+
+func TestRankSearchEntriesTiers(t *testing.T) {
+	entries := mergeSearchResults([]rawSearchResult{
+		rawSearchFixture("source-a", "Source A", false, 10, "Matric", "2024", 101, "", ""),
+		rawSearchFixture("source-b", "Source B", false, 10, "The Matrix", "1999", 102, "", ""),
+		rawSearchFixture("source-c", "Source C", false, 10, "Matrix Reloaded", "2003", 103, "", ""),
+	})
+
+	rankSearchEntries("matrix", entries)
+	results := searchEntriesToResults(entries)
+
+	assertSearchTitles(t, results, []string{"Matrix Reloaded", "The Matrix", "Matric"})
+}
+
+func TestRankSearchEntriesEqualRelevanceQualityTies(t *testing.T) {
+	t.Run("fastest duration breaks exact-tier ties before lower tiers", func(t *testing.T) {
+		entries := mergeSearchResults([]rawSearchResult{
+			rawSearchFixture("source-a", "Source A", false, 30, "THE MATRIX", "1999", 101, "", ""),
+			rawSearchFixture("source-b", "Source B", false, 100, "The-Matrix", "1999", 201, "", ""),
+			rawSearchFixture("source-c", "Source C", false, 90, "The-Matrix", "1999", 202, "", ""),
+			rawSearchFixture("source-d", "Source D", false, 10, "The Matrix", "1999", 301, "", ""),
+		})
+
+		rankSearchEntries("the matrix", entries)
+		results := searchEntriesToResults(entries)
+
+		assertSearchTitles(t, results, []string{"The Matrix", "THE MATRIX", "The-Matrix"})
+	})
+
+	t.Run("stable original order", func(t *testing.T) {
+		entries := mergeSearchResults([]rawSearchResult{
+			rawSearchFixture("source-a", "Source A", false, 50, "The-Matrix", "1999", 101, "", ""),
+			rawSearchFixture("source-b", "Source B", false, 50, "THE MATRIX", "1999", 201, "", ""),
+		})
+
+		rankSearchEntries("the matrix", entries)
+		results := searchEntriesToResults(entries)
+
+		assertSearchTitles(t, results, []string{"THE MATRIX", "The-Matrix"})
+	})
+}
+
+func TestMergeSearchResultsPreservesInternalTitleVariants(t *testing.T) {
+	entries := mergeSearchResults([]rawSearchResult{
+		rawSearchFixture("source-a", "Source A", false, 50, "庆余年第二季", "2024", 101, "", ""),
+		rawSearchFixture("source-b", "Source B", false, 40, "庆余年 第二季", "2024", 201, "", ""),
+		rawSearchFixture("source-b", "Source B Duplicate", false, 1, "庆余年　第二季", "2024", 202, "", ""),
+		rawSearchFixture("source-c", "Source C", false, 30, "庆余年:第二季", "2024", 301, "", ""),
+	})
+	results := searchEntriesToResults(entries)
+
+	assertSearchTitles(t, results, []string{"庆余年第二季", "庆余年 第二季", "庆余年　第二季", "庆余年:第二季"})
+	for _, result := range results {
+		if got := len(result.Sources); got != 1 {
+			t.Fatalf("result %q source count = %d, want 1: %+v", result.Title, got, result.Sources)
+		}
+	}
+}
+
+func TestMergeSearchResultsSourceIdentityFallbacks(t *testing.T) {
+	t.Run("duplicate provider can fill empty description", func(t *testing.T) {
+		entries := mergeSearchResults([]rawSearchResult{
+			rawSearchFixture("source-a", "Source A", false, 50, "Same Provider", "2026", 101, "", ""),
+			rawSearchFixture("source-a", "Source A Duplicate", false, 1, "Same Provider", "2026", 102, " Later duplicate desc. ", ""),
+		})
+		results := searchEntriesToResults(entries)
+
+		if got := len(results[0].Sources); got != 1 {
+			t.Fatalf("source count = %d, want one retained provider source: %+v", got, results[0].Sources)
+		}
+		if got := results[0].Sources[0].VideoID; got != "101" {
+			t.Fatalf("retained video id = %q, want first provider variant 101", got)
+		}
+		if got := results[0].Desc; got != "Later duplicate desc." {
+			t.Fatalf("desc = %q, want later duplicate provider desc", got)
+		}
+	})
+
+	t.Run("empty source key remains one provider identity", func(t *testing.T) {
+		entries := mergeSearchResults([]rawSearchResult{
+			rawSearchFixture("", "", false, 50, "Empty Source", "2026", 101, "", ""),
+			rawSearchFixture("", "", false, 40, "Empty Source", "2026", 102, "", ""),
+			rawSearchFixture("", "", false, 1, "Empty Source", "2026", 102, "", ""),
+		})
+		results := searchEntriesToResults(entries)
+
+		if got := len(results[0].Sources); got != 1 {
+			t.Fatalf("empty source-key source count = %d, want one selectable provider identity: %+v", got, results[0].Sources)
+		}
+		if got := results[0].Sources[0].VideoID; got != "101" {
+			t.Fatalf("first empty-key video id = %q, want 101", got)
+		}
+	})
+}
+
+func TestFilterAdultSearchEntriesRecomputesQualityTies(t *testing.T) {
+	entries := mergeSearchResults([]rawSearchResult{
+		rawSearchFixture("adult-fast", "Adult Fast", true, 1, "Adult Boosted", "2026", 101, "", ""),
+		rawSearchFixture("clean-slow", "Clean Slow", false, 200, "Adult Boosted", "2026", 102, "", ""),
+		rawSearchFixture("clean-fast", "Clean Fast", false, 20, "Clean Result", "2026", 201, "", ""),
+		rawSearchFixture("adult-only", "Adult Only", true, 1, "Adult Only", "2026", 301, "", ""),
+	})
+
+	entries = filterAdultSearchEntries(entries)
+	rankSearchEntries("", entries)
+	results := searchEntriesToResults(entries)
+
+	assertSearchTitles(t, results, []string{"Clean Result", "Adult Boosted"})
+	if len(results[1].Sources) != 1 || results[1].Sources[0].SourceKey != "clean-slow" {
+		t.Fatalf("adult-filtered sources = %+v, want only clean-slow retained", results[1].Sources)
+	}
+}
+
+func TestMergeRankSearchResultsPreservesSourcesOrder(t *testing.T) {
+	entries := mergeSearchResults([]rawSearchResult{
+		rawSearchFixture("source-slow", "Source Slow", false, 100, "The Matrix", "1999", 101, "", ""),
+		rawSearchFixture("source-fast", "Source Fast", false, 1, "The Matrix", "1999", 102, "", ""),
+	})
+
+	rankSearchEntries("matrix", entries)
+	results := searchEntriesToResults(entries)
+
+	got := []string{results[0].Sources[0].SourceKey, results[0].Sources[1].SourceKey}
+	want := []string{"source-slow", "source-fast"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("source order = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestRankSearchEntriesMalformedDurationSortsLast(t *testing.T) {
+	tests := []struct {
+		name     string
+		duration float64
+	}{
+		{name: "negative", duration: -1},
+		{name: "nan", duration: math.NaN()},
+		{name: "positive infinity", duration: math.Inf(1)},
+		{name: "negative infinity", duration: math.Inf(-1)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entries := mergeSearchResults([]rawSearchResult{
+				rawSearchFixture("bad", "Bad", false, tt.duration, "The-Matrix", "1999", 101, "", ""),
+				rawSearchFixture("good", "Good", false, 25, "THE MATRIX", "1999", 201, "", ""),
+			})
+
+			rankSearchEntries("the matrix", entries)
+			results := searchEntriesToResults(entries)
+
+			assertSearchTitles(t, results, []string{"THE MATRIX", "The-Matrix"})
+		})
+	}
+}
+
+func TestMergeSearchResultsDescriptionFallback(t *testing.T) {
+	t.Run("later blurb fills empty first description", func(t *testing.T) {
+		entries := mergeSearchResults([]rawSearchResult{
+			rawSearchFixture("source-a", "Source A", false, 10, "The Matrix", "1999", 101, "", ""),
+			rawSearchFixture("source-b", "Source B", false, 20, "The Matrix", "1999", 102, " Later blurb. ", "<p>Later content.</p>"),
+		})
+		results := searchEntriesToResults(entries)
+
+		if got := results[0].Desc; got != "Later blurb." {
+			t.Fatalf("Desc = %q, want later blurb fallback", got)
+		}
+	})
+
+	t.Run("later cleaned content fills empty first description", func(t *testing.T) {
+		entries := mergeSearchResults([]rawSearchResult{
+			rawSearchFixture("source-a", "Source A", false, 10, "Inception", "2010", 101, "", ""),
+			rawSearchFixture("source-b", "Source B", false, 20, "Inception", "2010", 102, "", "<p>Later content.</p>"),
+		})
+		results := searchEntriesToResults(entries)
+
+		if got := results[0].Desc; got != "Later content." {
+			t.Fatalf("Desc = %q, want later cleaned content fallback", got)
+		}
+	})
+}
+
 func TestSearchWithProgress_RealHTTPSource(t *testing.T) {
 	var upstream *httptest.Server
 	upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api.php/provide/vod":
-			if r.URL.Query().Get("wd") != "matrix" || r.URL.Query().Get("ac") != "videolist" {
+			if r.URL.Query().Get("wd") != "mat  rix" || r.URL.Query().Get("ac") != "videolist" {
 				t.Fatalf("unexpected search query: %s", r.URL.RawQuery)
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -193,7 +397,7 @@ func TestSearchWithProgress_RealHTTPSource(t *testing.T) {
 	ss := NewSearchService(s, ps)
 	ss.sourceClient = vodsource.NewClient(upstream.Client())
 	var progress []string
-	results, err := ss.SearchWithProgress(context.Background(), "matrix", 1, false, func(phase string, completed, total int) {
+	results, err := ss.SearchWithProgress(context.Background(), "  mat  rix  ", 1, false, func(phase string, completed, total int) {
 		progress = append(progress, fmt.Sprintf("%s:%d/%d", phase, completed, total))
 	})
 	if err != nil {
@@ -425,6 +629,38 @@ func TestSearchWithProgressSkipsEmptyPlayURLAndDeadCDN(t *testing.T) {
 
 func TestLogSearchFetchErrorWithBody(t *testing.T) {
 	logSearchFetchError("source-a", "https://source.example/api?wd=test", "not json", errors.New("decode failed"))
+}
+
+func rawSearchFixture(sourceKey, sourceName string, isAdult bool, duration float64, title, year string, id int, blurb, content string) rawSearchResult {
+	return rawSearchResult{
+		SourceKey:  sourceKey,
+		SourceName: sourceName,
+		IsAdult:    isAdult,
+		Duration:   duration,
+		Item: model.VideoSourceItem{
+			VodID:      id,
+			VodName:    title,
+			VodYear:    year,
+			TypeName:   "movie",
+			VodPic:     "cover.jpg",
+			VodBlurb:   blurb,
+			VodContent: content,
+			VodPlayURL: "ep1$url1",
+		},
+		Episodes: []model.Episode{{Name: "ep1", URL: "url1"}},
+	}
+}
+
+func assertSearchTitles(t *testing.T, results []model.SearchResult, want []string) {
+	t.Helper()
+	if len(results) != len(want) {
+		t.Fatalf("len(results) = %d, want %d: %+v", len(results), len(want), results)
+	}
+	for i, title := range want {
+		if results[i].Title != title {
+			t.Fatalf("results[%d].Title = %q, want %q; all results: %+v", i, results[i].Title, title, results)
+		}
+	}
 }
 
 // videoSourceItem is a test helper to create a VideoSourceItem.

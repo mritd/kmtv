@@ -1,5 +1,6 @@
 /**
  * useUsersMutations tests — happy path and cache invalidation.
+ *
  * useUsersMutations 测试 — 正常路径和缓存失效.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -13,6 +14,7 @@ import { createTestAPI } from "@/test/testAPI";
 import { useUsersMutations } from "./useUsersMutations";
 
 // makeSpyWrapper creates a wrapper with a spy on invalidateQueries.
+//
 // makeSpyWrapper 创建带 invalidateQueries spy 的包装器.
 function makeSpyWrapper(api = createTestAPI()) {
   const queryClient = new QueryClient({

@@ -1,4 +1,5 @@
 // DoubanAPI tests exercise the home endpoint with a stub client.
+//
 // DoubanAPI 测试使用 stub client 覆盖首页接口.
 
 import type { APIClient } from "./client";

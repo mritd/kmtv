@@ -12,6 +12,7 @@ import (
 )
 
 // IssuedAccessToken is returned after successful login.
+//
 // IssuedAccessToken 表示登录成功后签发的 access token.
 type IssuedAccessToken struct {
 	Token     string
@@ -26,6 +27,7 @@ type cachedAuthSession struct {
 }
 
 // AuthService issues, verifies, and revokes opaque bearer tokens.
+//
 // AuthService 负责签发, 校验和注销 opaque bearer token.
 type AuthService struct {
 	store *store.Store
@@ -34,12 +36,14 @@ type AuthService struct {
 }
 
 // NewAuthService creates an AuthService.
+//
 // NewAuthService 创建 AuthService.
 func NewAuthService(s *store.Store) *AuthService {
 	return &AuthService{store: s, cache: make(map[string]cachedAuthSession)}
 }
 
 // IssueAccessToken creates and stores a new API access token for a user.
+//
 // IssueAccessToken 为用户创建并保存新的 API access token.
 func (a *AuthService) IssueAccessToken(user *model.User, ttl time.Duration, userAgent, ip string) (*IssuedAccessToken, error) {
 	if user == nil {
@@ -61,6 +65,7 @@ func (a *AuthService) IssueAccessToken(user *model.User, ttl time.Duration, user
 }
 
 // VerifyAccessToken verifies a bearer token and returns session plus user.
+//
 // VerifyAccessToken 校验 bearer token 并返回 session 和用户.
 func (a *AuthService) VerifyAccessToken(token string) (*model.AuthSession, *model.User, error) {
 	token = strings.TrimSpace(token)
@@ -89,6 +94,7 @@ func (a *AuthService) VerifyAccessToken(token string) (*model.AuthSession, *mode
 }
 
 // RevokeAccessToken revokes one bearer token.
+//
 // RevokeAccessToken 注销一个 bearer token.
 func (a *AuthService) RevokeAccessToken(token string) error {
 	if err := utils.ValidateOpaqueToken(token); err != nil {
@@ -102,6 +108,7 @@ func (a *AuthService) RevokeAccessToken(token string) error {
 }
 
 // RevokeUserAccessTokens revokes all bearer tokens for one user.
+//
 // RevokeUserAccessTokens 注销某个用户的全部 bearer token.
 func (a *AuthService) RevokeUserAccessTokens(userID int64) error {
 	a.mu.Lock()
@@ -111,6 +118,7 @@ func (a *AuthService) RevokeUserAccessTokens(userID int64) error {
 }
 
 // InvalidateUserCache drops cached bearer lookups for one user without revoking tokens.
+//
 // InvalidateUserCache 清理指定用户的 bearer 缓存, 但不注销 token.
 func (a *AuthService) InvalidateUserCache(userID int64) {
 	a.mu.Lock()

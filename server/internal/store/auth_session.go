@@ -10,6 +10,7 @@ import (
 )
 
 // CreateAuthSession stores a hashed API access token session.
+//
 // CreateAuthSession 保存 hash 后的 API access token 会话.
 func (s *Store) CreateAuthSession(userID int64, tokenHash string, expiresAt time.Time, userAgent, ip string) (*model.AuthSession, error) {
 	now := time.Now()
@@ -42,6 +43,7 @@ func (s *Store) CreateAuthSession(userID int64, tokenHash string, expiresAt time
 }
 
 // GetValidAuthSessionByHash returns a live auth session and its user.
+//
 // GetValidAuthSessionByHash 返回有效 auth session 及其用户.
 func (s *Store) GetValidAuthSessionByHash(tokenHash string) (*model.AuthSession, *model.User, error) {
 	var session model.AuthSession
@@ -79,6 +81,7 @@ func (s *Store) GetValidAuthSessionByHash(tokenHash string) (*model.AuthSession,
 }
 
 // GetValidAuthSessionByID returns a live auth session and its user by session ID.
+//
 // GetValidAuthSessionByID 根据 session ID 返回有效 auth session 及其用户.
 func (s *Store) GetValidAuthSessionByID(id int64) (*model.AuthSession, *model.User, error) {
 	var session model.AuthSession
@@ -116,6 +119,7 @@ func (s *Store) GetValidAuthSessionByID(id int64) (*model.AuthSession, *model.Us
 }
 
 // RevokeAuthSessionByHash revokes one API access token.
+//
 // RevokeAuthSessionByHash 注销一个 API access token.
 func (s *Store) RevokeAuthSessionByHash(tokenHash string) error {
 	_, err := s.db.Exec(
@@ -130,6 +134,7 @@ func (s *Store) RevokeAuthSessionByHash(tokenHash string) error {
 }
 
 // RevokeAuthSessionsByUser revokes all API access tokens for a user.
+//
 // RevokeAuthSessionsByUser 注销某个用户的全部 API access token.
 func (s *Store) RevokeAuthSessionsByUser(userID int64) error {
 	_, err := s.db.Exec(
@@ -144,6 +149,7 @@ func (s *Store) RevokeAuthSessionsByUser(userID int64) error {
 }
 
 // TouchAuthSession updates the last seen timestamp for a session.
+//
 // TouchAuthSession 更新 session 最近访问时间.
 func (s *Store) TouchAuthSession(id int64) error {
 	_, err := s.db.Exec(`UPDATE auth_sessions SET last_seen_at = ? WHERE id = ?`, time.Now(), id)

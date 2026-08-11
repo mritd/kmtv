@@ -16,6 +16,7 @@ import {
 
 // makeWrapper creates a minimal QueryClient + APIProvider wrapper for hook tests.
 // makeWrapper
+//
 // 为 hook 测试创建最小的 QueryClient + APIProvider 包装器.
 function makeWrapper(api = createTestAPI()) {
   const queryClient = new QueryClient({
@@ -71,6 +72,7 @@ describe("useSourcesQuery", () => {
   it("tolerates a null sources field without crashing the poll gate", async () => {
     // A misbehaving/legacy backend may send { sources: null } for an empty list; the
     // refetchInterval guard (data.sources?.some) must not throw on it.
+    //
     // 后端可能对空列表返回 { sources: null }; refetchInterval 的 data.sources?.some 守卫不能因此抛错.
     const api = createTestAPI({
       listSources: async () => ({ sources: null } as unknown as SourcesResponse),
@@ -83,6 +85,7 @@ describe("useSourcesQuery", () => {
   it("polls when any source health is 'checking'", async () => {
     // Verify the refetchInterval callback returns a number (not false) when checking.
     // This validates the polling gate without needing real timers.
+    //
     // 验证 refetchInterval 在 checking 时返回数字而非 false.
     const api = createTestAPI({
       listSources: async () => ({
@@ -99,6 +102,9 @@ describe("useSourcesQuery", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     // The refetchInterval option is a function; test it directly via the query options.
     // We cannot call it directly through result, but can verify the data reached the hook.
+    //
+    // refetchInterval 选项是函数, 因此通过 query options 直接验证.
+    // result 无法直接调用该函数, 但可以验证 hook 已收到数据.
     expect(result.current.data?.sources[0].health).toBe("checking");
   });
 });
@@ -180,6 +186,9 @@ describe("useCheckSourceMutation", () => {
     const invalidate = vi.fn().mockResolvedValue(undefined);
     // We need the real queryClient so we can spy on invalidateQueries.
     // This wrapper overrides the queryClient with a spy.
+    //
+    // 此处需要真实 queryClient, 以便监视 invalidateQueries.
+    // 该 wrapper 使用带 spy 的 queryClient.
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });

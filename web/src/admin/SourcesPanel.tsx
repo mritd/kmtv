@@ -1,15 +1,23 @@
 /**
  * SourcesPanel — admin panel for managing all configured video sources.
+ *
  * SourcesPanel — 管理所有已配置视频源的管理面板.
  *
  * Responsibilities / 职责:
  *   - List sources sorted: non-adult first, then adult (by source.is_adult), preserving server order.
+ *
  *     按顺序展示源: 非成人源在前, 成人源 (按 source.is_adult) 在后, 组内保持服务器顺序.
+ *
  *   - Provide per-row actions: check health, edit, enable/disable, delete.
+ *
  *     提供逐行操作: 探测健康、编辑、启用/禁用、删除.
+ *
  *   - Provide bulk actions: check-all, enable-all, import, new.
+ *
  *     提供批量操作: 全量探测、启用全部、导入、新建.
+ *
  *   - Poll automatically while any source is mid-probe (driven by useSourcesQuery).
+ *
  *     任一源处于探测中时自动轮询 (由 useSourcesQuery 驱动).
  *
  * Key exports / 主要导出:
@@ -35,7 +43,7 @@ import { AdminTableSkeleton } from "./skeletons/AdminTableSkeleton";
 
 // isNsfw returns true when the source is classified as adult content.
 // Uses the structured source.is_adult field (backed by the DB) rather than a name prefix.
-// isNsfw
+//
 // 当源被分类为成人内容时返回 true.
 // 使用结构化的 source.is_adult 字段 (由数据库支撑), 而非名称前缀.
 function isNsfw(source: Source): boolean {
@@ -44,7 +52,7 @@ function isNsfw(source: Source): boolean {
 
 // sortSources puts non-adult sources first, preserving original order within each group.
 // Stable sort is achieved by tagging each element with its original index before sorting.
-// sortSources
+//
 // 把非成人源排前面, 组内保留原始顺序.
 // 通过在排序前标记原始下标来实现稳定排序.
 function sortSources(sources: Source[]): Source[] {
@@ -59,9 +67,11 @@ function sortSources(sources: Source[]): Source[] {
 
 /**
  * SourcesPanel renders the full sources list with row actions and panel-level bulk actions.
+ *
  * SourcesPanel 渲染完整的视频源列表, 包含逐行操作和面板级批量操作.
  *
  * Renders a skeleton while loading, an error state on failure, and the table on success.
+ *
  * 加载中显示骨架屏, 失败时显示错误状态, 成功时显示表格.
  */
 export function SourcesPanel() {
@@ -72,12 +82,15 @@ export function SourcesPanel() {
 
   // Memoised derived lists — each depends only on query.data?.sources so they
   // recompute only when the server data changes, not on every render.
+  //
   // 各派生列表仅依赖 query.data?.sources, 仅在服务器数据变化时重算, 不随每次渲染刷新.
   const sortedSources = useMemo(() => sortSources(query.data?.sources ?? []), [query.data?.sources]);
   // anyChecking drives the disabled state of the "check-all" button.
+  //
   // anyChecking 驱动 "全量探测" 按钮的禁用状态.
   const anyChecking = useMemo(() => sortedSources.some((s) => s.health === "checking"), [sortedSources]);
   // disabledSources is the target set for "enable all" — every source currently disabled.
+  //
   // disabledSources 是 "启用全部源" 的目标集合 — 所有当前禁用的源.
   const disabledSources = useMemo(() => sortedSources.filter((s) => !s.enabled), [sortedSources]);
 
@@ -87,7 +100,7 @@ export function SourcesPanel() {
   // enableAllSources uses the bulk endpoint so all rows update atomically in a single SQLite
   // transaction. A fan-out of N concurrent PUTs raced against the WAL writer lock and
   // failed with SQLITE_BUSY for all but the first request.
-  // enableAllSources
+  //
   // 走批量端点, 所有行在单次 SQLite 事务中原子更新.
   // 之前的散列 N 个并发 PUT 会撞 WAL 写锁, 除第一个外全部 SQLITE_BUSY 失败.
   async function enableAllSources() {
@@ -111,7 +124,7 @@ export function SourcesPanel() {
   }
 
   // runCheckAll triggers a health probe for every source via the check-all endpoint.
-  // runCheckAll
+  //
   // 通过 check-all 端点触发所有源的健康探测.
   function runCheckAll() {
     mutations.checkAll.mutate(undefined, {
@@ -125,7 +138,7 @@ export function SourcesPanel() {
   }
 
   // runCheckOne triggers a health probe for a single source by id.
-  // runCheckOne
+  //
   // 通过 id 触发单个源的健康探测.
   function runCheckOne(id: number) {
     check.mutate(id, {

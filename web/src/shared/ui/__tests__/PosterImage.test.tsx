@@ -29,6 +29,7 @@ describe("PosterImage transitionName", () => {
     const img = container.querySelector("img");
     // The setProperty callback ref runs on attach; verify the resulting style declaration exposes the property.
     // setProperty
+    //
     // 回调 ref 在节点挂载时执行, 校验 style 中存在该属性.
     expect(img?.style.getPropertyValue("view-transition-name")).toBe("poster-css");
   });
@@ -40,6 +41,7 @@ describe("PosterImage transitionName", () => {
     expect(img?.style.getPropertyValue("view-transition-name")).toBe("poster-keep");
     // fireEvent dispatches a synthetic event the React handler is bound to.
     // fireEvent
+    //
     // 触发 React 监听的合成事件.
     if (img) fireEvent.error(img);
     const fallback = container.querySelector(".poster-fallback") as HTMLElement | null;

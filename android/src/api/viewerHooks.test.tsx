@@ -1,4 +1,5 @@
 // viewerHooks tests confirm useDoubanHomeQuery wires queryKey + queryFn correctly.
+//
 // viewerHooks 测试确认 useDoubanHomeQuery 正确绑定 queryKey 与 queryFn.
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

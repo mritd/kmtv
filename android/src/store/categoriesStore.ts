@@ -1,4 +1,5 @@
 // Categories filter selection store. Module-level zustand + MMKV per-server persistence.
+//
 // 分类筛选选择 store. 模块级 zustand + 按服务器命名空间的 MMKV 持久化.
 
 import { create } from "zustand";
@@ -15,6 +16,7 @@ interface PersistedShape {
 
 /**
  * CategoriesState — selection + active server scope + actions.
+ *
  * CategoriesState — 选择 + 当前服务器作用域 + actions.
  */
 export interface CategoriesState extends PersistedShape {
@@ -36,12 +38,14 @@ function persist(serverURL: string | null, shape: PersistedShape): void {
 
 /**
  * Module-level zustand store mirroring web's categoriesStore but persisted to MMKV per server.
+ *
  * 模块级 zustand store, 接口与 web 一致, 按服务器命名空间持久化到 MMKV.
  *
  * Persistence semantics:
  *   - hydrate(serverURL) MUST be called before reads; it swaps the active scope and seeds state.
  *   - Mutations write through to the active server's MMKV slot synchronously.
  *   - Switching scope mid-session is supported (calling hydrate with a different URL re-seeds).
+ *
  * 持久化语义:
  *   - 读前必须先 hydrate(serverURL), 用于切换作用域并初始化状态.
  *   - mutation 同步写入当前服务器的 MMKV slot.

@@ -123,6 +123,7 @@ struct ProfileView: View {
             .listRowBackground(Theme.bgCard)
 
             // Server info.
+            //
             // 当前连接的服务器信息.
             HStack {
                 Image(systemName: "server.rack")
@@ -289,6 +290,7 @@ private struct AuthenticatedAvatarImage: View {
     }
 
     /// Loads avatar bytes through APIClient so protected avatar routes get bearer auth.
+    ///
     /// 通过 APIClient 加载头像数据, 确保受保护头像接口携带 bearer 认证.
     private func load() async {
         guard let apiClient else { return }

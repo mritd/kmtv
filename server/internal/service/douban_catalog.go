@@ -1,6 +1,7 @@
 package service
 
 // GetCategories returns a structured list of Douban category groups.
+//
 // GetCategories 返回结构化的 Douban 分类组列表.
 func (ds *DoubanService) GetCategories() []CategoryGroup {
 	return []CategoryGroup{

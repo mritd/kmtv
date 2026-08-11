@@ -1,4 +1,5 @@
 // Compile-only sanity check that the home discovery type shapes match the iOS contract.
+//
 // 编译期校验首页发现类型与 iOS 契约一致.
 
 import type {
@@ -70,6 +71,7 @@ describe("M3 wire types", () => {
     };
     expect(result.title).toBe("Title");
     // No `id` field on the wire — RN code synthesises a list key.
+    //
     // wire 上没有 `id` 字段, RN 端自行合成列表 key.
     expect((result as { id?: unknown }).id).toBeUndefined();
   });

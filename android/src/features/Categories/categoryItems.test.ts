@@ -1,4 +1,5 @@
 // flattenCategoryPages pure-function tests.
+//
 // flattenCategoryPages 纯函数测试.
 
 import type { DoubanListResponse } from "@/api/types";

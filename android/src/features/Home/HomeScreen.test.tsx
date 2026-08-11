@@ -1,4 +1,5 @@
 // Integration test for HomeScreen: loading, success, error inline render.
+//
 // HomeScreen 集成测试: loading、success、错误内联显示.
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -19,6 +20,7 @@ import { HomeScreen, HomeScreenContext } from "./HomeScreen";
 
 // First section has 6 items to exercise heroItems.slice(0, 5), second section has unrelated
 // items to verify the carousel only pulls from the first section.
+//
 // 第一个 section 含 6 项以覆盖 heroItems.slice(0, 5), 第二个 section 含无关项以验证轮播
 // 只从第一个 section 取数.
 const payload: DoubanHomeResponse = {
@@ -100,10 +102,12 @@ describe("HomeScreen", () => {
     expect(queryByText("新片")).not.toBeNull();
     // Hero carousel renders exactly 5 slides (heroItems.slice(0, 5)). The 6th item of the
     // first section appears via SectionRow but never inside the hero region.
+    //
     // hero 轮播渲染恰好 5 张 (heroItems.slice(0, 5)). 第一个 section 的第 6 项通过
     // SectionRow 出现, 不应出现在 hero 区域.
     expect(queryAllByTestId("heroSlide")).toHaveLength(5);
     // The second section's only item appears as a SectionRow VideoCard.
+    //
     // 第二个 section 的唯一项作为 SectionRow 的 VideoCard 出现.
     expect(queryByText("OnlyInNewSection")).not.toBeNull();
   });

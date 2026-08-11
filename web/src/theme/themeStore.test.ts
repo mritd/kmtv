@@ -15,7 +15,11 @@ import { createLocalThemeStore, themeStorageKey } from "./themeStore";
 // Helpers — in-memory StorageLike for deterministic test isolation
 // ---------------------------------------------------------------------------
 
-/** Creates an isolated in-memory ThemeStorageLike, independent of happy-dom localStorage. */
+/**
+ * Creates an isolated in-memory ThemeStorageLike, independent of happy-dom localStorage.
+ *
+ * 创建与 happy-dom localStorage 无关的隔离内存 ThemeStorageLike.
+ */
 function makeStorage(initial: Record<string, string> = {}): {
   store: Map<string, string>;
   storage: { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void };
@@ -34,6 +38,7 @@ function makeStorage(initial: Record<string, string> = {}): {
 describe("themeStorageKey", () => {
   it("is the locked constant kmtv.theme (Tier 4 — must not be renamed)", () => {
     // This test pins the localStorage key. If it fails, a Tier-4 forbidden change occurred.
+    //
     // 该测试锁定 localStorage key 名称, 若失败则表示发生了 Tier-4 禁止变更.
     expect(themeStorageKey).toBe("kmtv.theme");
   });
@@ -105,6 +110,7 @@ describe("createLocalThemeStore", () => {
       const s = createLocalThemeStore(storage);
       expect(s.get()).toEqual({ id: "nocturne" });
       // Corrupt entry must be removed so subsequent reads do not re-encounter it.
+      //
       // 损坏条目必须被清除, 防止后续读取再次遇到.
       expect(store.has(themeStorageKey)).toBe(false);
     });
@@ -115,6 +121,7 @@ describe("createLocalThemeStore", () => {
       const { storage } = makeStorage({ [themeStorageKey]: JSON.stringify({ id: "unknown-theme" }) });
       const s = createLocalThemeStore(storage);
       // normalizeThemePreference falls back to nocturne for unrecognised ids.
+      //
       // normalizeThemePreference 对未知 id 回退到 nocturne.
       expect(s.get()).toEqual({ id: "nocturne" });
     });
@@ -124,9 +131,13 @@ describe("createLocalThemeStore", () => {
     it("normalizes to default before writing to storage", () => {
       const { storage, store } = makeStorage();
       const s = createLocalThemeStore(storage);
-      s.set({ id: "nocturne" }); // write something first
+      // Seed storage so the following invalid write proves that set() replaces existing data.
+      //
+      // 先写入初始数据, 以证明后续非法写入会通过 set() 替换已有数据.
+      s.set({ id: "nocturne" });
       // Force an unrecognised value through the store interface.
       // normalizeThemePreference should sanitize it before persistence.
+      //
       // 通过接口写入未知 preference, normalizeThemePreference 应在持久化前做清洗.
       s.set({ id: "mystery" as "graphite" });
       const raw = store.get(themeStorageKey)!;
@@ -145,12 +156,14 @@ describe("createLocalThemeStore", () => {
 
     it("reads and writes through the real window.localStorage when no storage injected", () => {
       // Verify the default parameter (window.localStorage) is exercised.
+      //
       // 验证默认参数 (window.localStorage) 路径可被覆盖.
       const s = createLocalThemeStore();
       expect(s.get()).toEqual({ id: "nocturne" });
       s.set({ id: "tech-purple" });
       expect(window.localStorage.getItem(themeStorageKey)).not.toBeNull();
       // A fresh store instance reading the same slot should see the persisted value.
+      //
       // 新建 store 实例应能读取持久化的值.
       const s2 = createLocalThemeStore();
       expect(s2.get()).toEqual({ id: "tech-purple" });

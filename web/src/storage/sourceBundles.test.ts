@@ -280,6 +280,7 @@ describe("sourceBundles", () => {
   });
 
   // mediaID helper
+  //
   // mediaID 辅助函数
   it("mediaID normalizes title case and trims whitespace", () => {
     expect(mediaID({ title: "  Demo Show  ", year: " 2026 " })).toBe("demo show:2026");
@@ -349,6 +350,7 @@ describe("sourceBundles", () => {
   });
 
   // sanitizeDetail branches: failed status without error string, idle without detail, detailIdentity fallback.
+  //
   // sanitizeDetail 分支: failed 无 error 字符串, idle 无 detail, detailIdentity 回退.
   it("sanitizeSourceBundle handles detail with failed status and no error string", () => {
     const sanitized = sanitizeSourceBundle({
@@ -406,6 +408,7 @@ describe("sourceBundles", () => {
 
   it("sanitizeSourceBundle uses JSON-parsed key when sourceKey/videoId fields are missing", () => {
     // The key is the JSON-encoded pair; the value has no explicit sourceKey/videoId.
+    //
     // 键为 JSON 编码对; 值中无显式 sourceKey/videoId 字段.
     const sanitized = sanitizeSourceBundle({
       ...bundleFromSearchResult(result),
@@ -445,6 +448,7 @@ describe("sourceBundles", () => {
 
   it("sanitizeSourceBundle returns null when sources is empty after sanitization", () => {
     // All sources are invalid → no valid sources → null.
+    //
     // 所有 source 无效 → 无有效 source → null.
     expect(
       sanitizeSourceBundle({
@@ -458,15 +462,18 @@ describe("sourceBundles", () => {
   it("sameBundle deduplicates by overlapping source IDs even when mediaID differs", () => {
     // Bundle A and B have the same source-a/video-a but different titles.
     // sameBundle should treat them as the same bundle.
+    //
     // A 和 B 有相同的 source-a/video-a 但标题不同, sameBundle 应视为相同.
     const bundleA = bundleFromSearchResult({ ...result, title: "Title A" });
     const bundleB = bundleFromSearchResult({ ...result, title: "Title B", sources: [result.sources[0]] });
     saveSourceBundle(bundleA);
     saveSourceBundle(bundleB);
     // After saving bundleB with an overlapping source, bundleA should be replaced.
+    //
     // 保存 bundleB (含重叠 source) 后, bundleA 应被替换.
     expect(restoreSourceBundle("source-a", "video-a")?.title).toBe("Title B");
     // Only one bundle should be stored.
+    //
     // 只应存储一个 bundle.
     const raw = JSON.parse(window.localStorage.getItem(sourceBundleStorageKey) ?? "{}") as { bundles: unknown[] };
     expect(raw.bundles).toHaveLength(1);

@@ -1,4 +1,5 @@
 // PasswordSection tests — toggle, change, submit.
+//
 // PasswordSection 测试 — 折叠/展开、修改、提交.
 
 import { fireEvent, render } from "@testing-library/react-native";

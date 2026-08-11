@@ -1,4 +1,5 @@
 // SourceSwitcher — grid of source pills with Show-all/Collapse toggle for long lists.
+//
 // SourceSwitcher — 源胶囊网格, 列表过长时折叠并暴露 "全部展开 / 收起" 切换.
 
 import React, { useState } from "react";
@@ -15,6 +16,7 @@ const COLLAPSE_THRESHOLD = 6;
 
 /**
  * Props — full source list, current selected key, and click handler.
+ *
  * Props — 完整源列表、当前选中 key 与点击回调.
  */
 export interface SourceSwitcherProps {
@@ -25,6 +27,7 @@ export interface SourceSwitcherProps {
 
 /**
  * SourceSwitcher — renders a wrap grid; > 6 items collapses to 6 by default.
+ *
  * SourceSwitcher — 渲染换行网格, 超过 6 项默认折叠.
  */
 export function SourceSwitcher({ sources, currentKey, onSelect }: SourceSwitcherProps) {

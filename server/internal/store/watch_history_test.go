@@ -240,6 +240,31 @@ func TestWatchHistoryClearRejectsOlderInflightWrite(t *testing.T) {
 	}
 }
 
+func TestWatchHistoryClearPreservesNewerCommittedWrite(t *testing.T) {
+	s := newTestStore(t)
+	userID, err := s.CreateUser("history_clear_newer", "pass", "user")
+	if err != nil {
+		t.Fatalf("CreateUser error: %v", err)
+	}
+	if _, err := s.UpsertWatchHistory(userID, &model.WatchHistoryItem{Title: "Before Clear", EventTimeMS: 100}); err != nil {
+		t.Fatalf("pre-clear write: %v", err)
+	}
+	if _, err := s.UpsertWatchHistory(userID, &model.WatchHistoryItem{Title: "After Clear", EventTimeMS: 300}); err != nil {
+		t.Fatalf("newer concurrent write: %v", err)
+	}
+
+	if err := s.ClearWatchHistory(userID, 200); err != nil {
+		t.Fatalf("ClearWatchHistory error: %v", err)
+	}
+	items, err := s.ListWatchHistory(userID, MaxWatchHistoryItems, nil)
+	if err != nil {
+		t.Fatalf("ListWatchHistory error: %v", err)
+	}
+	if len(items) != 1 || items[0].Title != "After Clear" {
+		t.Fatalf("clear must preserve logically newer write: %+v", items)
+	}
+}
+
 func TestDeleteUserCascadesWatchHistory(t *testing.T) {
 	s := newTestStore(t)
 	userID, err := s.CreateUser("history_delete_user", "pass", "user")
@@ -263,6 +288,7 @@ func TestDeleteUserCascadesWatchHistory(t *testing.T) {
 // the same transaction. The write did not survive, so the caller must see a
 // stale-write error instead of a nil item that the handler would serialize as
 // a 200 response with a null body.
+//
 // TestWatchHistoryUpsertTrimmedRowReportsStale 覆盖 upsert 写入的行落在保留窗口
 // 之外, 并在同一事务中被裁剪的情况. 写入并未留存, 调用方必须收到 stale 错误,
 // 而不是一个 nil 条目 (handler 会把它序列化成响应体为 null 的 200).
@@ -274,6 +300,7 @@ func TestWatchHistoryUpsertTrimmedRowReportsStale(t *testing.T) {
 	}
 
 	// Fill the retained window with newer events.
+	//
 	// 用更新的事件填满保留窗口.
 	for i := 0; i < MaxWatchHistoryItems; i++ {
 		if _, err := s.UpsertWatchHistory(userID, &model.WatchHistoryItem{
@@ -299,6 +326,7 @@ func TestWatchHistoryUpsertTrimmedRowReportsStale(t *testing.T) {
 // TestWatchHistoryClearClampsFutureTombstone guards against a client clock
 // running ahead: a future clear timestamp must be clamped to server time so the
 // user's own later writes are still accepted.
+//
 // TestWatchHistoryClearClampsFutureTombstone 防止客户端时钟走快: 未来的清空
 // 时间戳必须被钳回服务端时间, 使该用户后续的写入仍能被接受.
 func TestWatchHistoryClearClampsFutureTombstone(t *testing.T) {
@@ -310,6 +338,7 @@ func TestWatchHistoryClearClampsFutureTombstone(t *testing.T) {
 
 	now := time.Now().UnixMilli()
 	// A device whose clock is one hour ahead clears its history.
+	//
 	// 一台时钟快一小时的设备清空了自己的历史.
 	if err := s.ClearWatchHistory(userID, now+3_600_000); err != nil {
 		t.Fatalf("ClearWatchHistory error: %v", err)
@@ -317,6 +346,7 @@ func TestWatchHistoryClearClampsFutureTombstone(t *testing.T) {
 
 	// A write made shortly after the clear must be accepted. With the future
 	// tombstone left unclamped this would stay rejected for a full hour.
+	//
 	// 清空之后不久的写入必须被接受. 如果未来墓碑没有被钳位, 这条写入会在
 	// 整整一小时内持续被拒绝.
 	item, err := s.UpsertWatchHistory(userID, &model.WatchHistoryItem{
@@ -331,8 +361,49 @@ func TestWatchHistoryClearClampsFutureTombstone(t *testing.T) {
 	}
 }
 
+// TestWatchHistoryClearPreservesBoundedFutureTombstone guards the client event
+// ordering contract: a clear generated shortly after an in-flight write must
+// keep its event timestamp instead of being rounded back to server wall time.
+//
+// TestWatchHistoryClearPreservesBoundedFutureTombstone 保护客户端事件排序契约:
+// 清空事件若只比服务端墙钟略微超前, 必须保留该时间戳, 而不是被回退到服务端当前时间.
+func TestWatchHistoryClearPreservesBoundedFutureTombstone(t *testing.T) {
+	s := newTestStore(t)
+	userID, err := s.CreateUser("bounded_future_clear_user", "pass", "user")
+	if err != nil {
+		t.Fatalf("CreateUser error: %v", err)
+	}
+
+	now := time.Now().UnixMilli()
+	clearAt := now + maxWatchHistoryClearFutureLead.Milliseconds()/2
+	if err := s.ClearWatchHistory(userID, clearAt); err != nil {
+		t.Fatalf("ClearWatchHistory error: %v", err)
+	}
+
+	var stored int64
+	if err := s.db.QueryRow(`SELECT cleared_at_ms FROM watch_history_clear_state WHERE user_id = ?`, userID).Scan(&stored); err != nil {
+		t.Fatalf("query clear state error: %v", err)
+	}
+	if stored != clearAt {
+		t.Fatalf("expected bounded future tombstone %d to be preserved, got %d", clearAt, stored)
+	}
+	if item, err := s.UpsertWatchHistory(userID, &model.WatchHistoryItem{
+		Title:       "pre-clear-inflight",
+		EventTimeMS: clearAt - 1,
+	}); item != nil || !errors.Is(err, errs.ErrStaleWrite) {
+		t.Fatalf("expected pre-clear write to stay stale, item=%+v err=%v", item, err)
+	}
+	if _, err := s.UpsertWatchHistory(userID, &model.WatchHistoryItem{
+		Title:       "post-clear",
+		EventTimeMS: clearAt + 1,
+	}); err != nil {
+		t.Fatalf("expected post-clear write to succeed, got %v", err)
+	}
+}
+
 // TestWatchHistoryIndexMatchesQueryOrder verifies migration v10 replaced the
 // updated_at index with one matching the event_time_ms sort every query uses.
+//
 // TestWatchHistoryIndexMatchesQueryOrder 验证 migration v10 用与查询排序
 // (event_time_ms) 匹配的索引替换了原先基于 updated_at 的索引.
 func TestWatchHistoryIndexMatchesQueryOrder(t *testing.T) {

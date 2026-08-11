@@ -1,6 +1,12 @@
 import Foundation
 import SwiftData
 
+/// User-scoped local playback cache operations for one server and title.
+/// Resume lookup additionally requires the exact provider `sourceKey`, `videoId`,
+/// line, and episode so progress cannot cross source variants.
+///
+/// 单个服务器与标题下按用户隔离的本地播放缓存操作. 续播查询还要求准确匹配视频源
+/// `sourceKey`, `videoId`, 线路和分集, 避免进度跨视频源变体复用.
 struct PlaybackProgressStore {
     let modelContext: ModelContext
 	let serverURL: String
@@ -15,13 +21,17 @@ struct PlaybackProgressStore {
 	}
 
     /// Loads persisted skip settings for the current title and server.
+    ///
     /// 加载当前标题与服务器对应的跳过片头片尾设置.
     func loadSettings() -> PlaybackSettings {
         PlaybackSettings.get(in: modelContext, serverURL: serverURL, title: title)
     }
 
-    /// Resolves resume position: saved progress first, then intro skip.
-    /// 解析起播位置: 优先使用已保存进度, 其次使用跳过片头.
+    /// Resolves resume position for the exact source, line, and episode.
+    /// Saved progress wins; intro skip is used only when no matching progress exists.
+    ///
+    /// 为准确的视频源, 线路和分集解析起播位置. 匹配的已保存进度优先,
+    /// 仅在不存在匹配进度时使用跳过片头秒数.
     func startTime(sourceKey: String, videoId: String, groupIndex: Int = 0, episodeIndex: Int, skipIntroSeconds: Int) -> TimeInterval {
 		let history = WatchHistoryItem.recent(in: modelContext, serverURL: serverURL, userID: userID, limit: 100)
         if let saved = history.first(where: {
@@ -34,7 +44,11 @@ struct PlaybackProgressStore {
     }
 
     /// Persists watch progress for resume and continue-watching surfaces.
-    /// 保存观看进度, 用于续播与继续观看入口.
+    /// Completing the title deletes its title-scoped cache row instead of saving
+    /// a completed episode as resumable history.
+    ///
+    /// 保存观看进度, 用于续播与继续观看入口. 标题完成时删除标题级缓存行,
+    /// 不会把已完成分集继续保存为可续播历史.
     func saveProgress(
         detail: VideoDetail,
         sourceKey: String,

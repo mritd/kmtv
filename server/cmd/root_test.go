@@ -21,6 +21,7 @@ import (
 // prepareServer imports initial sources on a background goroutine that logs,
 // so a test reading captured output races that goroutine: logrus serialises
 // its own writes but knows nothing about a reader on the other side.
+//
 // syncBuffer 是可在 logrus 写入期间安全读取的 bytes.Buffer.
 // prepareServer 会在后台 goroutine 中导入初始源并打日志, 因此测试读取捕获的
 // 输出时会与该 goroutine 竞争: logrus 只串行化自身的写入, 无从得知另一侧的读取方.
@@ -338,6 +339,7 @@ func TestExecuteHelp(t *testing.T) {
 }
 
 // TestChooseDBPath covers the db-path precedence: explicit flag > env > default.
+//
 // TestChooseDBPath 覆盖 db-path 优先级: 显式 flag > 环境变量 > 默认值.
 func TestChooseDBPath(t *testing.T) {
 	const def = "kmtv.db"
@@ -368,6 +370,7 @@ func TestChooseDBPath(t *testing.T) {
 // TestPrepareServerInMemoryLogsEphemeral boots prepareServer against an
 // in-memory database end-to-end and asserts the startup log marks it ephemeral
 // (not a disk path) while the default admin is still created.
+//
 // TestPrepareServerInMemoryLogsEphemeral 端到端用内存数据库启动 prepareServer,
 // 断言启动日志标注为 ephemeral (而非磁盘路径), 且默认 admin 仍被创建.
 func TestPrepareServerInMemoryLogsEphemeral(t *testing.T) {

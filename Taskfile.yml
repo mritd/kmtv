@@ -31,6 +31,13 @@ tasks:
     generates:
       - "server/{{.BINARY}}"
 
+  bilingual-check:
+    desc: Verify repository-wide bilingual comment formatting
+    cmds:
+      - bun scripts/check-bilingual-comment-spacing.ts --check
+      - task: web:bilingual-check
+      - task: android:bilingual-check
+
   server:
     desc: Build frontend and run backend
     vars:

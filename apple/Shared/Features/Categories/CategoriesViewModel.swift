@@ -15,12 +15,14 @@ final class CategoriesViewModel {
 
     private let logger = Logger(subsystem: "com.mritd.kmtv", category: "categories")
     /// Protocol dependency keeps Douban discovery replaceable in unit tests.
+    ///
     /// 使用协议依赖让 Douban 发现接口可以在单元测试中替换.
     private let apiClient: any DoubanAPIProtocol
     private var currentStart = 0
     private let pageSize = 20
     private var fetchTask: Task<Void, Never>?
     /// Monotonic request generation used to ignore stale category responses.
+    ///
     /// 单调递增的请求代次, 用于忽略过期分类响应.
     private var fetchGeneration = 0
 
@@ -78,6 +80,7 @@ final class CategoriesViewModel {
     func fetchItems() async {
         guard let group = selectedGroup else { return }
         // Bump generation before each full reload so older responses cannot overwrite new filters.
+        //
         // 每次完整刷新前递增代次, 避免旧请求覆盖新的筛选结果.
         fetchGeneration += 1
         let gen = fetchGeneration
@@ -98,6 +101,7 @@ final class CategoriesViewModel {
                 try await client.doubanRecommend(kind: kind, tag: tag, format: format, region: regionValue, start: 0, count: 20)
             }.value
             // Ignore cancelled or stale responses after the user changed category filters.
+            //
             // 用户切换分类筛选后, 忽略已取消或过期的响应.
             guard !Task.isCancelled, gen == fetchGeneration else { return }
             items = response.items
@@ -131,6 +135,7 @@ final class CategoriesViewModel {
             }.value
             guard gen == fetchGeneration else { return }
             // Deduplicate append results because upstream pages can overlap.
+            //
             // 追加分页时去重, 因为上游分页结果可能重叠.
             let existingIds = Set(items.map(\.id))
             let newItems = response.items.filter { !existingIds.contains($0.id) }

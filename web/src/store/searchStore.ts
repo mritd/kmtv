@@ -1,5 +1,6 @@
 /**
  * searchStore — SSE-backed search lifecycle store that survives route unmounts.
+ *
  * searchStore — 支持 SSE 的搜索生命周期 store, 在路由卸载时保持搜索状态.
  *
  * Responsibilities / 职责:
@@ -46,16 +47,19 @@ import type { SearchProgress, SearchResult } from "@/api/types";
 
 /**
  * SearchStatus — lifecycle phase of the current search request.
+ *
  * SearchStatus — 当前搜索请求的生命周期阶段.
  */
 export type SearchStatus = "idle" | "loading" | "success" | "error";
 
 /**
  * SearchProgressMap — phase-keyed map of in-flight progress events from the SSE stream.
+ *
  * SearchProgressMap — SSE 流中以阶段为键的进行中进度事件映射.
  *
  * Keys are the `phase` values emitted by the backend: "searching" and "probing".
  * Entries are absent (not null) when no event for that phase has arrived yet.
+ *
  * key 为后端推送的 phase 值: "searching" 和 "probing".
  * 尚未收到对应 phase 事件时条目不存在 (非 null).
  */
@@ -63,6 +67,7 @@ export type SearchProgressMap = Partial<Record<"searching" | "probing", SearchPr
 
 /**
  * SearchCancelReason — reason passed to cancel() to drive state branching.
+ *
  * SearchCancelReason — 传给 cancel() 以驱动状态分支的取消原因.
  *
  * - "user"      — user explicitly cancelled; return to idle
@@ -81,6 +86,7 @@ export type SearchCancelReason = "user" | "supersede" | "auth" | "completed" | "
 
 /**
  * SearchStoreState — full state + action contract of searchStore.
+ *
  * SearchStoreState — searchStore 的完整状态与 action 接口.
  */
 export interface SearchStoreState {
@@ -92,6 +98,7 @@ export interface SearchStoreState {
   errorMessage: string;
   scrollY: number;
   // activeController is a non-serializable runtime slot owning the SSE AbortController.
+  //
   // activeController 是非序列化的 SSE 控制器槽位.
   activeController: AbortController | null;
 
@@ -99,9 +106,11 @@ export interface SearchStoreState {
   setScrollY(value: number): void;
   submitQuery(query: string): void;
   // retryQuery re-runs the last submitted query, used by the "Retry" button after a stream error.
+  //
   // retryQuery 重跑上次提交的查询, 供错误态的"重试"按钮使用.
   retryQuery(): void;
   // SSE-mutating actions accept the originating controller so the store can ignore stale callbacks from aborted requests.
+  //
   // SSE 变更方法接收发起的 controller, store 据此忽略已被取消请求的回调.
   applyProgressEvent(progress: SearchProgress, controller?: AbortController): void;
   applyResults(results: SearchResult[], controller?: AbortController): void;
@@ -114,6 +123,7 @@ export interface SearchStoreState {
 }
 
 // initialState is extracted so resetAll() can spread it atomically instead of listing each field.
+//
 // 提取 initialState 以便 resetAll() 原子地展开, 而不是逐字段列举.
 const initialState: Pick<
   SearchStoreState,
@@ -138,15 +148,18 @@ const initialState: Pick<
 
 /**
  * searchStore — vanilla Zustand store with selector subscriptions.
+ *
  * searchStore — 支持 selector 订阅的原生 Zustand store.
  *
  * subscribeWithSelector is required so useSearchStreamSync.ts can subscribe to individual state
  * slices (e.g. the activeController slot) using the vanilla selector form
  * `store.subscribe(selector, listener)` without coupling every listener to unrelated changes.
+ *
  * subscribeWithSelector 让 useSearchStreamSync.ts 可以使用 vanilla selector 形式
  * `store.subscribe(selector, listener)` 订阅单个状态切片 (如 activeController 槽位), 避免不相关变更触发所有监听器.
  *
  * searchStore owns the SSE lifecycle so route unmount does not cancel an in-progress search.
+ *
  * searchStore 持有 SSE 生命周期, 路由卸载不会取消进行中的搜索.
  */
 export const searchStore = createStore<SearchStoreState>()(
@@ -160,6 +173,7 @@ export const searchStore = createStore<SearchStoreState>()(
     submitQuery: (query) => {
       // Abort the old controller in place;
       // do NOT call cancel() because that would publish an intermediate state with the old query still set.
+      //
       // 直接 abort 旧控制器, 不走 cancel(), 避免发布旧 query 的中间状态.
       const previous = get().activeController;
       if (previous) previous.abort();
@@ -175,6 +189,7 @@ export const searchStore = createStore<SearchStoreState>()(
 
     retryQuery: () => {
       // Retry re-submits the last query even if it has not changed, by going through submitQuery so the same atomic transition runs.
+      //
       // 重试用最后一次 query 再次走 submitQuery, 复用原子状态转换.
       const query = get().lastSubmittedQuery;
       if (query) get().submitQuery(query);
@@ -182,9 +197,11 @@ export const searchStore = createStore<SearchStoreState>()(
 
     applyProgressEvent: (progress, controller) => {
       // Stale-safety: ignore events from a superseded controller.
+      //
       // 陈旧防护: 忽略已被取代 controller 的事件.
       if (controller && controller !== get().activeController) return;
       // Only the two phases the backend produces are accepted; unknown phases are silently dropped.
+      //
       // 仅接受后端产生的两个 phase; 未知 phase 静默丢弃.
       if (progress.phase !== "searching" && progress.phase !== "probing") return;
       set((s) => ({ progressMap: { ...s.progressMap, [progress.phase]: progress } }));
@@ -192,6 +209,7 @@ export const searchStore = createStore<SearchStoreState>()(
 
     applyResults: (results, controller) => {
       // Stale-safety: ignore results from a superseded controller.
+      //
       // 陈旧防护: 忽略已被取代 controller 的结果.
       if (controller && controller !== get().activeController) return;
       set({ results });
@@ -199,6 +217,7 @@ export const searchStore = createStore<SearchStoreState>()(
 
     completeStream: (controller) => {
       // Stale-safety: ignore completion from a superseded controller.
+      //
       // 陈旧防护: 忽略已被取代 controller 的完成信号.
       if (controller && controller !== get().activeController) return;
       set({ status: "success", activeController: null });
@@ -206,6 +225,7 @@ export const searchStore = createStore<SearchStoreState>()(
 
     failStream: (message, controller) => {
       // Stale-safety: ignore failure from a superseded controller.
+      //
       // 陈旧防护: 忽略已被取代 controller 的失败信号.
       if (controller && controller !== get().activeController) return;
       set({ status: "error", errorMessage: message, activeController: null });
@@ -220,11 +240,13 @@ export const searchStore = createStore<SearchStoreState>()(
       if (controller) controller.abort();
       // user/supersede/auth move back to idle so the UI can re-engage;
       // completed/failed are terminal markers handled by completeStream/failStream.
+      //
       // user/supersede/auth 回到 idle 以便 UI 再次响应; completed/failed 由 completeStream/failStream 处理.
       if (reason === "user" || reason === "supersede" || reason === "auth") {
         set({ status: "idle", activeController: null });
       } else {
         // "completed" / "failed" — only clear the controller slot; status is already set.
+        //
         // "completed" / "failed" — 仅清空 controller 槽; 状态已由对应方法设置.
         set({ activeController: null });
       }
@@ -232,6 +254,7 @@ export const searchStore = createStore<SearchStoreState>()(
 
     resetAll: () => {
       // Abort any in-flight SSE before clearing state so the fetch is actually torn down, not leaked.
+      //
       // 清空状态前先中止进行中的 SSE, 防止泄漏.
       const controller = get().activeController;
       if (controller) controller.abort();

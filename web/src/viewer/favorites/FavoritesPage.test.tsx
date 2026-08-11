@@ -1,3 +1,10 @@
+/**
+ * FavoritesPage integration tests cover rating fallback, concise card actions, title-based search,
+ * and local favorite removal.
+ *
+ * FavoritesPage 集成测试覆盖评分回退, 精简卡片操作, 按标题搜索和本地移除收藏.
+ */
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";

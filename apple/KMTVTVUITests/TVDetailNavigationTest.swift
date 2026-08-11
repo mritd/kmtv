@@ -2,8 +2,14 @@ import XCTest
 
 /// UI tests for tvOS detail page navigation: verify tab bar persists after
 /// Home → Search → Detail → Play → Back, and Categories → Search → Detail → Play → Back.
-/// Navigation model: all fullScreenCover (no NavigationStack pushes on tvOS).
+/// Navigation model: root flows switch tabs, while detail/player uses fullScreenCover;
+/// tvOS does not use multi-level NavigationStack pushes.
 /// Requires test server running at localhost:8080 (use `task server`).
+///
+/// tvOS 详情导航 UI 测试: 验证 Home → Search → Detail → Play → Back 以及
+/// Categories → Search → Detail → Play → Back 后 tab bar 仍然存在. 根流程通过切换 tab,
+/// 详情与播放使用 fullScreenCover, tvOS 不使用多层 NavigationStack push.
+/// 测试要求 localhost:8080 已运行服务端, 可使用 `task server`.
 @MainActor
 final class TVDetailNavigationTest: XCTestCase {
     private let app = XCUIApplication()

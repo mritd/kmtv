@@ -1,4 +1,5 @@
 // AdminPanelScreen — menu of the four admin sub-areas. Defense-in-depth gates non-admin.
+//
 // AdminPanelScreen — 四个管理子页面的入口菜单, 非管理员被拦截.
 
 import { useNavigation } from "@react-navigation/native";
@@ -14,6 +15,7 @@ type RowKey = Exclude<keyof ProfileStackParamList, "ProfileRoot" | "AdminPanel">
 
 /**
  * AdminPanelScreen — root menu inside ProfileStack. Each row pushes one sub-screen.
+ *
  * AdminPanelScreen — ProfileStack 内的根菜单, 每行 push 一个子页面.
  */
 export function AdminPanelScreen(){

@@ -1,4 +1,5 @@
 // Snapshot-style guard for app.config.ts: catches accidental drift on the brand surface.
+//
 // app.config.ts 的快照式守护: 拦截品牌字段的误改.
 
 import appConfig from "../../app.config";

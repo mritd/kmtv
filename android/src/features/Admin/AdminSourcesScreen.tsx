@@ -1,4 +1,5 @@
 // AdminSourcesScreen — list, enable/disable, bulk enable-disable, check-all, delete (with confirm).
+//
 // AdminSourcesScreen — 源列表、启用/禁用、批量启用禁用、全部检查、二次确认删除.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
@@ -16,6 +17,7 @@ import { useServerStore } from "@/store/serverStore";
 
 /**
  * AdminSourcesScreenContextValue carries the AdminAPI binding for tests.
+ *
  * AdminSourcesScreenContextValue 为测试提供 AdminAPI 注入点.
  */
 export interface AdminSourcesScreenContextValue {
@@ -24,6 +26,7 @@ export interface AdminSourcesScreenContextValue {
 
 /**
  * Optional injection context — tests override via Provider; production uses the default factory.
+ *
  * 可选注入 context, 测试通过 Provider 覆盖, 生产使用默认工厂.
  */
 export const AdminSourcesScreenContext = createContext<AdminSourcesScreenContextValue | null>(null);
@@ -43,6 +46,7 @@ function useDefaultCtx(): AdminSourcesScreenContextValue | null {
 
 /**
  * AdminSourcesScreen — main sources management view.
+ *
  * AdminSourcesScreen — 源管理主视图.
  */
 export function AdminSourcesScreen(){

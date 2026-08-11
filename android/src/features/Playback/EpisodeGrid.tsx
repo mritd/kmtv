@@ -1,4 +1,5 @@
 // EpisodeGrid — adaptive grid of episode pills, mirrors iOS LazyVGrid.adaptive.
+//
 // EpisodeGrid — 自适应剧集胶囊网格, 镜像 iOS LazyVGrid.adaptive.
 
 import React from "react";
@@ -10,6 +11,7 @@ import { useTheme } from "@/designSystem/useTheme";
 
 /**
  * Props — episode list + currently playing index + tap handler.
+ *
  * Props — 剧集列表、当前播放索引、点击回调.
  */
 export interface EpisodeGridProps {
@@ -21,6 +23,7 @@ export interface EpisodeGridProps {
 /**
  * EpisodeGrid — 4-column grid of episode pills. Density tuned for phone-portrait; tablet polish
  * lands in M7.
+ *
  * EpisodeGrid — 4 列剧集胶囊, 手机竖屏密度, 平板细节调优在 M7.
  */
 export function EpisodeGrid({ episodes, currentIndex, onSelect }: EpisodeGridProps) {

@@ -1,15 +1,20 @@
 /**
  * AccountPage.test.tsx — tests for the AccountPage route component.
+ *
  * AccountPage.test.tsx — AccountPage 路由组件测试.
  *
  * Covers / 覆盖:
- *   - Authenticated render: profile info, theme choices. / 已认证渲染: profile 信息, 主题选项.
- *   - Theme selection updates document.documentElement dataset. / 主题选择更新 document.documentElement dataset.
+ *   - Authenticated render: profile info and theme choices.
+ *   - Theme selection updates document.documentElement dataset.
  *   - Anonymous render: LoginPromptCard shown, username input hidden, ThemeSettings visible.
- *     匿名渲染: 显示 LoginPromptCard, 隐藏用户名输入框, ThemeSettings 可见.
- *   - saveProfile success path: API called, success toast shown. / saveProfile 成功路径: 调用 API, 显示成功 toast.
- *   - saveProfile error path: error toast shown, profile remains unchanged.
- *     saveProfile 失败路径: 显示错误 toast, profile 保持不变.
+ *   - saveProfile success path: API called and success toast shown.
+ *   - saveProfile error path: error toast shows the server message.
+ *
+ *   - 已认证渲染: profile 信息和主题选项.
+ *   - 主题选择会更新 document.documentElement dataset.
+ *   - 匿名渲染: 显示 LoginPromptCard, 隐藏用户名输入框, ThemeSettings 可见.
+ *   - saveProfile 成功路径: 调用 API 并显示成功 toast.
+ *   - saveProfile 失败路径: 错误 toast 显示服务端消息.
  */
 import { QueryClient } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
@@ -31,6 +36,7 @@ function renderAccount() {
   const tokenStore = createMemoryTokenStore({ accessToken: "Token", expiresAt: "2026-05-23T12:00:00Z", user: { id: 1, username: "admin", role: "admin" } });
   // Per-render QueryClient with retry disabled;
   // isolates test state.
+  //
   // 每次渲染创建 QueryClient 并关闭重试, 隔离测试状态.
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -71,6 +77,7 @@ describe("AccountPage", () => {
     const tokenStore = createMemoryTokenStore();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     // me() returns the anonymous identity so AuthProvider lands on `anonymous`.
+    //
     // me() 返回匿名身份, AuthProvider 进入 anonymous 状态.
     const api = createTestAPI({
       me: async () => ({ id: 0, username: "anonymous", role: "user" }),
@@ -89,14 +96,17 @@ describe("AccountPage", () => {
     );
 
     // ThemeSettings is always present.
+    //
     // 主题设置始终可见.
     await screen.findByRole("button", { name: "石墨黑" });
 
     // The profile form's username input must NOT be rendered.
+    //
     // 表单中用户名 input 不渲染.
     expect(screen.queryByLabelText("用户名")).toBeNull();
 
     // The LoginPromptCard CTA is present.
+    //
     // LoginPromptCard CTA 出现.
     expect(screen.getByRole("button", { name: "去登录" })).toBeInTheDocument();
   });
@@ -115,6 +125,7 @@ describe("AccountPage — saveProfile", () => {
     const api = createTestAPI({ updateProfile });
 
     // ToastContainer must be in the tree so toast.success() is reflected in the DOM.
+    //
     // ToastContainer 必须在树中, 以便 toast.success() 在 DOM 中体现.
     render(
       <APIProvider value={api}>
@@ -130,6 +141,7 @@ describe("AccountPage — saveProfile", () => {
     );
 
     // Clear the current username and type a new one with leading whitespace to verify trim.
+    //
     // 清除当前用户名并输入带前导空格的新名字, 以验证 trim.
     const input = screen.getByLabelText("用户名");
     await user.clear(input);
@@ -138,6 +150,7 @@ describe("AccountPage — saveProfile", () => {
 
     expect(updateProfile).toHaveBeenCalledWith("newname");
     // Toast title from zh locale: account.updateSuccess.
+    //
     // Toast 标题来自 zh locale: account.updateSuccess.
     await screen.findByText("个人信息已更新, 重新登录后令牌快照会同步最新用户名.");
   });
@@ -169,8 +182,11 @@ describe("AccountPage — saveProfile", () => {
     await user.click(screen.getByRole("button", { name: "保存个人信息" }));
 
     // Error toast with the server-supplied message should appear.
+    //
     // 应显示包含服务端消息的错误 toast.
+    //
     // Toast title from zh locale: account.updateFailed.
+    //
     // Toast 标题来自 zh locale: account.updateFailed.
     await screen.findByText("个人信息更新失败");
     expect(screen.getByText("Username taken")).toBeInTheDocument();

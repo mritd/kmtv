@@ -1,4 +1,5 @@
 // Portal-mounted modal overlay with Escape-to-close, focus trap, and motion animation.
+//
 // Portal 弹窗: 支持 Escape 关闭、焦点陷阱和动效动画.
 //
 // Exports: Modal.
@@ -7,6 +8,7 @@
 // Pointer-dismiss invariant: only a press that both starts AND ends on the backdrop counts as
 // an outside-click dismiss. This prevents accidental close when the user selects text inside
 // the dialog and releases the pointer outside.
+//
 // 指针关闭不变式: 仅当按下和释放都在遮罩自身时才关闭, 防止在弹窗内选中文字后释放到外部导致意外关闭.
 
 import { useEffect, useRef, type ReactNode } from "react";
@@ -18,7 +20,7 @@ import { reducedMotionTransition, transitions } from "@/animation/motionPresets"
 import { FocusTrap } from "./FocusTrap";
 
 // Modal is a portal-mounted overlay with Esc-to-close + focus trap.
-// Modal
+//
 // 是带 Esc 关闭和焦点陷阱的 portal 弹窗.
 export function Modal({
   isOpen,
@@ -35,6 +37,10 @@ export function Modal({
   // does the resulting click count as an outside-click dismiss. Without this,
   // selecting text inside the modal and releasing outside fires a synthetic
   // click on the LCA (the backdrop) and incorrectly closes the modal.
+  //
+  // 记录指针按下时是否位于背景层, 只有从背景层开始的按压才算作外部点击.
+  // 否则用户在弹窗内选择文本后在外部松开时, 浏览器会在最近公共祖先节点 (背景层) 上合成 click,
+  // 导致弹窗被错误关闭.
   const downOnBackdropRef = useRef(false);
 
   useEffect(() => {

@@ -13,6 +13,7 @@ import (
 const opaqueTokenBytes = 32
 
 // GenerateOpaqueToken creates a random base58 token suitable for headers and URLs.
+//
 // GenerateOpaqueToken 生成适合 header 和 URL 使用的随机 base58 token.
 func GenerateOpaqueToken() (string, error) {
 	raw := make([]byte, opaqueTokenBytes)
@@ -23,6 +24,7 @@ func GenerateOpaqueToken() (string, error) {
 }
 
 // HashToken returns a stable SHA-256 hex hash for token storage.
+//
 // HashToken 返回用于持久化存储的稳定 SHA-256 hex hash.
 func HashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
@@ -30,6 +32,7 @@ func HashToken(token string) string {
 }
 
 // ValidateOpaqueToken checks basic base58 token shape before hashing or lookup.
+//
 // ValidateOpaqueToken 在 hash 或查询前检查 base58 token 基本格式.
 func ValidateOpaqueToken(token string) error {
 	decoded := base58.Decode(token)

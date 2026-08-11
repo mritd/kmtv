@@ -213,10 +213,13 @@ Durable architectural decisions for the KMTV Go backend, native Apple clients, a
 - Locale data maps (`src/i18n/locales/**`) are exempt — they are pure data, not code.
 - Vitest-excluded modules must explain the exclusion rationale in their module header.
 - `scripts/check-bilingual-comments.ts` recognises both line-comment and JSDoc-block bilingual styles.
+- Authored Go, TypeScript, JavaScript, Swift, and shell comments keep English and Chinese sections separated by exactly one comment-only blank line. Long comments may repeat paired EN/CN sections, with the same separator at every language boundary.
+- `task bilingual-check` enforces repository-wide separator formatting, then runs the existing Web and Android export-documentation checks. Generated, vendored, build, and runtime locale-map paths remain excluded.
 
 **Consequences:**
 - Contributors must preserve and extend, not strip, the documentation.
 - Code review must reject PRs that introduce new exports without bilingual JSDoc.
+- Code review must reject bilingual prose whose language sections touch without a comment-only separator.
 - The coverage thresholds in `web/vitest.config.ts` must not be lowered without an ADR amendment.
 
 ## ADR-015: User-Scoped Watch History With Ordered Events

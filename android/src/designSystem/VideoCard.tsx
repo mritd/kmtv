@@ -1,4 +1,5 @@
 // VideoCard mirrors apple/Shared/DesignSystem/Components/VideoCard.swift on iOS.
+//
 // VideoCard 与 apple/Shared/DesignSystem/Components/VideoCard.swift 保持一致.
 
 import React from "react";
@@ -19,6 +20,7 @@ interface Props {
 
 /**
  * Resolve the rating label, mirroring VideoCard.swift's fallback to "N/A".
+ *
  * 解析评分标签, 与 VideoCard.swift 中回退到 "N/A" 的逻辑一致.
  */
 function ratingLabel(rating: string | undefined): string {
@@ -28,6 +30,7 @@ function ratingLabel(rating: string | undefined): string {
 
 /**
  * VideoCard renders a 2:3 poster with a rating badge, title, and optional subtitle.
+ *
  * VideoCard 渲染 2:3 海报, 包含评分徽章、标题以及可选副标题.
  */
 export function VideoCard({ baseURL, title, cover, subtitle, rating, width = sizes.cardWidth }: Props) {

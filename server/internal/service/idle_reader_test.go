@@ -10,6 +10,8 @@ import (
 )
 
 // slowReader emits one chunk per interval — a slow but healthy link.
+//
+// slowReader 每个 interval 产出一个 chunk, 模拟速度慢但仍持续传输的健康链路.
 type slowReader struct {
 	chunks   []string
 	interval time.Duration
@@ -31,6 +33,9 @@ func (s *slowReader) Close() error { return nil }
 // blockingReader parks until Close, standing in for a peer that accepted the
 // connection and then went silent. Close is what the watchdog uses to break it,
 // so it must be safe to call from both the watchdog and the deferred cleanup.
+//
+// blockingReader 会阻塞到 Close, 模拟接受连接后停止传输的对端. watchdog 依靠 Close
+// 打断读取, deferred cleanup 也会调用 Close, 因此该操作必须允许两个路径重复调用.
 type blockingReader struct {
 	released chan struct{}
 	once     sync.Once
@@ -52,6 +57,9 @@ func (b *blockingReader) Close() error {
 
 // A body that keeps producing bytes must survive well past the idle window:
 // this is the slow-but-alive link the whole timeout change exists to support.
+//
+// 只要 body 持续产出字节, 即使总耗时明显超过 idle window 也必须成功读取.
+// 这正是 idle timeout 取代总时长限制后需要保留的慢速健康链路行为.
 func TestIdleTimeoutReaderAllowsSlowButContinuousBody(t *testing.T) {
 	src := &slowReader{
 		chunks:   []string{"aaa", "bbb", "ccc", "ddd", "eee", "fff", "ggg", "hhh", "iii", "jjj"},
@@ -59,6 +67,9 @@ func TestIdleTimeoutReaderAllowsSlowButContinuousBody(t *testing.T) {
 	}
 	// Total read time (~300ms) deliberately exceeds the idle window; progress
 	// keeps resetting the watchdog, which is the property under test.
+	//
+	// 总读取时间约 300ms, 有意超过 idle window. 每次读取进展都会重置 watchdog,
+	// 这就是本测试验证的关键性质.
 	r := newIdleTimeoutReader(src, 200*time.Millisecond)
 	defer func() { _ = r.Close() }()
 
@@ -106,6 +117,8 @@ func TestIdleTimeoutReaderPassesThroughNormalBody(t *testing.T) {
 }
 
 // A non-positive timeout disables the guard rather than failing every read.
+//
+// 非正数 timeout 应禁用 idle guard 并返回原 body, 而不是让所有读取立即失败.
 func TestIdleTimeoutReaderDisabledWhenNonPositive(t *testing.T) {
 	src := io.NopCloser(strings.NewReader("payload"))
 	r := newIdleTimeoutReader(src, 0)

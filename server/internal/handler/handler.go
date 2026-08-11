@@ -16,6 +16,7 @@ import (
 )
 
 // Handler holds dependencies for all HTTP handlers.
+//
 // Handler 保存所有 HTTP handler 的依赖.
 type Handler struct {
 	store        *store.Store
@@ -30,6 +31,7 @@ type Handler struct {
 }
 
 // New creates a new Handler with all service dependencies.
+//
 // New 使用所有服务依赖创建新的 Handler.
 func New(s *store.Store, authSvc *service.AuthService, mediaSvc *service.MediaTokenService, searchSvc *service.SearchService, proxySvc *service.ProxyService, sourceSvc *service.SourceService, doubanSvc *service.DoubanService) *Handler {
 	if authSvc == nil {
@@ -52,6 +54,7 @@ func New(s *store.Store, authSvc *service.AuthService, mediaSvc *service.MediaTo
 }
 
 // RegisterRoutes sets up all API routes on the given gin engine.
+//
 // RegisterRoutes 在给定 gin engine 上注册所有 API 路由.
 func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	r.Use(middleware.CORS())
@@ -60,6 +63,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	apiv1 := r.Group("/api/v1")
 
 	// Auth routes do not require authentication.
+	//
 	// Auth 路由不需要认证.
 	authv1 := apiv1.Group("/auth")
 	authv1.POST("/login", h.Login)
@@ -67,17 +71,20 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	authv1.GET("/me", h.Me)
 
 	// Public endpoints use optional auth for role-aware responses.
+	//
 	// 公开端点使用可选认证, 以便返回和角色相关的响应.
 	apiv1.GET("/settings", middleware.OptionalAuth(h.authSvc), h.GetSettings)
 	apiv1.GET("/proxy/image", h.ProxyImage)
 
 	// Media proxy endpoints stay public because AVPlayer/AppleCoreMedia accesses them directly.
+	//
 	// 媒体代理端点保持公开, 因为 AVPlayer/AppleCoreMedia 会直接访问它们.
 	apiv1.GET("/proxy/m3u8", h.ProxyM3U8)
 	apiv1.GET("/proxy/segment", h.ProxySegment)
 	apiv1.GET("/proxy/key", h.ProxyKey)
 
 	// Protected routes require authentication.
+	//
 	// 受保护路由需要认证.
 	protectedv1 := apiv1.Group("")
 	protectedv1.Use(middleware.Auth(h.store, h.authSvc))
@@ -103,6 +110,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	protectedv1.DELETE("/history", h.ClearWatchHistory)
 
 	// Admin routes require authentication and admin role.
+	//
 	// 管理端路由需要认证和 admin 角色.
 	adminv1 := apiv1.Group("/admin")
 	adminv1.Use(middleware.Auth(h.store, h.authSvc), middleware.AdminOnly())
@@ -127,6 +135,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 }
 
 // RegisterStaticRoutes serves the embedded frontend SPA with fallback to index.html.
+//
 // RegisterStaticRoutes 提供内嵌前端 SPA, 并回退到 index.html.
 func RegisterStaticRoutes(r *gin.Engine, frontendFS embed.FS) {
 	distFS, err := fs.Sub(frontendFS, "web/dist")
@@ -137,6 +146,7 @@ func RegisterStaticRoutes(r *gin.Engine, frontendFS embed.FS) {
 }
 
 // registerStaticRoutesFromFS serves a prepared static dist filesystem.
+//
 // registerStaticRoutesFromFS 提供已经定位到 dist 根目录的静态文件系统.
 func registerStaticRoutesFromFS(r *gin.Engine, distFS fs.FS) {
 	fileServer := http.FileServer(http.FS(distFS))
@@ -145,6 +155,7 @@ func registerStaticRoutesFromFS(r *gin.Engine, distFS fs.FS) {
 		path := c.Request.URL.Path
 
 		// API paths should never fall through to the SPA.
+		//
 		// API 路径不能回退到 SPA.
 		if strings.HasPrefix(path, "/api/") {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
@@ -157,6 +168,7 @@ func registerStaticRoutesFromFS(r *gin.Engine, distFS fs.FS) {
 			return
 		}
 		// SPA fallback: serve index.html.
+		//
 		// SPA 回退: 返回 index.html.
 		c.Request.URL.Path = "/"
 		fileServer.ServeHTTP(c.Writer, c.Request)

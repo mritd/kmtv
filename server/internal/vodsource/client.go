@@ -17,6 +17,7 @@ import (
 )
 
 // StatusError reports a non-200 upstream response status.
+//
 // StatusError 表示上游视频源返回了非 200 状态码.
 type StatusError struct {
 	StatusCode int
@@ -31,6 +32,7 @@ func (e StatusError) Unwrap() error {
 }
 
 // Client fetches and decodes video-source list responses.
+//
 // Client 用于拉取并解析视频源列表响应.
 type Client struct {
 	httpClient *http.Client
@@ -38,6 +40,7 @@ type Client struct {
 }
 
 // NewClient creates a video-source client using the provided HTTP client.
+//
 // NewClient 使用传入的 HTTP client 创建视频源客户端.
 func NewClient(httpClient *http.Client) *Client {
 	if httpClient == nil {
@@ -50,6 +53,7 @@ func NewClient(httpClient *http.Client) *Client {
 }
 
 // BuildSearchURL builds a compatible video-source search URL.
+//
 // BuildSearchURL 构造兼容视频源搜索 URL.
 func BuildSearchURL(apiURL, query string, page int) string {
 	sep := "?"
@@ -60,6 +64,7 @@ func BuildSearchURL(apiURL, query string, page int) string {
 }
 
 // BuildDetailURL builds a compatible video-source detail URL.
+//
 // BuildDetailURL 构造兼容视频源详情 URL.
 func BuildDetailURL(apiURL, videoID string) string {
 	sep := "?"
@@ -70,6 +75,7 @@ func BuildDetailURL(apiURL, videoID string) string {
 }
 
 // BestDescription picks the display description from video-source fields.
+//
 // BestDescription 从视频源字段中选择用于展示的简介.
 func BestDescription(blurb, content string) string {
 	if b := strings.TrimSpace(blurb); b != "" {
@@ -82,6 +88,7 @@ func BestDescription(blurb, content string) string {
 }
 
 // FullDescription combines blurb and cleaned content for detail responses.
+//
 // FullDescription 合并简介和清洗后的正文, 用于详情响应.
 func FullDescription(blurb, content string) string {
 	desc := strings.TrimSpace(blurb)
@@ -96,6 +103,7 @@ func FullDescription(blurb, content string) string {
 }
 
 // FetchList fetches a compatible video-source list response and returns both decoded data and raw body.
+//
 // FetchList 拉取兼容视频源列表响应, 同时返回解析后的数据和原始响应体.
 func (c *Client) FetchList(ctx context.Context, targetURL string) (*model.VideoSourceResponse, []byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)

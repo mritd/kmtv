@@ -1,15 +1,18 @@
 // Accessible custom select (listbox) built with ARIA roles and keyboard navigation.
+//
 // 无障碍自定义下拉框: 使用 ARIA 角色和键盘导航构建.
 //
 // Exports: SelectOption, Select.
 // Callers: theme settings, language switcher, admin forms, account settings.
 //
 // Pattern: uncontrolled open/active state, fully controlled value via onChange.
+//
 // 模式: 打开/活跃态为非受控, value 通过 onChange 完全受控.
 //
 // Keyboard contract (ARIA Listbox pattern):
 //   Trigger: ArrowDown / Enter / Space → open
 //   Panel:   ArrowDown/Up → move activeIndex, Home/End → jump, Enter/Space → select, Escape → close
+//
 // 键盘约定 (ARIA Listbox 模式):
 //   触发器: 方向下键 / Enter / Space → 打开
 //   面板: 方向键移动活跃索引, Home/End 跳转, Enter/Space 选中, Escape 关闭
@@ -17,6 +20,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 // SelectOption is a single item in the dropdown list.
+//
 // SelectOption 是下拉列表中的单个项.
 export interface SelectOption {
   value: string;
@@ -24,13 +28,16 @@ export interface SelectOption {
 }
 
 // SelectProps defines the controlled API of the Select component.
+//
 // SelectProps 定义 Select 组件的受控 API.
 interface SelectProps {
   // value is the currently selected option's value key.
+  //
   // value 是当前选中项的 value 键.
   value: string;
   options: SelectOption[];
   // onChange is called with the new value whenever the user picks an option.
+  //
   // 用户选中选项时以新 value 调用 onChange.
   onChange(value: string): void;
   ariaLabel?: string;
@@ -39,6 +46,7 @@ interface SelectProps {
 }
 
 // Select renders a custom accessible dropdown with keyboard navigation and ARIA listbox semantics.
+//
 // Select 渲染带键盘导航和 ARIA listbox 语义的自定义无障碍下拉框.
 export function Select({ value, options, onChange, ariaLabel, className, disabled }: SelectProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
@@ -46,6 +54,7 @@ export function Select({ value, options, onChange, ariaLabel, className, disable
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   // listboxID links the trigger's aria-controls to the panel element for AT readers.
+  //
   // listboxID 将触发器的 aria-controls 链接到面板元素供辅助技术读取.
   const listboxID = useId();
 
@@ -61,6 +70,7 @@ export function Select({ value, options, onChange, ariaLabel, className, disable
   // selectedIndexRef tracks the current selected index so the effect can read it without
   // adding it to the dependency array. This prevents mid-open parent re-renders (with a new
   // value prop) from re-running the effect and resetting the user's in-progress keyboard navigation.
+  //
   // selectedIndexRef 跟踪当前选中索引, 让 effect 读取而不将其加入依赖.
   // 这样父组件在面板开启时传入新 value 重渲染, 不会触发 effect 重跑并重置用户的键盘导航位置.
   const selectedIndexRef = useRef(selectedIndex);
@@ -72,6 +82,7 @@ export function Select({ value, options, onChange, ariaLabel, className, disable
     // keyboard cursor starts on the live selection, not wherever it was last time.
     // Capture the index at open time via ref — not from a dep — so subsequent parent
     // re-renders that change value do NOT re-trigger this effect mid-open.
+    //
     // 面板打开时将活跃索引重置为当前选中项; 通过 ref 读取索引而非声明为依赖,
     // 这样 value prop 在面板开启期间变化时不会触发 effect 重跑.
     setActiveIndex(selectedIndexRef.current);

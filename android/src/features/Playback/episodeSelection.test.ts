@@ -1,4 +1,5 @@
 // episodeSelection tests — port of iOS EpisodeSelection.swift behaviour, including [safe:] fallback.
+//
 // episodeSelection 测试 — 镜像 iOS EpisodeSelection.swift 行为, 含 [safe:] 回退.
 
 import type { SourceResult, VideoDetail } from "@/api/types";
@@ -32,6 +33,7 @@ test("episodes uses detail line when available, falls back to source episodes wh
   expect(episodes(sel3).map((e) => e.name)).toEqual(["L2E1"]);
 
   // Out-of-range line index returns the first line (iOS [safe:] fallback).
+  //
   // currentLineIndex 越界时退回第一条线路 (iOS [safe:] 行为).
   const sel4 = { ...sel2, currentLineIndex: 99 };
   expect(episodes(sel4).map((e) => e.name)).toEqual(["L1E1", "L1E2"]);
@@ -48,6 +50,7 @@ test("sourceVideoID / sourceDisplayName look up from sources by currentSourceKey
   expect(sourceVideoID({ detail: null, sources, currentSourceKey: "a", currentLineIndex: 0, currentEpisodeIndex: 0 })).toBe("v-a");
   expect(sourceDisplayName({ detail: null, sources, currentSourceKey: "b", currentLineIndex: 0, currentEpisodeIndex: 0 })).toBe("name-b");
   // Missing source falls back to the key itself.
+  //
   // 缺失源时退回 key 本身.
   expect(sourceDisplayName({ detail: null, sources, currentSourceKey: "missing", currentLineIndex: 0, currentEpisodeIndex: 0 })).toBe("missing");
 });

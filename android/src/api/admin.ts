@@ -1,13 +1,16 @@
 // AdminAPI factory — wraps APIClient to expose the /admin/* endpoints used by the M6 UI.
+//
 // AdminAPI 工厂, 包装 APIClient 暴露 M6 UI 使用的 /admin/* 接口.
 //
 // NOTE: APIClient auto-prepends "/api/v1" to all paths (see client.ts:6,143). Paths here are bare.
+//
 // 注意: APIClient 会自动为所有路径加上 "/api/v1" 前缀, 此处使用裸路径.
 //
 // Deferred (server endpoints intentionally NOT exposed in M6 — iOS does not surface them either):
 //   POST /admin/sources       (create source) — admin UI relies on bulk import + subscription sync
 //   PUT  /admin/subscriptions/:id (update subscription) — recreate-then-delete is the usable flow
 //   PUT  /admin/users/:id     (update user) — re-create or password reset is the usable flow
+//
 // 故意未在 M6 暴露的服务端接口 (iOS 也未提供 UI): 创建源、更新订阅、更新用户.
 
 import type { APIClient } from "./client";
@@ -29,6 +32,7 @@ import type {
 
 /**
  * AdminAPI — typed admin endpoint surface.
+ *
  * AdminAPI — 类型化的管理端接口集合.
  */
 export interface AdminAPI {
@@ -55,6 +59,7 @@ export interface AdminAPI {
 
 /**
  * createAdminAPI binds an AdminAPI to a concrete APIClient.
+ *
  * createAdminAPI 将 AdminAPI 绑定到具体的 APIClient.
  */
 export function createAdminAPI(client: APIClient): AdminAPI {

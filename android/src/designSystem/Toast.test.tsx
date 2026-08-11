@@ -1,4 +1,5 @@
 // Toast tests confirm show -> visible -> auto-dismiss; consecutive show cancels prior timer.
+//
 // Toast 测试确认 show -> 可见 -> 自动消失; 连续 show 会取消之前的计时器.
 
 import { act, fireEvent, render } from "@testing-library/react-native";

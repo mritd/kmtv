@@ -1,5 +1,6 @@
 /**
  * UserForm tests — verifies the adult-content toggle and the create-mode password confirmation.
+ *
  * UserForm 测试 — 验证成人内容开关与新建模式下的二次确认密码.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -60,6 +61,7 @@ describe("UserForm adult-content toggle", () => {
     renderForm({ updateUser }, { user: existing });
 
     // Edit mode starts with the toggle on (mirrors existing.allow_adult_content); turn it off.
+    //
     // 编辑模式开关初始为开 (跟随 existing.allow_adult_content); 关掉它.
     const toggle = screen.getByLabelText<HTMLInputElement>("允许访问 NSFW 内容");
     expect(toggle.checked).toBe(true);
@@ -85,6 +87,7 @@ describe("UserForm password confirmation (create mode)", () => {
     await user.type(screen.getByLabelText("确认密码"), "sec");
 
     // Live feedback: the mismatch error surfaces before submit.
+    //
     // 实时反馈: 提交前即显示不一致错误.
     expect(await screen.findByText("两次密码不一致.")).toBeInTheDocument();
 
@@ -92,6 +95,7 @@ describe("UserForm password confirmation (create mode)", () => {
     expect(createUser).not.toHaveBeenCalled();
 
     // Correcting the confirmation clears the error and allows submit.
+    //
     // 修正确认密码后错误清除, 可以提交.
     await user.type(screen.getByLabelText("确认密码"), "ret");
     await waitFor(() => expect(screen.queryByText("两次密码不一致.")).toBeNull());

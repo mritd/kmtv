@@ -56,6 +56,7 @@ describe("AdminModal", () => {
     renderModal(createTestAPI(), { kind: "source.edit", source: sampleSource });
     expect(screen.getByRole("heading", { name: "编辑视频源" })).toBeInTheDocument();
     // Labels now come from i18n (admin.source.form.*).
+    //
     // 标签来自 i18n.
     expect(screen.getByLabelText("名称")).toHaveValue("Source A");
     expect(screen.getByLabelText("Key")).toBeDisabled();
@@ -68,9 +69,9 @@ describe("AdminModal", () => {
     renderModal(api, { kind: "source.delete", source: sampleSource });
 
     const dialogs = screen.getAllByRole("dialog");
-    // ConfirmDialog renders its own role=dialog; no nested Modal wrapper.
-    // ConfirmDialog
-    // 自带 dialog, 未嵌套 Modal.
+    // ConfirmDialog renders its own role=dialog, so AdminModal must not add a nested Modal wrapper.
+    //
+    // ConfirmDialog 自身渲染 role=dialog, 因此 AdminModal 不应再嵌套 Modal.
     expect(dialogs).toHaveLength(1);
 
     await user.click(screen.getByRole("button", { name: "删除" }));
@@ -111,8 +112,8 @@ describe("AdminModal", () => {
     renderModal(api, { kind: "source.import" });
 
     // user-event treats `{` as a special key, so use clipboard paste to insert raw JSON.
-    // user-event
-    // 把 `{` 视为特殊键, 改用 clipboard paste 输入原始 JSON.
+    //
+    // user-event 把 `{` 视为特殊键, 因此改用 clipboard paste 输入原始 JSON.
     const textarea = screen.getByLabelText("Import JSON payload");
     textarea.focus();
     await user.paste('{"sources":[]}');

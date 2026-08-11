@@ -1,4 +1,5 @@
 // ConfirmDialog tests — cover action dispatch and optional pending-state disabling.
+//
 // ConfirmDialog 测试 — 覆盖动作触发和可选 pending 状态禁用.
 
 import { render, screen } from "@testing-library/react";

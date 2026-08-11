@@ -1,3 +1,10 @@
+/**
+ * PlaybackPanel tests cover ArtPlayer lifecycle, checkpoint timing, resume-seek suppression,
+ * and teardown races in deferred HLS setup.
+ *
+ * PlaybackPanel 测试覆盖 ArtPlayer 生命周期, 进度检查点时机, 恢复 seek 抑制和延迟 HLS 初始化的拆卸竞争.
+ */
+
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -108,11 +115,87 @@ describe("PlaybackPanel", () => {
     expect(onPositionChange).toHaveBeenLastCalledWith(20, 120);
   });
 
+  it("persists playback position immediately after a manual seek completes", async () => {
+    const onPositionChange = vi.fn();
+    const instanceIndex = artplayerMock.instances.length;
+    render(
+      <PlaybackPanel
+        state={readyState}
+        onPlaying={vi.fn()}
+        onRetry={vi.fn()}
+        onPositionChange={onPositionChange}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const instance = artplayerMock.instances[instanceIndex];
+    expect(instance).toBeDefined();
+    instance.currentTime = 75;
+    instance.duration = 120;
+    const onSeeked = instance.on.mock.calls.find(([event]) => event === "video:seeked")?.[1] as
+      | (() => void)
+      | undefined;
+
+    expect(onSeeked).toBeDefined();
+    await act(async () => {
+      onSeeked?.();
+      await Promise.resolve();
+    });
+
+    expect(onPositionChange).toHaveBeenCalledTimes(1);
+    expect(onPositionChange).toHaveBeenCalledWith(75, 120);
+  });
+
+  it("does not persist the programmatic resume seek as a new user checkpoint", async () => {
+    const onPositionChange = vi.fn();
+    const instanceIndex = artplayerMock.instances.length;
+    render(
+      <PlaybackPanel
+        state={readyState}
+        onPlaying={vi.fn()}
+        onRetry={vi.fn()}
+        initialPositionSec={30}
+        onPositionChange={onPositionChange}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const instance = artplayerMock.instances[instanceIndex];
+    expect(instance).toBeDefined();
+    instance.duration = 120;
+    const onLoadedMetadata = instance.on.mock.calls.find(([event]) => event === "video:loadedmetadata")?.[1] as
+      | (() => void)
+      | undefined;
+    const onSeeked = instance.on.mock.calls.find(([event]) => event === "video:seeked")?.[1] as
+      | (() => void)
+      | undefined;
+
+    act(() => onLoadedMetadata?.());
+    expect(instance.currentTime).toBe(30);
+    await act(async () => {
+      onSeeked?.();
+      await Promise.resolve();
+    });
+    expect(onPositionChange).not.toHaveBeenCalled();
+
+    instance.currentTime = 75;
+    await act(async () => {
+      onSeeked?.();
+      await Promise.resolve();
+    });
+    expect(onPositionChange).toHaveBeenCalledWith(75, 120);
+  });
+
   // ArtPlayer defers customType by a macrotask — its url setter awaits sleep() before
   // calling the callback (artplayer.mjs urlMix) — so teardown can win the race and the
   // callback still runs against a destroyed player. The hls.js branch already exits on
   // the disposed flag after its dynamic import; the native branch reaches video.src
   // synchronously, and it is the branch iPhone WebKit takes.
+  //
   // ArtPlayer 会把 customType 推迟一个宏任务 — 其 url setter 在调用回调前
   // await sleep() (artplayer.mjs 的 urlMix) — 因此拆卸可能先完成,
   // 而回调仍会对已销毁的播放器执行. hls.js 分支在动态 import 之后已有 disposed 检查;
@@ -122,6 +205,7 @@ describe("PlaybackPanel", () => {
     const originalMediaSource = Object.getOwnPropertyDescriptor(window, "MediaSource");
     const originalManaged = Object.getOwnPropertyDescriptor(window, "ManagedMediaSource");
     // The iPhone WebKit capability signature, which routes the callback to native playback.
+    //
     // iPhone WebKit 的能力特征, 会把回调导向原生播放.
     delete w.MediaSource;
     Object.defineProperty(window, "ManagedMediaSource", { value: function ManagedMediaSourceStub() {}, configurable: true, writable: true });

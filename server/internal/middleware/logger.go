@@ -11,6 +11,7 @@ import (
 
 // GinLogger returns a gin.HandlerFunc that logs requests using logrus.
 // Paths in notLogged are skipped.
+//
 // GinLogger 返回使用 logrus 记录请求日志的 gin.HandlerFunc.
 // notLogged 中的路径会被跳过.
 func GinLogger(notLogged ...string) gin.HandlerFunc {

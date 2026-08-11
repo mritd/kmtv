@@ -1,6 +1,8 @@
 import XCTest
 
 /// Verify SSE search progress text is displayed during search.
+///
+/// 验证搜索期间会展示 SSE 搜索进度文本.
 @MainActor
 final class SSEProgressUITests: XCTestCase {
     private let app = XCUIApplication()
@@ -75,6 +77,7 @@ final class SSEProgressUITests: XCTestCase {
     /// Creates a test source via the admin API so there's something to search.
     private func createTestSource() {
         // Login as admin to get a bearer token for protected admin APIs.
+        //
         // 以 admin 登录并获取 bearer token, 用于访问受保护的管理 API.
         guard let loginURL = URL(string: "\(serverURL)/api/v1/auth/login") else { return }
         var loginReq = URLRequest(url: loginURL)

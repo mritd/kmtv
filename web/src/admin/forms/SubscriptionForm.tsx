@@ -1,11 +1,16 @@
 /**
  * SubscriptionForm — create / edit form for a single subscription record.
+ *
  * SubscriptionForm — 单条订阅记录的新建 / 编辑表单.
  *
  * Responsibilities / 职责:
- *   - Validate url as required and interval as positive — 校验 url 必填、interval 为正数
- *   - Dispatch create or update mutation based on whether a subscription is provided — 根据是否传入 subscription 分发 mutation
- *   - Show toast on mutation error — mutation 错误时显示 toast
+ *   - Validate url as required and interval as positive.
+ *   - Dispatch create or update based on whether a subscription is provided.
+ *   - Show a toast when the mutation fails.
+ *
+ *   - 校验 url 必填且 interval 为正数.
+ *   - 根据是否传入 subscription 分发 create 或 update mutation.
+ *   - mutation 失败时显示 toast.
  *
  * Key exports / 主要导出:
  *   SubscriptionForm
@@ -24,6 +29,7 @@ import { useSubscriptionsMutations } from "../hooks/useSubscriptionsMutations";
 import { useForm } from "./useForm";
 
 // SubscriptionFormValues mirrors the editable fields of SubscriptionPayload.
+//
 // SubscriptionFormValues 镜像 SubscriptionPayload 的可编辑字段.
 type SubscriptionFormValues = {
   url: string;
@@ -32,6 +38,7 @@ type SubscriptionFormValues = {
 };
 
 // valuesFromSubscription converts an optional existing Subscription into the form's initial values.
+//
 // valuesFromSubscription 将可选的已有 Subscription 转换为表单初始值.
 function valuesFromSubscription(subscription: Subscription | undefined): SubscriptionFormValues {
   return {
@@ -42,6 +49,7 @@ function valuesFromSubscription(subscription: Subscription | undefined): Subscri
 }
 
 // payloadFromValues converts form values into the API payload shape.
+//
 // payloadFromValues 将表单值转换为 API 提交形态.
 function payloadFromValues(values: SubscriptionFormValues): SubscriptionPayload {
   return { ...values };
@@ -49,9 +57,11 @@ function payloadFromValues(values: SubscriptionFormValues): SubscriptionPayload 
 
 /**
  * SubscriptionForm renders the subscription create/edit modal form.
+ *
  * SubscriptionForm 渲染订阅新建/编辑弹窗表单.
  *
  * When `subscription` is undefined the form is in "new" mode; otherwise "edit" mode.
+ *
  * subscription 为 undefined 时为新建模式, 否则为编辑模式.
  */
 export function SubscriptionForm({

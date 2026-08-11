@@ -5,7 +5,9 @@ import { DATE_PLACEHOLDER, formatDateTime, formatDuration, formatOptionalDate, h
 describe("shared format helpers", () => {
   it("formats source durations", () => {
     // A dash, not a word: these helpers are pure and cannot reach useTranslation, so any
+    //
     // wording they returned would be a hardcoded translation. This used to return "未知".
+    //
     // 用破折号而非文字: 这些纯函数无法访问 useTranslation, 因此它们返回的任何措辞
     // 都会是硬编码译文. 此处此前返回 "未知".
     expect(formatDuration(undefined)).toBe(DATE_PLACEHOLDER);
@@ -17,6 +19,7 @@ describe("shared format helpers", () => {
   it("maps source health to a tone and leaves the wording to the caller", () => {
     // Tone only. The previous shape bundled a Chinese label that every caller threw away —
     // SourcesPanel takes the tone and words it with t("status.*").
+    //
     // 只返回色调. 此前的形态还捆绑了一个中文 label, 而所有调用方都会丢弃它 —
     // SourcesPanel 取用色调, 措辞交由 t("status.*").
     expect(sourceHealthTone("healthy")).toBe("success");

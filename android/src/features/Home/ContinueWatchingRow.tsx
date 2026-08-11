@@ -1,4 +1,5 @@
 // ContinueWatchingRow renders a horizontal row of WatchHistoryItem cards with a progress bar overlay.
+//
 // ContinueWatchingRow 渲染观看历史的水平行, 每张卡片带进度条遮罩.
 
 import React from "react";
@@ -39,6 +40,7 @@ function progressFill(color: string) {
 
 /**
  * Continue Watching row — horizontal scroller of recent WatchHistoryItems with a progress overlay.
+ *
  * 继续观看行 — 最近观看历史的水平滚动条, 带进度遮罩.
  */
 export function ContinueWatchingRow({ baseURL, watchHistory, onClear, onSelect }: Props) {
@@ -64,6 +66,7 @@ export function ContinueWatchingRow({ baseURL, watchHistory, onClear, onSelect }
 
       {/* ScrollView + map renders every card up-front to match SectionRow's eager layout.
           watchHistory is capped at 10 by loadWatchHistory, well under any virtualisation threshold.
+
           ScrollView + map 与 SectionRow 一致, 一次性渲染全部卡片.
           loadWatchHistory 已将 watchHistory 限制为 10 条, 远低于需要虚拟化的规模. */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={baseStyles.scrollerContent}>

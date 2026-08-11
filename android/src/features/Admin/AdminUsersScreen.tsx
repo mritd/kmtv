@@ -1,4 +1,5 @@
 // AdminUsersScreen — list, add user with role/allow_adult, delete with self-guard + confirm.
+//
 // AdminUsersScreen — 列表、含角色与 NSFW 的新增、自身保护 + 二次确认删除.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
@@ -16,6 +17,7 @@ import { useServerStore } from "@/store/serverStore";
 
 /**
  * AdminUsersScreenContextValue — admin binding for tests.
+ *
  * AdminUsersScreenContextValue — 为测试提供 admin 绑定.
  */
 export interface AdminUsersScreenContextValue {
@@ -24,6 +26,7 @@ export interface AdminUsersScreenContextValue {
 
 /**
  * AdminUsersScreenContext — null-by-default; tests inject via Provider.
+ *
  * AdminUsersScreenContext — 默认 null, 测试通过 Provider 注入.
  */
 export const AdminUsersScreenContext = createContext<AdminUsersScreenContextValue | null>(null);
@@ -43,6 +46,7 @@ function useDefaultCtx(): AdminUsersScreenContextValue | null {
 
 /**
  * AdminUsersScreen — user management view (admin only).
+ *
  * AdminUsersScreen — 用户管理视图 (仅管理员).
  */
 export function AdminUsersScreen(){

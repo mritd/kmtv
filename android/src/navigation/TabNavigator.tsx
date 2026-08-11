@@ -1,4 +1,5 @@
 // Bottom tabs: Home, Categories, Favorites, Me. Tabs host their own stacks from M2+.
+//
 // 底部 Tab: Home, Categories, Favorites, Me. 从 M2 起每个 Tab 拥有独立 stack.
 
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +18,7 @@ const Tab = createBottomTabNavigator<TabParamList>();
 
 /**
  * Bottom-tab navigator for the authenticated MainTabs scope.
+ *
  * 已认证后 MainTabs 范围使用的底部 Tab 导航器.
  */
 export function TabNavigator() {

@@ -1,4 +1,5 @@
 // Bounded ring buffer of recent JS errors persisted in MMKV.
+//
 // 持久化在 MMKV 中的近期 JS 错误环形缓冲.
 
 import { getNamespacedStorage, readJSON, writeJSON } from "../storage/mmkv";
@@ -14,6 +15,7 @@ export type ErrorSource = "global" | "console";
 
 /**
  * One captured error entry. `ts` is `Date.now()` at write time; message and stack are truncated.
+ *
  * 单条错误记录. ts 为写入时的 Date.now(); message / stack 已截断.
  */
 export interface ErrorEntry {
@@ -25,6 +27,7 @@ export interface ErrorEntry {
 
 function truncate(s: string, max: number): string {
   // Slice to max - 1 then append `…` so the total length is at most `max`.
+  //
   // 切到 max - 1 再追加 `…`, 总长度严格 ≤ max.
   return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }
@@ -32,6 +35,7 @@ function truncate(s: string, max: number): string {
 /**
  * Append an entry. Oldest is evicted once buffer exceeds MAX_ERROR_ENTRIES.
  * Message + stack are truncated so a burst of errors cannot blow the per-key size budget.
+ *
  * 追加一条; 超出 MAX_ERROR_ENTRIES 时淘汰最旧条目.
  * message / stack 截断, 突发写入下缓冲整体大小可控.
  */
@@ -50,6 +54,7 @@ export function appendErrorEntry(entry: ErrorEntry): void {
 
 /**
  * Read entries newest-first.
+ *
  * 读取条目, 最新在前.
  */
 export function loadErrorEntries(): ErrorEntry[] {
@@ -60,6 +65,7 @@ export function loadErrorEntries(): ErrorEntry[] {
 
 /**
  * Wipe the buffer.
+ *
  * 清空缓冲.
  */
 export function clearErrorLog(): void {

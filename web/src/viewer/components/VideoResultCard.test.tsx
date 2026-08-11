@@ -1,3 +1,10 @@
+/**
+ * VideoResultCard tests cover source availability, default playback selection, favorite actions,
+ * and malformed source-list tolerance.
+ *
+ * VideoResultCard 测试覆盖来源可用性, 默认播放来源选择, 收藏操作和异常来源列表容错.
+ */
+
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -46,6 +53,7 @@ describe("VideoResultCard", () => {
 
   it("treats null source lists as empty instead of crashing", () => {
     // Source APIs are untrusted at runtime, even when TypeScript models require arrays.
+    //
     // 来源 API 在运行时不可信, 即使 TypeScript 模型要求数组.
     const unsafeItem = { ...item, cover: "", sources: null } as unknown as SearchResult;
 

@@ -1,4 +1,5 @@
 // DiagnosticsScreen tests: empty state, newest-first render, clear button.
+//
 // DiagnosticsScreen 测试: 空态、最新在前的渲染、清空按钮.
 
 import { fireEvent, render } from "@testing-library/react-native";

@@ -37,6 +37,7 @@ type homeHeroDescriptionResult struct {
 }
 
 // GetHomeSections fetches all home page sections in parallel.
+//
 // GetHomeSections 并行获取所有首页内容分区.
 func (ds *DoubanService) GetHomeSections(ctx context.Context) []HomeSection {
 	defs := []homeSectionDef{
@@ -52,6 +53,7 @@ func (ds *DoubanService) GetHomeSections(ctx context.Context) []HomeSection {
 	}
 
 	// animeIndex is where the anime section is inserted in the results slice.
+	//
 	// animeIndex 表示动漫分区插入 results 切片的位置.
 	animeIndex := 2
 	results := make([]homeSectionResult, len(defs)+1)
@@ -66,6 +68,7 @@ func (ds *DoubanService) GetHomeSections(ctx context.Context) []HomeSection {
 	sectionJobs = append(sectionJobs, sectionJob{index: animeIndex, anime: true})
 
 	// Fetch all home sections through the shared helper to keep top-level parallelism.
+	//
 	// 通过共享 helper 拉取所有首页分区, 保持顶层并发语义.
 	sectionResults, _ := utils.GoProcess(ctx, sectionJobs, len(sectionJobs), false, func(ctx context.Context, job sectionJob) (homeSectionResult, error) {
 		if job.anime {
@@ -88,6 +91,7 @@ func (ds *DoubanService) GetHomeSections(ctx context.Context) []HomeSection {
 }
 
 // fetchStandardHomeSection fetches one non-anime home section.
+//
 // fetchStandardHomeSection 拉取一个非动漫首页分区.
 func (ds *DoubanService) fetchStandardHomeSection(ctx context.Context, index int, def homeSectionDef) homeSectionResult {
 	items, err := ds.GetRecentHot(ctx, def.Kind, def.Category, def.MediaType, 0, homeSectionItemLimit)
@@ -109,6 +113,7 @@ func (ds *DoubanService) fetchStandardHomeSection(ctx context.Context, index int
 }
 
 // fetchAnimeHomeSection fetches the anime section from TV and movie sources in parallel.
+//
 // fetchAnimeHomeSection 从剧集和电影来源并发拉取动漫分区.
 func (ds *DoubanService) fetchAnimeHomeSection(ctx context.Context, index int) homeSectionResult {
 	type animeDef struct {
@@ -124,6 +129,7 @@ func (ds *DoubanService) fetchAnimeHomeSection(ctx context.Context, index int) h
 	}
 
 	// Fetch anime sources through the shared helper and keep partial success.
+	//
 	// 通过共享 helper 拉取动漫来源, 并保留部分成功结果.
 	animeItems, _ := utils.GoProcess(ctx, animeDefs, len(animeDefs), false, func(ctx context.Context, def animeDef) ([]DoubanItem, error) {
 		items, err := ds.GetRecommendByFilters(ctx, def.kind, def.category, def.mediaType, "", 0, homeSectionItemLimit)
@@ -135,6 +141,7 @@ func (ds *DoubanService) fetchAnimeHomeSection(ctx context.Context, index int) h
 	})
 
 	// Merge results from both sources.
+	//
 	// 合并两个来源的结果.
 	var merged []DoubanItem
 	for _, items := range animeItems {
@@ -142,6 +149,7 @@ func (ds *DoubanService) fetchAnimeHomeSection(ctx context.Context, index int) h
 	}
 	if len(merged) > 0 {
 		// Sort by rating descending, empty rates last.
+		//
 		// 按评分降序排序, 空评分放在最后.
 		slices.SortStableFunc(merged, func(a, b DoubanItem) int {
 			ra, rb := a.Rate, b.Rate
@@ -164,7 +172,12 @@ func (ds *DoubanService) fetchAnimeHomeSection(ctx context.Context, index int) h
 			return 0
 		})
 
-		// Keep the home rails broad enough to avoid repeating the same short shelf.
+		// Both anime queries can each return homeSectionItemLimit entries. Cap the
+		// merged, rating-sorted result to the same limit as every other home rail so
+		// this section cannot make the home response disproportionately large.
+		//
+		// 两个动漫查询都可能各自返回 homeSectionItemLimit 条结果. 合并并按评分排序后,
+		// 仍按其他首页分区的相同上限截断, 避免该分区让首页响应体积不成比例地增长.
 		if len(merged) > homeSectionItemLimit {
 			merged = merged[:homeSectionItemLimit]
 		}

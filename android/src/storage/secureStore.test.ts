@@ -1,4 +1,5 @@
 // Tests for the SecureStore wrapper used by the auth store.
+//
 // authStore 使用的 SecureStore 封装的测试.
 
 import { Platform } from "react-native";
@@ -71,6 +72,7 @@ describe("secureStore token helpers (non-native fallback)", () => {
     Object.defineProperty(Platform, "OS", { configurable: true, value: "web" });
     // Force localStorage absent — same shape as SSR / a node testbed where the host
     // never injected a DOM. The implementation must not fall through to expo-secure-store.
+    //
     // 强制 localStorage 不存在, 对应 SSR / 未注入 DOM 的 Node 测试环境.
     // 实现不得回落到 expo-secure-store, 否则 native module 缺失会再次崩溃.
     delete (globalThis as { localStorage?: Storage }).localStorage;

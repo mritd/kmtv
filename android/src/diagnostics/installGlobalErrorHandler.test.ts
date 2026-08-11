@@ -1,4 +1,5 @@
 // installGlobalErrorHandler tests: capture + idempotence + global fatal forwarding.
+//
 // installGlobalErrorHandler 测试: 捕获 + 幂等 + 全局致命转发.
 
 import { clearErrorLog, loadErrorEntries } from "./errorLog";
@@ -38,6 +39,7 @@ describe("installGlobalErrorHandler", () => {
   it("captures ErrorUtils.setGlobalHandler fatal errors", () => {
     // RN's jest preset wires a default global handler that rethrows. Replace it with a
     // silent handler BEFORE installing so our wrapper forwards into a no-op chain.
+    //
     // RN jest 默认 handler 会重抛; 先换成静默 handler 让转发链终结于 no-op.
     ErrorUtils.setGlobalHandler(() => undefined);
     installGlobalErrorHandler();

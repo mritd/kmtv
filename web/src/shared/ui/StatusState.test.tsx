@@ -1,4 +1,5 @@
 // Tests for the StatusState status indicator component.
+//
 // StatusState 状态指示组件测试.
 //
 // Coverage targets: default tone, error tone, loading tone, description/action slots, CSS class composition.
@@ -61,9 +62,11 @@ describe("StatusState", () => {
 
     it("does not render the action wrapper when action is omitted", () => {
       // The action div is only rendered when action is truthy; omitting it keeps the DOM clean.
+      //
       // 仅当 action 为真值时才渲染 action div, 省略时保持 DOM 简洁.
       const { container } = render(<StatusState title="Error" />);
       // There should be no div descendants (only the section and h2 exist).
+      //
       // 应无 div 子节点 (只有 section 和 h2).
       expect(container.querySelectorAll("div")).toHaveLength(0);
     });

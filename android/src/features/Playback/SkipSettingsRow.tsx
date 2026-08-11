@@ -1,4 +1,5 @@
 // SkipSettingsRow — two pill chips that adjust skip intro / skip outro seconds in 5-second steps.
+//
 // SkipSettingsRow — 两个胶囊, 每点一次以 5 秒为步长调整跳过片头/片尾.
 
 import React from "react";
@@ -12,6 +13,7 @@ const STEP_SECONDS = 5;
 
 /**
  * Props for the skip-settings row.
+ *
  * 跳过片头/片尾设置行的 props.
  */
 export interface SkipSettingsRowProps {
@@ -23,6 +25,7 @@ export interface SkipSettingsRowProps {
 
 /**
  * SkipSettingsRow — pills for skip-intro / skip-outro with ± step controls.
+ *
  * SkipSettingsRow — 跳过片头 / 跳过片尾的两个胶囊, 配带 ± 步进按钮.
  */
 export function SkipSettingsRow({ skipIntroSeconds, skipOutroSeconds, onChangeIntro, onChangeOutro }: SkipSettingsRowProps) {

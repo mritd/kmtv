@@ -1,4 +1,5 @@
 // ServerSetupScreen test exercises URL validation and connect callback wiring.
+//
 // ServerSetupScreen 测试覆盖 URL 校验与 connect 回调装配.
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";

@@ -1,4 +1,5 @@
 // PlayerScreen — <Video /> + custom overlay + bottom bar + Modal full-screen + BackHandler.
+//
 // PlayerScreen — <Video /> + 自定义遮罩 + 底栏 + Modal 全屏 + BackHandler.
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -43,6 +44,7 @@ function clampSeekSeconds(seconds: number, duration: number): number {
 /**
  * Build a react-native-video source. Android ExoPlayer cannot infer HLS from the proxied
  * `/proxy/m3u8?...` path, so force the `m3u8` extension only for HLS URLs.
+ *
  * 构建 react-native-video source. Android ExoPlayer 无法从代理 `/proxy/m3u8?...` 路径推断 HLS,
  * 因此仅对 HLS URL 显式指定 `m3u8` extension.
  */
@@ -52,6 +54,16 @@ export function videoSourceForURL(uri: string): { uri: string; type?: string } {
   return isHLS ? { uri, type: "m3u8" } : { uri };
 }
 
+/**
+ * Selects the total duration shown by playback controls. A positive finite duration already
+ * known by the reducer takes precedence; otherwise the function falls back to the native
+ * seekable duration. It intentionally ignores playableDuration because that value describes
+ * buffered media, not the video's total length.
+ *
+ * 选择播放控件显示的总时长. reducer 已知的正有限时长优先, 否则回退到 native
+ * seekable duration. 此函数刻意忽略 playableDuration, 因为它表示已缓冲媒体,
+ * 而不是视频总长度.
+ */
 export function progressDurationFor(
   knownDuration: number,
   progress: { seekableDuration?: number },
@@ -63,6 +75,7 @@ export function progressDurationFor(
 
 /**
  * Context value lets tests inject fake APIs + onClose without booting the store/navigation stack.
+ *
  * 通过 context 测试可注入 fake API 与 onClose, 无需启动 store/navigation.
  */
 export interface PlayerScreenContextValue {
@@ -75,6 +88,7 @@ export interface PlayerScreenContextValue {
 
 /**
  * Optional context — wired by tests; production reads serverStore + navigation directly.
+ *
  * 可选 context — 测试注入; 生产路径直接读 serverStore + navigation.
  */
 export const PlayerScreenContext = createContext<PlayerScreenContextValue | null>(null);
@@ -95,6 +109,7 @@ function useDefaultContext(onClose: () => void): PlayerScreenContextValue | null
 
 /**
  * Props — wired from the Player route's params.
+ *
  * Props — 由 Player 路由参数传入.
  */
 export interface PlayerScreenProps {
@@ -104,6 +119,7 @@ export interface PlayerScreenProps {
 
 /**
  * PlayerScreen — composes <Video /> + overlay + bottom bar + Modal full-screen.
+ *
  * PlayerScreen — 组合 <Video /> + 遮罩 + 底栏 + Modal 全屏.
  */
 export function PlayerScreen({ route, navigation }: PlayerScreenProps) {
@@ -137,6 +153,7 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
   const videoRef = useRef<{ seek: (s: number) => void } | null>(null);
   const remountSeekSecondsRef = useRef<number | null>(null);
   // Track URL transitions so onLoad only consumes the resume target on the first new URL.
+  //
   // 跟踪 URL 变化, 让 onLoad 仅在新 URL 首次到达时消费续播位置.
   const lastUrlGenRef = useRef(0);
 
@@ -155,6 +172,7 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
   }, [overlayVisible]);
 
   // Auto-start once detail is loaded and URL has not been resolved yet.
+  //
   // 详情加载完毕且未解析 URL 时自动起播.
   useEffect(() => {
 		if (state.detail && historyReady && !playbackURL) void actions.startPlayback();
@@ -162,6 +180,7 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
 	}, [historyReady, state.detail]);
 
   // BackHandler — exit full-screen first, then close.
+  //
   // BackHandler — 优先退出全屏, 否则关闭.
   const setFullScreenPreservingPosition = useCallback((value: boolean) => {
     remountSeekSecondsRef.current = stateRef.current.currentTime;
@@ -192,6 +211,7 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
   }, [ctx, isFullScreen, setFullScreenPreservingPosition]);
 
   // Persist progress on unmount.
+  //
   // 卸载时持久化进度.
   useEffect(() => () => { actions.persistProgressNow(); }, [actions]);
 
@@ -215,6 +235,7 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
       // Mock surfaces testID="video" and an imperative ref; production uses native ExoPlayer.
       // `key={urlGeneration}` forces a remount on every successful URL resolve so a transient
       // error followed by a same-URL retry actually re-initialises the player.
+      //
       // mock 暴露 testID="video" 与 imperative ref, 生产走原生 ExoPlayer.
       // `key={urlGeneration}` 每次成功解析都强制重挂, 瞬时错误后重试同一 URL 也能真正重启.
       key={state.urlGeneration}
@@ -239,6 +260,7 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
         // skipIntro), mark the resume consumed, and seed currentTime/duration. Subsequent onLoad
         // events (Android's onLoad can fire after a rate / track change with the same URL) only
         // refresh duration so they don't yank the player back to the resume point.
+        //
         // 新 URL 的首个 onLoad: seek 到 resumeStartSeconds (watchHistory + skipIntro), 标记消费, 写入
         // currentTime / duration. 同 URL 的后续 onLoad (Android 上 rate / track 改变时可触发) 只更新
         // duration, 避免把进度拉回起点.
@@ -449,6 +471,7 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
             <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
               {(state.detail?.episodes ?? []).map((line, idx) => {
                 // Dead line (empty inner array) — show strike-through and disable per spec §7.
+                //
                 // 死线路 (内层数组为空) — 按 spec §7 加划线并禁用.
                 const dead = line.length === 0;
                 const isCurrent = idx === state.currentLineIndex;
@@ -518,6 +541,7 @@ interface PlayerTitleRowProps {
 
 /**
  * PlayerTitleRow — title + subtitle below the video surface plus a favorite star.
+ *
  * PlayerTitleRow — 视频面板下方的标题、副标题与收藏星.
  */
 function PlayerTitleRow({ title, subtitle, serverURL, currentSourceKey, currentVideoID, cover, type, year }: PlayerTitleRowProps) {

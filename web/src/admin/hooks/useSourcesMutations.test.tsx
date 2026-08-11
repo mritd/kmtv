@@ -1,5 +1,6 @@
 /**
  * useSourcesMutations tests — happy path and cache invalidation.
+ *
  * useSourcesMutations 测试 — 正常路径和缓存失效.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -14,6 +15,7 @@ import { createTestAPI } from "@/test/testAPI";
 import { useSourcesMutations } from "./useSourcesMutations";
 
 // makeWrapper creates a QueryClient + APIProvider wrapper for hook tests.
+//
 // makeWrapper 为 hook 测试创建 QueryClient + APIProvider 包装器.
 function makeWrapper(api = createTestAPI()) {
   const queryClient = new QueryClient({
@@ -29,6 +31,7 @@ function makeWrapper(api = createTestAPI()) {
 }
 
 // makeSpyWrapper creates a wrapper with a spy on invalidateQueries.
+//
 // makeSpyWrapper 创建带 invalidateQueries spy 的包装器.
 function makeSpyWrapper(api = createTestAPI()) {
   const queryClient = new QueryClient({

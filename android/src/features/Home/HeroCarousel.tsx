@@ -1,4 +1,5 @@
 // HeroCarousel: paging horizontal FlatList + 5 s auto-advance + dot indicator + bottom scrim overlay.
+//
 // HeroCarousel: 水平分页 FlatList + 5 秒自动滚动 + 圆点指示器 + 底部遮罩.
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -29,6 +30,7 @@ interface Props {
 
 /**
  * HeroCarousel — full-width paging FlatList that auto-advances every 5 s.
+ *
  * HeroCarousel — 全宽分页 FlatList, 每 5 秒自动滚动.
  */
 export function HeroCarousel({ baseURL, items, onSelect }: Props) {
@@ -86,6 +88,7 @@ export function HeroCarousel({ baseURL, items, onSelect }: Props) {
             />
             {/* Solid bottom scrim approximating iOS's LinearGradient (HomeView.swift:250-254).
                 A multi-stop gradient lands with expo-linear-gradient in M4.
+
                 单色底部遮罩, 近似 iOS LinearGradient (HomeView.swift:250-254).
                 真正多端点渐变在 M4 引入 expo-linear-gradient 时一并补齐. */}
             <View

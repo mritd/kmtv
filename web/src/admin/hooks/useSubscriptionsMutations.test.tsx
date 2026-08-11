@@ -1,5 +1,6 @@
 /**
  * useSubscriptionsMutations tests — happy path and cache invalidation.
+ *
  * useSubscriptionsMutations 测试 — 正常路径和缓存失效.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -13,6 +14,7 @@ import { createTestAPI } from "@/test/testAPI";
 import { useSubscriptionsMutations } from "./useSubscriptionsMutations";
 
 // makeSpyWrapper creates a wrapper with a spy on invalidateQueries.
+//
 // makeSpyWrapper 创建带 invalidateQueries spy 的包装器.
 function makeSpyWrapper(api = createTestAPI()) {
   const queryClient = new QueryClient({
@@ -45,6 +47,7 @@ describe("useSubscriptionsMutations", () => {
       result.current.create.mutate(PAYLOAD);
       await waitFor(() => expect(result.current.create.isSuccess).toBe(true));
       // Create auto-syncs sources server-side, so the sources list must refresh too.
+      //
       // 创建会在服务端自动同步源, 因此源列表也必须刷新.
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["admin", "subscriptions"] });
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["admin", "sources"] });
@@ -78,6 +81,7 @@ describe("useSubscriptionsMutations", () => {
       result.current.sync.mutate(1);
       await waitFor(() => expect(result.current.sync.isSuccess).toBe(true));
       // Sync imports sources from the subscription URL, so the sources list must refresh too.
+      //
       // 同步会从订阅 URL 导入源, 因此源列表也必须刷新.
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["admin", "subscriptions"] });
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["admin", "sources"] });

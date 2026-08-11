@@ -1,5 +1,6 @@
 /**
  * hlsConfig — shared hls.js buffer tuning for every playback surface.
+ *
  * hlsConfig — 所有播放入口共用的 hls.js 缓冲调优.
  *
  * Why this is a separate module / 为何独立成模块:
@@ -7,6 +8,7 @@
  *   VideoPlayer's direct adapter). Keeping the values here prevents drift and
  *   makes them directly assertable — VideoPlayer.tsx is excluded from vitest,
  *   and PlaybackPanel's customType callback is never invoked by the suite.
+ *
  *   有两处构造 hls.js (PlaybackPanel 的 ArtPlayer customType 与 VideoPlayer
  *   的直接适配器). 值集中于此可避免漂移, 并让其可被直接断言 — VideoPlayer.tsx
  *   被 vitest 排除, 而 PlaybackPanel 的 customType 回调不会被测试触发.
@@ -17,6 +19,7 @@
 
 /**
  * HLS_BUFFER_CONFIG holds the buffer-related subset of hls.js config.
+ *
  * HLS_BUFFER_CONFIG 保存 hls.js 配置中与缓冲相关的部分.
  *
  * Sizing rationale / 取值依据:
@@ -24,6 +27,7 @@
  *     levelBitrate ? min(max(8 * maxBufferSize / levelBitrate, maxBufferLength), maxMaxBufferLength)
  *                  : min(maxBufferLength, maxMaxBufferLength)
  *   where levelBitrate is `level.maxBitrate` = max(realBitrate, bitrate).
+ *
  *   hls.js 的前向目标计算如上 (base-stream-controller.ts 的 getMaxBufferLength),
  *   其中 levelBitrate 为 `level.maxBitrate` = max(realBitrate, bitrate).
  *
@@ -33,6 +37,7 @@
  *     - realBitrate would fix that, but it is only ever assigned under
  *       `config.abrMaxWithRealBitrate`, which hls.js defaults to false (config.ts:432).
  *   Verified live: with maxBufferLength at 300 the forward buffer sat at exactly 301s.
+ *
  *   本项目的源通常 levelBitrate 为 0, 因此实际走的是零值分支,
  *   `maxBufferLength` 是唯一的杆, `maxBufferSize` 完全不参与:
  *     - 这些 playlist 是不含 EXT-X-STREAM-INF 的裸分片列表, 故 bitrate 为 0;
@@ -48,12 +53,14 @@
  *   config.maxMaxBufferLength toward the buffer it actually achieved, converging in a
  *   couple of rounds. That path only reduces the ceiling — it does not flush the
  *   buffer unless the playhead itself is unbuffered (base-stream-controller.ts:2044).
+ *
  *   因此两个长度值取相同的宽松目标, 并完全省去 `maxBufferSize`:
  *   当长度下限等于上限时, 字节预算可被证明永远无法生效.
  *   真正的限制随之变成浏览器的 SourceBuffer 配额 (Chrome 视频约 150 MB, 页面侧无法调高).
  *   超出配额是安全的: 遇到 QuotaExceededError 时 hls.js 会调用 reduceMaxBufferLength,
  *   将 config.maxMaxBufferLength 下调至实际达成的缓冲量, 一般两轮内收敛.
  *   该路径只下调上限, 除非播放头本身未被缓冲, 否则不会 flush 缓冲
+ *
  *   (base-stream-controller.ts:2044).
  */
 export const HLS_BUFFER_CONFIG = {
@@ -62,6 +69,7 @@ export const HLS_BUFFER_CONFIG = {
   // floor has to reach the ceiling for the zero-bitrate branch to target the whole
   // episode, and maxMaxBufferLength is the field hls.js itself walks down on quota
   // errors, so it must start at the ambition rather than at a guess.
+  //
   // 3600s 足以覆盖一部完整长度的剧集, 从而让浏览器配额而非这个数字成为缓冲的终点.
   // 两个值刻意相等: 零码率分支要瞄准整集, 下限就必须够到上限;
   // 而 maxMaxBufferLength 正是 hls.js 在配额出错时自行下调的字段,
@@ -70,6 +78,7 @@ export const HLS_BUFFER_CONFIG = {
   maxMaxBufferLength: 3600,
   // Default is Infinity: played media is never released and permanently
   // consumes quota the forward buffer needs.
+  //
   // 默认为 Infinity: 已播放内容不会释放, 会持续占用前向缓冲所需的配额.
   backBufferLength: 60,
   startFragPrefetch: true,
@@ -83,6 +92,7 @@ export const HLS_BUFFER_CONFIG = {
   // Platforms that own no other backend (iPhone WebKit) still get ManagedMediaSource,
   // because hls.js falls back to it when MediaSource is absent — but those never reach
   // here, since choosePlaybackEngine sends them to native playback.
+  //
   // hls.js 该项默认为 true, 即只要存在 ManagedMediaSource 就选它 —
   // 包括同时提供完整 MediaSource 的 iPad 与 macOS Safari.
   // ManagedMediaSource 把缓冲交给 WebKit, 于是上面的长度设置全部沦为建议值:

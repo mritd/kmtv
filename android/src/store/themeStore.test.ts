@@ -1,4 +1,5 @@
 // themeStore tests — verifies default, set, hydrate, and corrupted-value fallback.
+//
 // themeStore 测试 — 校验默认值、setOverride、hydrate 与非法值回退.
 
 import { _resetForTests } from "../storage/mmkv";

@@ -14,6 +14,7 @@ import (
 )
 
 // HashPassword returns a bcrypt hash of the given password.
+//
 // HashPassword 返回给定密码的 bcrypt hash.
 func HashPassword(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -24,12 +25,14 @@ func HashPassword(password string) (string, error) {
 }
 
 // CheckPassword reports whether the given password matches the bcrypt hash.
+//
 // CheckPassword 判断给定密码是否匹配 bcrypt hash.
 func CheckPassword(hash, password string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
 // ValidateUsername checks that a username is valid (alphanumeric, dash, underscore, 1-32 chars).
+//
 // ValidateUsername 检查用户名是否合法, 仅允许字母, 数字, dash, underscore, 长度 1-32.
 func ValidateUsername(username string) error {
 	if len(username) == 0 || len(username) > 32 {
@@ -52,12 +55,14 @@ func isUsernameChar(c rune) bool {
 }
 
 // CreateUser inserts a new user with a bcrypt-hashed password.
+//
 // CreateUser 插入一个新用户, 并使用 bcrypt hash 保存密码.
 func (s *Store) CreateUser(username, password, role string) (int64, error) {
 	return s.CreateUserWithAdultAccess(username, password, role, false)
 }
 
 // CreateUserWithAdultAccess inserts a new user with adult content access policy.
+//
 // CreateUserWithAdultAccess 插入一个带成人内容访问策略的新用户.
 func (s *Store) CreateUserWithAdultAccess(username, password, role string, allowAdultContent bool) (int64, error) {
 	if err := ValidateUsername(username); err != nil {
@@ -90,6 +95,7 @@ func (s *Store) CreateUserWithAdultAccess(username, password, role string, allow
 }
 
 // GetUserByID retrieves a user by ID.
+//
 // GetUserByID 根据 ID 获取用户.
 func (s *Store) GetUserByID(id int64) (*model.User, error) {
 	var u model.User
@@ -106,6 +112,7 @@ func (s *Store) GetUserByID(id int64) (*model.User, error) {
 }
 
 // GetUserByUsername retrieves a user by username.
+//
 // GetUserByUsername 根据用户名获取用户.
 func (s *Store) GetUserByUsername(username string) (*model.User, error) {
 	var u model.User
@@ -122,6 +129,7 @@ func (s *Store) GetUserByUsername(username string) (*model.User, error) {
 }
 
 // ListUsers retrieves all users ordered by ID.
+//
 // ListUsers 按 ID 顺序获取所有用户.
 func (s *Store) ListUsers() ([]model.User, error) {
 	rows, err := s.db.Query(
@@ -133,6 +141,7 @@ func (s *Store) ListUsers() ([]model.User, error) {
 	defer func() { _ = rows.Close() }()
 
 	// Non-nil slice so an empty result marshals to JSON [] rather than null.
+	//
 	// 使用非 nil 切片, 让空结果序列化为 JSON [] 而非 null.
 	users := []model.User{}
 	for rows.Next() {
@@ -149,6 +158,7 @@ func (s *Store) ListUsers() ([]model.User, error) {
 }
 
 // UpdateUser updates a user's username and role.
+//
 // UpdateUser 更新用户的用户名和角色.
 func (s *Store) UpdateUser(id int64, username, role string) error {
 	result, err := s.db.Exec(
@@ -165,6 +175,7 @@ func (s *Store) UpdateUser(id int64, username, role string) error {
 }
 
 // UpdateUserPassword updates a user's password with a new bcrypt hash.
+//
 // UpdateUserPassword 使用新的 bcrypt hash 更新用户密码.
 func (s *Store) UpdateUserPassword(id int64, password string) error {
 	hash, err := HashPassword(password)
@@ -182,6 +193,7 @@ func (s *Store) UpdateUserPassword(id int64, password string) error {
 }
 
 // UpdateUsername updates a user's username after validating and checking for conflicts.
+//
 // UpdateUsername 校验并检查冲突后更新用户名.
 func (s *Store) UpdateUsername(id int64, newUsername string) error {
 	if err := ValidateUsername(newUsername); err != nil {
@@ -210,6 +222,7 @@ func (s *Store) UpdateUsername(id int64, newUsername string) error {
 }
 
 // CountAdminUsers returns the number of users with admin role.
+//
 // CountAdminUsers 返回 admin 角色用户数量.
 func (s *Store) CountAdminUsers() (int64, error) {
 	var count int64
@@ -221,6 +234,7 @@ func (s *Store) CountAdminUsers() (int64, error) {
 }
 
 // DeleteUser deletes a user by ID.
+//
 // DeleteUser 根据 ID 删除用户.
 func (s *Store) DeleteUser(id int64) error {
 	result, err := s.db.Exec(`DELETE FROM users WHERE id = ?`, id)
@@ -231,12 +245,14 @@ func (s *Store) DeleteUser(id int64) error {
 }
 
 // UpdateUserFull updates username, role, and optionally password in a single transaction.
+//
 // UpdateUserFull 在单个事务中更新用户名, 角色和可选密码.
 func (s *Store) UpdateUserFull(id int64, username, role, password string) error {
 	return s.UpdateUserFullWithAdultAccess(id, username, role, password, false)
 }
 
 // UpdateUserFullWithAdultAccess updates username, role, adult access, and optionally password in a single transaction.
+//
 // UpdateUserFullWithAdultAccess 在单个事务中更新用户名, 角色, 成人内容访问策略和可选密码.
 func (s *Store) UpdateUserFullWithAdultAccess(id int64, username, role, password string, allowAdultContent bool) error {
 	if err := ValidateUsername(username); err != nil {
@@ -285,6 +301,7 @@ func (s *Store) UpdateUserFullWithAdultAccess(id int64, username, role, password
 }
 
 // isUniqueConstraint reports whether SQLite rejected a write because of a unique constraint.
+//
 // isUniqueConstraint 判断 SQLite 是否因为 unique constraint 拒绝写入.
 func isUniqueConstraint(err error) bool {
 	var sqliteErr *sqlite.Error
@@ -292,6 +309,7 @@ func isUniqueConstraint(err error) bool {
 }
 
 // UpdateAvatar stores a base64 data URL as the user's avatar.
+//
 // UpdateAvatar 将 base64 data URL 保存为用户头像.
 func (s *Store) UpdateAvatar(id int64, avatar string) error {
 	result, err := s.db.Exec(
@@ -305,6 +323,7 @@ func (s *Store) UpdateAvatar(id int64, avatar string) error {
 }
 
 // GetAvatar returns the base64 data URL for the given username's avatar.
+//
 // GetAvatar 返回指定用户名头像的 base64 data URL.
 func (s *Store) GetAvatar(username string) (string, error) {
 	var avatar string
@@ -319,6 +338,7 @@ func (s *Store) GetAvatar(username string) (string, error) {
 }
 
 // DeleteAvatar sets the avatar to an empty string.
+//
 // DeleteAvatar 将头像设置为空字符串.
 func (s *Store) DeleteAvatar(id int64) error {
 	result, err := s.db.Exec(

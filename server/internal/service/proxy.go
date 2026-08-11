@@ -23,13 +23,15 @@ import (
 var lookupIPAddr = net.DefaultResolver.LookupIPAddr
 
 // Vars rather than consts so tests can shrink them; production never reassigns
-// these. Mirrors the existing lookupIPAddr injection seam at proxy.go:22.
+// these. Mirrors the lookupIPAddr injection seam declared above.
+//
 // 使用 var 而非 const 以便测试调小; 生产代码不会重新赋值.
-// 与 proxy.go:22 现有的 lookupIPAddr 注入方式一致.
+// 与上方声明的 lookupIPAddr 注入方式一致.
 var (
 	// m3u8FetchTimeout bounds a manifest request end to end. The payload is
 	// small and already capped at 10 MB, and a manifest failure fails playback
 	// outright, so the value is deliberately generous.
+	//
 	// m3u8FetchTimeout 限制 manifest 请求的端到端总时长. 该响应体积小且已限制在
 	// 10 MB 以内, 而 manifest 拉取失败会直接导致播放失败, 故取值刻意放宽.
 	m3u8FetchTimeout = 60 * time.Second
@@ -37,6 +39,7 @@ var (
 	// segmentIdleTimeout bounds how long a segment body may go silent. It is
 	// not a total-duration cap: a slow link keeps delivering bytes and resets
 	// the timer, while a stalled peer is released.
+	//
 	// segmentIdleTimeout 限制分片响应体的最长静默时间. 它不是总时长上限:
 	// 链路慢但仍在传输时会不断重置计时器, 只有卡死的对端才会被释放.
 	segmentIdleTimeout = 30 * time.Second
@@ -44,11 +47,13 @@ var (
 
 // proxyDecisionKey carries the single resolution of "proxy or direct" for one
 // request, so the transport and the dialer read the same answer.
+//
 // proxyDecisionKey 保存单个请求 "走代理还是直连" 的唯一决策结果,
 // 使 transport 与 dialer 读到同一答案.
 type proxyDecisionKey struct{}
 
 // proxyDecision records the resolved proxy for a request; a nil url means direct.
+//
 // proxyDecision 记录该请求解析出的代理; url 为 nil 表示直连.
 type proxyDecision struct {
 	url *url.URL
@@ -56,6 +61,7 @@ type proxyDecision struct {
 
 // errUnstampedRequest reports a request that never passed through
 // proxyDecisionTransport, and therefore carries no proxy decision.
+//
 // errUnstampedRequest 表示请求未经过 proxyDecisionTransport, 因而没有代理决策.
 var errUnstampedRequest = errors.New("request was not routed through proxyDecisionTransport")
 
@@ -100,6 +106,7 @@ func (p *proxyDecisionTransport) RoundTrip(req *http.Request) (*http.Response, e
 }
 
 // proxyDecisionFrom returns the decision stamped on ctx, or an error when absent.
+//
 // proxyDecisionFrom 返回 ctx 上标记的决策, 不存在时返回错误.
 func proxyDecisionFrom(ctx context.Context) (proxyDecision, error) {
 	decision, ok := ctx.Value(proxyDecisionKey{}).(proxyDecision)
@@ -132,6 +139,7 @@ func ssrfSafeDialContext(ctx context.Context, network, addr string) (net.Conn, e
 	}
 	if decision.url != nil {
 		// Reaching the operator's proxy; it owns egress access control.
+		//
 		// 目标是运维配置的代理, 由代理自身负责出站访问控制.
 		return (&net.Dialer{}).DialContext(ctx, network, addr)
 	}
@@ -156,6 +164,7 @@ func ssrfSafeDialContext(ctx context.Context, network, addr string) (net.Conn, e
 	}
 
 	// Dial using the first resolved IP.
+	//
 	// 使用解析出的第一个 IP 建立连接.
 	dialer := &net.Dialer{}
 	return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
@@ -177,6 +186,7 @@ func newOutboundTransport() *http.Transport {
 	return &http.Transport{
 		// Replays the decision proxyDecisionTransport already made rather than
 		// resolving again, so this hook and the dialer can never disagree.
+		//
 		// 回放 proxyDecisionTransport 已做出的决策而非重新解析,
 		// 使该钩子与 dialer 不可能产生分歧.
 		Proxy: func(req *http.Request) (*url.URL, error) {
@@ -197,6 +207,7 @@ func newOutboundTransport() *http.Transport {
 
 // newOutboundClient assembles the wrapped client every outbound path uses.
 // A zero timeout means no overall deadline.
+//
 // newOutboundClient 组装所有出站路径共用的包装后 client.
 // timeout 为 0 表示不设总体超时.
 func newOutboundClient(timeout time.Duration, tlsConfig *tls.Config) *http.Client {
@@ -214,6 +225,7 @@ func newOutboundClient(timeout time.Duration, tlsConfig *tls.Config) *http.Clien
 }
 
 // isBlockedProxyIP reports whether an IP is unsafe for outbound proxy dialing.
+//
 // isBlockedProxyIP 判断 IP 是否不适合用于出站代理拨号.
 func isBlockedProxyIP(ip net.IP) bool {
 	return ip.IsLoopback() ||
@@ -226,6 +238,7 @@ func isBlockedProxyIP(ip net.IP) bool {
 
 // NewSSRFSafeClient creates an HTTP client that blocks connections to
 // private/loopback IPs and honours the http_proxy environment variables.
+//
 // NewSSRFSafeClient 创建一个会阻止连接私有或 loopback IP 的 HTTP client,
 // 并支持 http_proxy 环境变量.
 func NewSSRFSafeClient(timeout time.Duration) *http.Client {
@@ -233,6 +246,7 @@ func NewSSRFSafeClient(timeout time.Duration) *http.Client {
 }
 
 // ProxyService handles M3U8 rewriting and segment proxying.
+//
 // ProxyService 负责 M3U8 重写和分片代理.
 type ProxyService struct {
 	client *http.Client
@@ -244,6 +258,7 @@ type ProxyService struct {
 // If we forward the browser's "gzip, deflate, br", the upstream returns
 // compressed data but Go won't auto-decompress it (because we set it explicitly),
 // resulting in garbled M3U8 content.
+//
 // passthroughHeaders 会从客户端请求转发到上游.
 // 这里故意排除 Accept-Encoding: 调用方不显式设置时, Go 的 http.Transport 会自动处理 gzip.
 // 如果转发浏览器的 "gzip, deflate, br", 上游会返回压缩数据, 但 Go 不会自动解压, 最终导致 M3U8 内容乱码.
@@ -270,6 +285,7 @@ var proxiedMediaResponseHeaders = map[string]bool{
 // Referer is intentionally NOT set: many CDNs use Referer-based anti-hotlink
 // protection and reject requests with unexpected Referer values. Upstream
 // media fetches intentionally avoid sending Referer.
+//
 // setProxyHeaders 将可转发 header 从客户端请求复制到出站请求, 缺失时使用默认值.
 // Referer 故意不设置: 很多 CDN 使用 Referer 防盗链, 遇到非预期 Referer 会拒绝请求. 上游媒体拉取也应避免发送 Referer.
 func setProxyHeaders(dst *http.Request, clientHeaders http.Header) {
@@ -293,6 +309,7 @@ func setProxyHeaders(dst *http.Request, clientHeaders http.Header) {
 // NewProxyService creates a new ProxyService.
 // The proxy client skips TLS verification because upstream video CDNs
 // frequently have expired or misconfigured certificates.
+//
 // NewProxyService 创建一个新的 ProxyService.
 // 代理 client 会跳过 TLS 校验, 因为上游视频 CDN 经常存在证书过期或配置错误.
 func NewProxyService() *ProxyService {
@@ -300,6 +317,7 @@ func NewProxyService() *ProxyService {
 }
 
 // NewProxyServiceWithClient creates a ProxyService with an injected HTTP client.
+//
 // NewProxyServiceWithClient 使用注入的 HTTP client 创建 ProxyService.
 func NewProxyServiceWithClient(client *http.Client) *ProxyService {
 	if client == nil {
@@ -330,10 +348,15 @@ func newProxyClient() *http.Client {
 }
 
 // ProbeLines tests each CDN line by sending a GET request to the first episode URL.
+//
 // ProbeLines 使用每条 CDN 线路的第一个分集 URL 发送 GET 请求做可用性检测.
+//
 // Uses GET (not HEAD) because many CDNs respond differently to HEAD vs GET.
+//
 // 这里使用 GET 而不是 HEAD, 因为很多 CDN 对两者的响应并不一致.
+//
 // Returns only working lines; if all are dead or the context is cancelled, returns nil.
+//
 // 只返回可用线路; 如果全部不可用或 context 已取消, 返回 nil.
 func (ps *ProxyService) ProbeLines(ctx context.Context, groups [][]model.Episode) [][]model.Episode {
 	if len(groups) == 0 {
@@ -365,6 +388,7 @@ func (ps *ProxyService) ProbeLines(ctx context.Context, groups [][]model.Episode
 		testURL := group[0].URL
 
 		// Cache hit: use cached result, whether alive or dead.
+		//
 		// 命中缓存时直接使用缓存结果, 无论该线路可用还是不可用.
 		if alive, hit := probeCacheGet(testURL); hit {
 			results[i] = result{index: i, ok: alive}
@@ -376,6 +400,7 @@ func (ps *ProxyService) ProbeLines(ctx context.Context, groups [][]model.Episode
 	}
 
 	// Probe uncached lines through the shared concurrency helper.
+	//
 	// 通过共享并发 helper 探测未命中的线路.
 	probed, _ := utils.GoProcess(ctx, jobs, GetProbeConcurrency(), false, func(ctx context.Context, job probeJob) (result, error) {
 		reqCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -386,6 +411,7 @@ func (ps *ProxyService) ProbeLines(ctx context.Context, groups [][]model.Episode
 			return result{index: job.index, ok: false}, nil
 		}
 		// No Referer: CDNs use Referer-based anti-hotlink and reject unexpected values.
+		//
 		// 不设置 Referer: CDN 常用 Referer 防盗链, 遇到非预期值会拒绝请求.
 		req.Header.Set("User-Agent", consts.DefaultUserAgent)
 		req.Header.Set("Accept", "*/*")
@@ -398,6 +424,7 @@ func (ps *ProxyService) ProbeLines(ctx context.Context, groups [][]model.Episode
 		_ = resp.Body.Close()
 		ok := resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusPartialContent
 		// Reject HTML responses because some sources store page URLs instead of M3U8 links.
+		//
 		// 拒绝 HTML 响应, 因为部分视频源会把网页 URL 而不是 M3U8 链接写进播放地址.
 		if ok {
 			ct := resp.Header.Get("Content-Type")
@@ -429,6 +456,7 @@ func (ps *ProxyService) ProbeLines(ctx context.Context, groups [][]model.Episode
 var keyURIPattern = regexp.MustCompile(`URI="([^"]+)"`)
 
 // MediaURLSigner issues a media token for one rewritten URL.
+//
 // MediaURLSigner 为单个重写后的 URL 签发媒体 token.
 type MediaURLSigner func(kind, rawURL, sourceKey string) (string, error)
 
@@ -453,6 +481,7 @@ func signedProxyURL(proxyBase, endpoint, absURL, sourceKey string, signer MediaU
 // - Rewrite EXT-X-KEY URI to /api/proxy/key?url=<encoded>&source=<key>&mt=<token>
 // - Rewrite segment URLs to /api/proxy/segment?url=<encoded>&source=<key>&mt=<token>
 // - Resolve relative URLs against baseURL
+//
 // RewriteM3U8 将 M3U8 内容里的 URL 重写到代理端点.
 // - 将 EXT-X-KEY URI 重写到 /api/proxy/key?url=<encoded>&source=<key>&mt=<token>
 // - 将分片 URL 重写到 /api/proxy/segment?url=<encoded>&source=<key>&mt=<token>
@@ -466,6 +495,7 @@ func RewriteM3U8(content, baseURL, proxyBase, sourceKey string, signer MediaURLS
 		trimmed := strings.TrimSpace(line)
 
 		// Rewrite EXT-X-KEY URI.
+		//
 		// 重写 EXT-X-KEY URI.
 		if strings.HasPrefix(trimmed, "#EXT-X-KEY") {
 			var rewriteErr error
@@ -493,6 +523,7 @@ func RewriteM3U8(content, baseURL, proxyBase, sourceKey string, signer MediaURLS
 		}
 
 		// Detect master playlist and rewrite sub-playlist URLs to the M3U8 proxy.
+		//
 		// 检测 master playlist, 并将子 playlist URL 重写到 M3U8 代理.
 		if strings.HasPrefix(trimmed, "#EXT-X-STREAM-INF") {
 			result = append(result, line)
@@ -501,6 +532,7 @@ func RewriteM3U8(content, baseURL, proxyBase, sourceKey string, signer MediaURLS
 		}
 
 		// Skip other comments and empty lines.
+		//
 		// 跳过其他注释行和空行.
 		if strings.HasPrefix(trimmed, "#") || trimmed == "" {
 			result = append(result, line)
@@ -510,6 +542,7 @@ func RewriteM3U8(content, baseURL, proxyBase, sourceKey string, signer MediaURLS
 		absURL := utils.ResolveURL(baseURL, trimmed)
 		if isMasterPlaylist {
 			// Sub-playlist URL: proxy through M3U8 endpoint.
+			//
 			// 子 playlist URL 通过 M3U8 端点代理.
 			rewritten, err := signedProxyURL(proxyBase, MediaKindM3U8, absURL, sourceKey, signer)
 			if err != nil {
@@ -519,6 +552,7 @@ func RewriteM3U8(content, baseURL, proxyBase, sourceKey string, signer MediaURLS
 			isMasterPlaylist = false
 		} else {
 			// Segment URL.
+			//
 			// 分片 URL.
 			rewritten, err := signedProxyURL(proxyBase, MediaKindSegment, absURL, sourceKey, signer)
 			if err != nil {
@@ -533,11 +567,13 @@ func RewriteM3U8(content, baseURL, proxyBase, sourceKey string, signer MediaURLS
 
 // FetchM3U8 fetches and rewrites an M3U8 manifest.
 // clientHeaders are forwarded from the browser request for authenticity.
+//
 // FetchM3U8 拉取并重写 M3U8 manifest.
 // clientHeaders 会从浏览器请求转发到上游, 让请求更接近真实客户端.
 func (ps *ProxyService) FetchM3U8(ctx context.Context, targetURL, proxyBase, sourceKey string, clientHeaders http.Header, signer MediaURLSigner) (string, error) {
 	// The shared client carries no Client.Timeout, so bound this request here.
 	// Without it a trickling upstream could hold a goroutine indefinitely.
+	//
 	// 共享 client 不设 Client.Timeout, 故在此限制本次请求.
 	// 否则缓慢滴送数据的上游可能无限期占用一个 goroutine.
 	ctx, cancel := context.WithTimeout(ctx, m3u8FetchTimeout)
@@ -560,6 +596,7 @@ func (ps *ProxyService) FetchM3U8(ctx context.Context, targetURL, proxyBase, sou
 	}
 
 	// Limit M3U8 manifests to 10MB to avoid unbounded memory use.
+	//
 	// 将 M3U8 manifest 限制为 10MB, 避免无限制占用内存.
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 	if err != nil {
@@ -569,6 +606,7 @@ func (ps *ProxyService) FetchM3U8(ctx context.Context, targetURL, proxyBase, sou
 	// Validate that the response is actually an M3U8 manifest, not an HTML page
 	// or other non-video content. Some sources store HTML page URLs (for example, ordinary watch-page URLs)
 	// in vod_play_url instead of actual M3U8 links.
+	//
 	// 校验响应确实是 M3U8 manifest, 而不是 HTML 页面或其他非视频内容.
 	// 部分视频源会在 vod_play_url 中保存网页 URL, 例如 普通播放页面, 而不是实际 M3U8 链接.
 	content := strings.TrimSpace(string(body))
@@ -582,6 +620,7 @@ func (ps *ProxyService) FetchM3U8(ctx context.Context, targetURL, proxyBase, sou
 
 // ProxySegment proxies a video segment or key request.
 // clientHeaders are forwarded from the browser request for authenticity.
+//
 // ProxySegment 代理视频分片或密钥请求.
 // clientHeaders 会从浏览器请求转发到上游, 让请求更接近真实客户端.
 func (ps *ProxyService) ProxySegment(ctx context.Context, w http.ResponseWriter, targetURL string, clientHeaders http.Header) {
@@ -602,6 +641,7 @@ func (ps *ProxyService) ProxySegment(ctx context.Context, w http.ResponseWriter,
 	defer func() { _ = resp.Body.Close() }()
 
 	// Copy only media-safe response headers from upstream.
+	//
 	// 仅复制上游响应中对媒体播放安全且必要的 header.
 	for k, vs := range resp.Header {
 		if !proxiedMediaResponseHeaders[http.CanonicalHeaderKey(k)] {
@@ -616,6 +656,7 @@ func (ps *ProxyService) ProxySegment(ctx context.Context, w http.ResponseWriter,
 	// Limit proxied segment/key bodies to 512MB to cap memory and bandwidth
 	// abuse, and abort the transfer if upstream goes silent. The byte cap alone
 	// bounds size but not time.
+	//
 	// 将代理分片或密钥响应限制为 512MB, 限制内存和带宽滥用;
 	// 同时在上游静默时中断传输. 仅限制字节数无法限制时间.
 	body := newIdleTimeoutReader(resp.Body, segmentIdleTimeout)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -14,6 +15,7 @@ import (
 )
 
 // sseProgressEvent is sent through the channel from progress callbacks.
+//
 // sseProgressEvent 由进度回调通过 channel 发送.
 type sseProgressEvent struct {
 	Phase     string `json:"phase"`
@@ -22,9 +24,10 @@ type sseProgressEvent struct {
 }
 
 // SearchStream handles SSE-based search with real-time progress.
+//
 // SearchStream 处理基于 SSE 的搜索, 并实时返回进度.
 func (h *Handler) SearchStream(c *gin.Context) {
-	query := c.Query("q")
+	query := strings.TrimSpace(c.Query("q"))
 	if query == "" {
 		c.JSON(http.StatusBadRequest, errs.MissingParam.WithMsg("query parameter 'q' is required"))
 		return
@@ -44,6 +47,7 @@ func (h *Handler) SearchStream(c *gin.Context) {
 	}
 
 	// SSE headers.
+	//
 	// SSE 响应 header.
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
@@ -51,6 +55,7 @@ func (h *Handler) SearchStream(c *gin.Context) {
 	c.Writer.WriteHeaderNow()
 
 	// Buffered channel bridges concurrent progress callbacks to serial SSE writes.
+	//
 	// 带缓冲 channel 将并发进度回调转换为串行 SSE 写入.
 	progressCh := make(chan sseProgressEvent, 64)
 
@@ -59,11 +64,13 @@ func (h *Handler) SearchStream(c *gin.Context) {
 		case progressCh <- sseProgressEvent{Phase: phase, Completed: completed, Total: total}:
 		default:
 			// Channel full, drop event to avoid blocking search goroutines.
+			//
 			// channel 已满时丢弃事件, 避免阻塞搜索 goroutine.
 		}
 	})
 
 	// Run search in background goroutine.
+	//
 	// 在后台 goroutine 中执行搜索.
 	type searchResult struct {
 		results []model.SearchResult
@@ -78,6 +85,7 @@ func (h *Handler) SearchStream(c *gin.Context) {
 	}()
 
 	// Drain progress channel and write SSE events.
+	//
 	// 消费进度 channel 并写入 SSE 事件.
 	for evt := range progressCh {
 		data, _ := json.Marshal(evt)
@@ -86,6 +94,7 @@ func (h *Handler) SearchStream(c *gin.Context) {
 	}
 
 	// Search complete, write result or error.
+	//
 	// 搜索完成后写入结果或错误.
 	res := <-done
 	if res.err != nil {
@@ -96,8 +105,12 @@ func (h *Handler) SearchStream(c *gin.Context) {
 	}
 
 	// Enrich descriptions using the same flow as the sync handler.
+	//
 	// 使用和同步 handler 相同的流程补充简介.
 	h.enrichDescriptions(c, res.results)
+	if res.results == nil {
+		res.results = []model.SearchResult{}
+	}
 
 	resultData, _ := json.Marshal(gin.H{"results": res.results})
 	_, _ = fmt.Fprintf(c.Writer, "event: result\ndata: %s\n\n", resultData)

@@ -1,4 +1,5 @@
 // searchHistory tests cover add (dedup + cap), recent, clearAll, server scope.
+//
 // searchHistory 测试覆盖 upsert(去重+上限)、列出、清空、按服务器隔离.
 
 import { _resetForTests } from "./mmkv";

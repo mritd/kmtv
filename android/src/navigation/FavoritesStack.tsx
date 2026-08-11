@@ -1,4 +1,5 @@
 // FavoritesStack — nested native-stack hosted by FavoritesTab: list -> Player.
+//
 // FavoritesStack — FavoritesTab 内的 native-stack: 列表 -> Player.
 
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -15,6 +16,7 @@ const Stack = createNativeStackNavigator<FavoritesStackParamList>();
 
 /**
  * Native-stack hosted by FavoritesTab.
+ *
  * FavoritesTab 内挂载的 native-stack.
  */
 export function FavoritesStack() {

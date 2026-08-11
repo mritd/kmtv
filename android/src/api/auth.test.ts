@@ -1,4 +1,5 @@
 // Auth API tests verify the three M1 endpoints (login, logout, me).
+//
 // Auth API 测试覆盖 M1 三个端点 (login, logout, me).
 
 import { createAuthAPI } from "./auth";
@@ -75,6 +76,7 @@ describe("AuthAPI", () => {
     expect(r.avatar).toBe("/api/v1/avatar/u");
     // RN's FormData has no forEach() / entries(). Both real RN and jsdom polyfill expose
     // getParts() returning the staged parts. Assert the avatar part shape.
+    //
     // RN 的 FormData 没有 forEach() / entries(), 真机与 jsdom polyfill 都暴露 getParts().
     const parts = (captured as unknown as { getParts?: () => Array<{ fieldName: string; uri?: string; type?: string }> }).getParts?.();
     if (parts) {

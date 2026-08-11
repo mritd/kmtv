@@ -1,6 +1,8 @@
 import XCTest
 
 /// Verify search TextField is tappable and accepts input on iPad without rotation.
+///
+/// 验证 iPad 不旋转时搜索 TextField 仍可点击并接受输入.
 @MainActor
 final class SearchTextFieldUITests: XCTestCase {
     private let app = XCUIApplication()

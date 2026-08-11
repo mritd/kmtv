@@ -1,5 +1,6 @@
 /**
  * LoginPage — credential form that drives auth.login() and handles open-redirect prevention.
+ *
  * LoginPage — 凭据表单, 驱动 auth.login() 并处理开放重定向防护.
  *
  * Responsibilities / 职责:
@@ -18,6 +19,7 @@
  * Anonymous mode note: anonymous users can navigate to /login and see this form;
  * AppRoutes only redirects away from /login when auth.isAuthenticated is true.
  * In anonymous-access mode the user simply stays on the login form if they visit it directly.
+ *
  * 匿名模式说明: 匿名用户可以访问 /login 并看到此表单;
  * AppRoutes 仅在 auth.isAuthenticated 为 true 时才从 /login 重定向.
  * 匿名访问模式下用户直接访问登录页时仍会看到此表单.
@@ -34,11 +36,13 @@ import { toast } from "@/shared/ui/Toast";
 
 /**
  * LoginPage is the credential form shown to unauthenticated visitors.
+ *
  * LoginPage 是展示给未认证访客的凭据表单.
  *
  * After a successful login the component navigates to the ?next= param or "/".
  * The ?next= value is sanitised to reject absolute URLs, protocol-relative URLs,
  * and backslash-prefixed paths (open-redirect vectors).
+ *
  * 登录成功后跳转到 ?next= 参数或 "/".
  * ?next= 值经过净化以拒绝绝对 URL、协议相对 URL 和反斜杠路径 (开放重定向攻击向量).
  */
@@ -49,6 +53,7 @@ export function LoginPage() {
   const [params] = useSearchParams();
   // next must be a same-origin path; reject anything that could be an absolute URL,
   // a protocol-relative URL, or a backslash-prefixed bypass.
+  //
   // next 必须是同源路径; 拒绝绝对 URL, 协议相对 URL 和反斜杠绕过, 防止 open-redirect.
   const rawNext = params.get("next");
   const safeNext =
@@ -66,6 +71,7 @@ export function LoginPage() {
       await auth.login(username, password);
       // tokenStore subscription drives status to authenticated; navigate now
       // so the user lands on next (or home) once the new route tree renders.
+      //
       // 登录成功后导航到 next 或 home; tokenStore 订阅会驱动 status 变为 authenticated.
       navigate(safeNext, { replace: true });
     } catch (err) {
@@ -82,8 +88,11 @@ export function LoginPage() {
         <h1>KMTV</h1>
         <label>
           {t("username")}
-          {/* autoFocus so visitors can type immediately without clicking the field first. */}
-          {/* autoFocus 让访客进入页面即可直接输入, 无需先点击输入框. */}
+          {/**
+           * autoFocus lets visitors type immediately without clicking the field first.
+           *
+           * autoFocus 让访客进入页面即可直接输入, 无需先点击输入框.
+           */}
           <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" autoFocus />
         </label>
         <label>

@@ -7,6 +7,7 @@ import SwiftUI
 
 /// Bare video layer for inline playback. No system controls, no fullscreen button.
 /// Custom controls are provided by PlayerView's overlay.
+///
 /// 内嵌播放只暴露视频图层, 系统控制由 PlayerView 自定义遮罩提供.
 struct InlinePlayerView: UIViewRepresentable {
     let player: AVPlayer?
@@ -36,6 +37,7 @@ struct InlinePlayerView: UIViewRepresentable {
 }
 
 /// UIView backed by AVPlayerLayer for video rendering.
+///
 /// 使用 AVPlayerLayer 渲染视频的 UIView.
 class PlayerLayerView: UIView {
     override class var layerClass: AnyClass { AVPlayerLayer.self }
@@ -66,6 +68,7 @@ class PlayerLayerView: UIView {
 
 /// Fullscreen player presented via SwiftUI .fullScreenCover.
 /// Receives the shared AVPlayer instance — no new player created.
+///
 /// 全屏播放器接收同一个 AVPlayer 实例, 不创建新的播放器.
 struct FullScreenPlayerRepresentable: UIViewControllerRepresentable {
     let player: AVPlayer?
@@ -99,6 +102,7 @@ struct FullScreenPlayerRepresentable: UIViewControllerRepresentable {
 /// Presents AVPlayerViewController via UIKit from the window's root VC.
 /// Avoids SwiftUI fullScreenCover bug (tab bar disappears) and avoids
 /// Menu press propagating to NavigationStack.
+///
 /// 通过 UIKit 从根 VC 展示播放器, 避免 tvOS 上 SwiftUI fullScreenCover 导致 tab bar 丢失.
 @MainActor
 enum TVPlayerPresentation {
@@ -110,6 +114,7 @@ enum TVPlayerPresentation {
               let rootVC = scene.windows.first?.rootViewController else { return }
 
         // Find the topmost presented VC.
+        //
         // 找到当前最上层已经展示的 VC.
         var topVC = rootVC
         while let presented = topVC.presentedViewController {

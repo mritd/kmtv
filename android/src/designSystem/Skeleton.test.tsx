@@ -1,4 +1,5 @@
 // Skeleton renders a View that hosts a reanimated brightness loop.
+//
 // Skeleton 渲染一个承载 reanimated 亮度循环的 View.
 
 import { render } from "@testing-library/react-native";

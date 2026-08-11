@@ -64,6 +64,7 @@ describe("encodeDetailToken / decodeDetailToken", () => {
 
 // base58EncodeRaw mirrors the internal base58 encoder so tests can construct
 // well-formed envelopes that wrap deliberately-malformed payloads.
+//
 // base58EncodeRaw 复刻内部 base58 编码, 让测试可以构造包裹故意非法负载的合法外层.
 function base58EncodeRaw(rawPayload: string): string {
   const bytes = new TextEncoder().encode(rawPayload);

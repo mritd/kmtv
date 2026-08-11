@@ -1,4 +1,5 @@
 // UserInfoSection tests — non-anonymous + anonymous + avatar Alert handling.
+//
 // UserInfoSection 测试 — 非匿名 + 匿名 + 头像 Alert 操作.
 
 import { fireEvent, render, waitFor } from "@testing-library/react-native";

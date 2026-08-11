@@ -1,4 +1,5 @@
 // HomeStack — HomeRoot + Search + Player. Search results open Player directly, mirroring iOS.
+//
 // HomeStack — HomeRoot + Search + Player. 搜索结果直接打开 Player, 与 iOS 一致.
 
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -13,6 +14,7 @@ const Stack = createNativeStackNavigator<HomeStackParamList>();
 
 /**
  * Native-stack navigator hosted under HomeTab.
+ *
  * HomeTab 内承载的 native-stack 导航器.
  */
 export function HomeStack() {

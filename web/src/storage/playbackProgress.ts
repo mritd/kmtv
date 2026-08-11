@@ -28,12 +28,13 @@
 import { registerUserScopedReset } from "@/auth/authLifecycle";
 
 // LOCKED storage key — must not change. Renaming breaks existing user data.
+//
 // 锁定的存储键 — 禁止更改, 重命名会破坏现有用户数据.
 export const playbackProgressKey = "kmtv.playback.v1";
 
 /**
  * PlaybackProgressEntry captures the last-watched episode and position for a (sourceKey, videoID) pair.
- * PlaybackProgressEntry
+ *
  * 记录 (sourceKey, videoID) 对应的上次观看集数与进度.
  */
 export interface PlaybackProgressEntry {
@@ -72,6 +73,7 @@ export const COMPLETION_THRESHOLD_SEC = 30;
 export const COMPLETION_THRESHOLD_RATIO = 0.95;
 
 // ProgressMap is the raw localStorage shape: a flat Record keyed by "<sourceKey>:<videoID>".
+//
 // ProgressMap 是 localStorage 原始结构: 以 "<sourceKey>:<videoID>" 为键的平铺 Record.
 type ProgressMap = Record<string, PlaybackProgressEntry>;
 
@@ -90,12 +92,14 @@ function nextWriteTick(): number {
 }
 
 // entryKey mirrors the favorites "<sourceKey>:<videoID>" convention for cross-module readability.
+//
 // entryKey 沿用 favorites 模块的 "<sourceKey>:<videoID>" 约定, 跨模块易读.
 function entryKey(sourceKey: string, videoID: string): string {
   return `${sourceKey}:${videoID}`;
 }
 
 // readMap — read and validate the stored progress map. Returns {} on any error or missing key.
+//
 // readMap — 读取并验证存储的进度 map. 任何错误或键缺失时返回 {}.
 function readMap(): ProgressMap {
   if (typeof window === "undefined") return {};
@@ -106,6 +110,7 @@ function readMap(): ProgressMap {
     return isProgressMap(parsed) ? parsed : {};
   } catch {
     // Corrupt progress data should not block playback.
+    //
     // 损坏的播放进度不能阻塞播放.
     window.localStorage.removeItem(playbackProgressKey);
     return {};
@@ -113,6 +118,7 @@ function readMap(): ProgressMap {
 }
 
 // writeMap — prune then persist. Quota errors are swallowed; next save retries.
+//
 // writeMap — 先剪枝再持久化. 配额错误静默丢弃, 下次保存重试.
 function writeMap(map: ProgressMap): void {
   if (typeof window === "undefined") return;
@@ -120,11 +126,13 @@ function writeMap(map: ProgressMap): void {
     window.localStorage.setItem(playbackProgressKey, JSON.stringify(prune(map)));
   } catch {
     // Quota errors silently drop the write; next save attempts again.
+    //
     // 配额错误静默丢弃, 下次保存重试.
   }
 }
 
 // prune evicts the oldest entries (lowest updatedAt) to keep the map at or below MAX_PROGRESS_ENTRIES.
+//
 // prune 淘汰最旧条目 (updatedAt 最小) 使 map 不超过 MAX_PROGRESS_ENTRIES.
 function prune(map: ProgressMap): ProgressMap {
   const keys = Object.keys(map);
@@ -141,6 +149,7 @@ function prune(map: ProgressMap): ProgressMap {
 // Explicitly rejects arrays: `Array.isArray` is needed because typeof [] === "object".
 // An empty array would otherwise pass the loop and accept bad data — silently losing writes
 // because JSON.stringify([]) drops named properties added to an array instance.
+//
 // isProgressMap 验证解析后的 JSON 是平铺的、字段完整的 PlaybackProgressEntry Record.
 // 显式拒绝数组: typeof [] === "object", 空数组会通过循环并接受坏数据 —
 // 因为 JSON.stringify([]) 会丢弃数组实例上的具名属性, 导致写入静默丢失.
@@ -224,6 +233,7 @@ export function setPlaybackPosition(
   const map = readMap();
   const key = entryKey(sourceKey, videoID);
   // Drop the record when nearly finished so resume does not snap back to the credits.
+  //
   // 结尾附近视为看完, 直接清除避免回放片尾.
   if (Number.isFinite(durationSec) && durationSec > 0) {
     const nearEndBySeconds = durationSec - positionSec <= COMPLETION_THRESHOLD_SEC;
@@ -239,6 +249,7 @@ export function setPlaybackPosition(
     episodeIndex,
     positionSec,
     // Preserve a previously known duration when the current call has an invalid duration.
+    //
     // 当前调用的 durationSec 无效时, 保留之前已知的时长.
     durationSec: Number.isFinite(durationSec) && durationSec > 0 ? durationSec : (map[key]?.durationSec ?? 0),
     updatedAt: nextWriteTick(),
@@ -276,5 +287,6 @@ export function clearAllPlaybackProgress(): void {
 
 // Playback history is tied to the signed-in user;
 // clear it on identity change so the next account starts fresh.
+//
 // 播放历史绑定登录用户, 切换身份时清空.
 registerUserScopedReset(() => clearAllPlaybackProgress());

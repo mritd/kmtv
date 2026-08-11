@@ -1,5 +1,9 @@
 import SwiftUI
 
+/// iOS root tabs, each with an independent navigation path.
+/// Search and playback destinations stay on the tab that initiated the flow.
+///
+/// iOS 根 tab, 每个 tab 维护独立 navigation path. 搜索和播放目标保留在发起流程的 tab 内.
 struct ContentView: View {
     @Environment(AppViewModel.self) private var appVM
     @State private var homePath = NavigationPath()

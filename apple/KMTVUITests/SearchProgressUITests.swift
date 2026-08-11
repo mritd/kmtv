@@ -1,6 +1,8 @@
 import XCTest
 
 /// Verify SSE search progress text is displayed during search.
+///
+/// 验证搜索期间会展示 SSE 搜索进度文本.
 @MainActor
 final class SearchProgressUITests: XCTestCase {
     private let app = XCUIApplication()

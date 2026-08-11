@@ -68,6 +68,7 @@ var migrations = []migration{
 }
 
 // migrate applies schema changes in version order and records completed steps.
+//
 // migrate 按版本顺序执行 schema 变更, 并记录已经完成的步骤.
 func (s *Store) migrate() error {
 	if err := createMigrationTable(s.db); err != nil {
@@ -230,6 +231,7 @@ func migrateInsertDefaultSettings(tx *sql.Tx) error {
 	}
 	for key, value := range defaults {
 		// INSERT OR IGNORE preserves user-modified settings during migration.
+		//
 		// INSERT OR IGNORE 在迁移时保留用户已经修改过的设置.
 		_, err := tx.Exec(
 			`INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`,
@@ -245,6 +247,7 @@ func migrateInsertDefaultSettings(tx *sql.Tx) error {
 
 func migrateInsertPublicBaseURLSetting(tx *sql.Tx) error {
 	// INSERT OR IGNORE makes the migration safe for fresh DBs that already ran default settings.
+	//
 	// INSERT OR IGNORE 让已经包含默认设置的新库重复执行时保持安全.
 	_, err := tx.Exec(
 		`INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`,
@@ -300,6 +303,7 @@ func migrateAddOpaqueTokenAuth(tx *sql.Tx) error {
 	}
 	for key, value := range defaults {
 		// INSERT OR IGNORE preserves operator-modified settings during migration.
+		//
 		// INSERT OR IGNORE 在迁移时保留操作者已经修改过的设置.
 		if _, err := tx.Exec(
 			`INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`,
@@ -407,6 +411,7 @@ func migrateAddWatchHistory(tx *sql.Tx) error {
 
 // migrateFixWatchHistoryIndex replaces the v9 index, which was keyed on
 // updated_at while every watch history query sorts by event_time_ms.
+//
 // migrateFixWatchHistoryIndex 替换 v9 建立的索引: 该索引以 updated_at 为键,
 // 但所有观看历史查询都按 event_time_ms 排序.
 func migrateFixWatchHistoryIndex(tx *sql.Tx) error {

@@ -1,4 +1,5 @@
 // HomeScreen composes HeroCarousel + ContinueWatchingRow + SectionRow, driven by useDoubanHomeQuery.
+//
 // HomeScreen 由 useDoubanHomeQuery 驱动, 组合 HeroCarousel + ContinueWatchingRow + SectionRow.
 
 import { Ionicons } from "@expo/vector-icons";
@@ -39,6 +40,7 @@ interface HomeScreenContextValue {
    * Optional callback so tests can stub the search button navigation without wrapping in
    * a NavigationContainer just to satisfy useNavigation. Production path supplies a navigate
    * call that pushes the Search screen with an empty initial query.
+   *
    * 可选回调, 测试可桩化搜索按钮导航而无需用 NavigationContainer 包裹. 生产路径提供 push Search 屏的 navigate 调用.
    */
   onSearch?: () => void;
@@ -46,6 +48,7 @@ interface HomeScreenContextValue {
    * Mirrors iOS HomeView.navigateToSearch(SearchQuery(query: item.title, ...)). All card taps
    * (hero / continue / section) push the Search screen with the tapped title pre-filled.
    * Tests may override; production path navigates via useNavigation.
+   *
    * 与 iOS HomeView.navigateToSearch(SearchQuery(query: item.title, ...)) 一致. 所有卡片点击
    * (hero / continue / section) 都把对应标题预填到 Search. 测试可覆盖, 生产走 useNavigation.
    */
@@ -56,6 +59,7 @@ interface HomeScreenContextValue {
 /**
  * Optional context lets integration tests inject a stubbed DoubanAPI without standing up
  * a full APIClient + serverStore. Production path falls back to useDefaultDoubanAPI().
+ *
  * 可选 context 允许集成测试注入 stub DoubanAPI, 无需搭建完整 APIClient + serverStore.
  * 生产路径回退到 useDefaultDoubanAPI().
  */
@@ -63,6 +67,7 @@ export const HomeScreenContext = createContext<HomeScreenContextValue | null>(nu
 
 /**
  * Build a default DoubanAPI from serverStore + authStore.
+ *
  * 由 serverStore + authStore 构建默认 DoubanAPI.
  */
 function useDefaultDoubanAPI(): (DoubanAPI & WatchHistoryAPI) | null {
@@ -83,6 +88,7 @@ function useDefaultDoubanAPI(): (DoubanAPI & WatchHistoryAPI) | null {
  * Two render paths: context-driven (tests/embedded) and production. Splitting them keeps the
  * useNavigation call off the test path so tests don't need a NavigationContainer just for the
  * search button.
+ *
  * HomeScreen — 由 useDoubanHomeQuery 驱动的 Hero 轮播 + 继续观看 + 分区行.
  * 两条渲染路径: context 驱动 (测试 / 嵌入) 与生产. 拆分让 useNavigation 只在生产路径调用, 测试无需为搜索按钮包 NavigationContainer.
  */
@@ -171,6 +177,7 @@ function HomeScreenInner({
   // Local-first ordering mirrors HomeViewModel.load(): seed history from MMKV synchronously,
   // then fire the remote query. The useState initializer runs before useDoubanHomeQuery
   // is registered, so the first render already has local history visible.
+  //
   // 本地优先, 与 HomeViewModel.load() 一致: 先同步从 MMKV 读取历史, 再发起远端 query.
   // useState 初始化器先于 useDoubanHomeQuery 注册, 首次渲染已经显示本地历史.
 	const [history, setHistory] = useState<WatchHistoryItem[]>(() =>
@@ -178,6 +185,7 @@ function HomeScreenInner({
   const query = useDoubanHomeQuery(api, serverURL);
 
   // Re-read MMKV when serverURL changes (e.g. user switched server mid-session).
+  //
   // 当 serverURL 切换时重新读取 MMKV (例如会话中切换 server).
   useEffect(() => {
 		setHistory(loadWatchHistory(serverURL, 10, userID).filter((item) => !item.completed));
@@ -215,6 +223,7 @@ function HomeScreenInner({
 
   // Hero and section cards mirror iOS HomeView.navigateToSearch(SearchQuery(query: item.title, ...)).
   // Continue-watching cards also go through Search so stale sources are refreshed before Player opens.
+  //
   // Hero 与 section 卡片对齐 iOS HomeView.navigateToSearch(SearchQuery(query: item.title, ...)).
   // 继续观看卡片也先进入 Search, 确保进 Player 前刷新过可用源.
   const selectByTitle = useCallback(
@@ -245,6 +254,7 @@ function HomeScreenInner({
 
   // Prefetch hero + first 8 above-the-fold poster URLs. Fire-and-forget; expo-image
   // surfaces no rejection signal we can act on. Ref guards re-prefetching across rerenders.
+  //
   // 预取 hero 与首屏分区前 8 张海报 URL. 触发即丢; ref 防止重渲染时重复预取.
   const prefetchedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
@@ -268,11 +278,13 @@ function HomeScreenInner({
 
   // Inline error mirrors HomeViewModel.swift / HomeView.swift line 79-82: only surface when
   // we have NO stale content to show. Background refetch failures behind valid data stay quiet.
+  //
   // 内联错误与 HomeView.swift line 79-82 对齐: 仅当无任何旧数据时才显示, 后台 refetch 失败
   // 不会覆盖已有有效数据.
   const showInlineError = query.isError && sections.length === 0 && heroItems.length === 0;
 
   // Top bar mirrors iOS HomeView.topBar: KMTV title + magnifying-glass search button.
+  //
   // 顶栏与 iOS HomeView.topBar 一致: KMTV 标题 + 放大镜搜索按钮.
   const searchLabel = t("searchAria");
   const topBar = (

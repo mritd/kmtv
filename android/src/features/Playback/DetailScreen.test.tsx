@@ -1,4 +1,5 @@
 // DetailScreen tests — loading skeleton + post-load render + Play CTA propagation + responsive layout.
+//
 // DetailScreen 测试 — 加载骨架、加载后渲染、Play 按钮回调、响应式布局.
 
 import { fireEvent, render, waitFor } from "@testing-library/react-native";

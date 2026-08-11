@@ -17,6 +17,7 @@ import (
 )
 
 // Detail fetches video detail from a specific source.
+//
 // Detail 从指定视频源拉取视频详情.
 func (h *Handler) Detail(c *gin.Context) {
 	sourceKey := c.Query("source")
@@ -77,8 +78,11 @@ func (h *Handler) Detail(c *gin.Context) {
 
 	if appruntime.Default().PlaybackMode() != consts.PlaybackModeDirect {
 		// Probe each CDN line's first episode URL in parallel to filter dead lines.
+		//
 		// 并行探测每条 CDN 线路第一个分集 URL, 过滤不可用线路.
+		//
 		// Use request context so background probing stops when the client cancels.
+		//
 		// 使用请求 context 执行 CDN 探测, 让客户端取消请求时后台探测也能停止.
 		episodes = h.proxySvc.ProbeLines(c.Request.Context(), allGroups)
 	}

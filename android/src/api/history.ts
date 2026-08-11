@@ -1,4 +1,5 @@
 // Watch-history API factory — wraps /history for cross-device continue watching.
+//
 // 观看历史 API 工厂, 包装 /history 以支持跨设备继续观看.
 
 import type { APIClient } from "./client";
@@ -6,6 +7,7 @@ import type { MessageResponse, WatchHistoryRequest, WatchHistoryResponse, WatchH
 
 /**
  * WatchHistoryAPI — typed surface for server-synchronized watch history.
+ *
  * WatchHistoryAPI — 服务端同步观看历史的类型化接口.
  */
 export interface WatchHistoryAPI {
@@ -18,6 +20,7 @@ export interface WatchHistoryAPI {
 
 /**
  * Build a WatchHistoryAPI bound to the provided APIClient.
+ *
  * 基于给定 APIClient 构建 WatchHistoryAPI.
  */
 export function createWatchHistoryAPI(client: APIClient): WatchHistoryAPI {

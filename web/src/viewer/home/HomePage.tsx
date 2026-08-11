@@ -1,23 +1,39 @@
 /**
  * HomePage — the viewer home page showing the hero carousel and recommendation rails.
+ *
  * HomePage — 观看者首页, 展示英雄轮播和豆瓣推荐 rail.
  *
  * Responsibilities / 职责:
  *   - Fetch Douban home sections via useDoubanHomeQuery (react-query key ["douban-home"])
+ *
  *     — 通过 useDoubanHomeQuery 获取豆瓣首页分区 (react-query key ["douban-home"])
- *   - Fetch authenticated watch history via useWatchHistoryQuery without affecting recommendation states
- *     — 通过 useWatchHistoryQuery 获取已认证观看记录, 且不影响推荐内容状态
+ *
+ *   - Select authenticated remote history or anonymous local history without merging identity partitions
+ *
+ *     — 根据身份选择已认证远端历史或匿名本地历史, 不合并不同身份分区
+ *
  *   - Show HomeSkeleton while loading, StatusState on error, EmptyState when sections are empty
+ *
  *     — 加载中展示 HomeSkeleton, 出错展示 StatusState, 分区为空展示 EmptyState
+ *
  *   - Derive hero candidates via selectHeroCandidates and pass to HomeHero
+ *
  *     — 通过 selectHeroCandidates 推导英雄候选项并传给 HomeHero
+ *
  *   - Render each section as a horizontal poster rail with staggered entrance animation
+ *
  *     — 将每个分区渲染为带 stagger 入场动画的水平海报 rail
+ *
  *   - Navigate to /search?q=<title> when a poster tile is clicked
+ *
  *     — 点击海报砖块时导航至 /search?q=<title>
+ *
  *   - Navigate continue-watching cards through aggregate search instead of stored source detail routes
+ *
  *     — 继续观看卡片通过聚合搜索重新进入, 不直接跳转到已存储来源详情
+ *
  *   - Respect the user's prefers-reduced-motion preference by disabling stagger variants
+ *
  *     — 通过禁用 stagger variants 尊重用户的 prefers-reduced-motion 偏好
  *
  * Key exports / 主要导出:
@@ -28,21 +44,23 @@
  *
  * React Query key contract (TIER 4 LOCKED):
  *   ["douban-home"] — consumed by useDoubanHomeQuery; do not change.
+ *
  *   ["douban-home"] — 由 useDoubanHomeQuery 消费; 不得更改.
  *   ["watch-history", serverOrigin, userID, 10] — consumed by useWatchHistoryQuery; do not change.
+ *
  *   ["watch-history", serverOrigin, userID, 10] — 由 useWatchHistoryQuery 消费; 不得更改.
  *
  * STAGGER_CAP bounds the staggered list-entrance animation so arbitrarily long rails
  * do not produce proportionally long delays for items beyond the cap.
+ *
  * STAGGER_CAP 为列表入场动画设置上限, 使长列表中超出 cap 的条目不产生额外延迟.
  */
 
-import { useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
-import type { WatchHistoryItem } from "@/api/types";
 import { useClearWatchHistoryMutation, useDoubanHomeQuery, useWatchHistoryQuery } from "@/api/viewerHooks";
 import { Button } from "@/shared/ui/Button";
 import { EmptyState } from "@/shared/ui/EmptyState";
@@ -51,25 +69,33 @@ import { StatusState } from "@/shared/ui/StatusState";
 import { toast } from "@/shared/ui/Toast";
 import { staggerChild, staggerParent } from "@/animation/motionPresets";
 import { useAuth } from "@/auth/AuthContext";
+import {
+  clearAnonymousWatchHistory,
+  getAnonymousWatchHistorySnapshot,
+  subscribeAnonymousWatchHistory,
+} from "@/storage/anonymousWatchHistory";
 
 import { HomeSkeleton } from "@/viewer/skeletons/HomeSkeleton";
 
-import { ContinueWatchingRail } from "./ContinueWatchingRail";
+import { ContinueWatchingRail, type ContinueWatchingItem } from "./ContinueWatchingRail";
 import { HomeHero } from "./HomeHero";
 import { selectHeroCandidates } from "./heroCandidates";
 import { translateRailName } from "./railLabel";
 
 // STAGGER_CAP bounds list-entrance staggering so long rails do not produce arbitrarily long animations.
 // STAGGER_CAP
+//
 // 为列表入场动画设上限, 避免长列表导致动画过长.
 const STAGGER_CAP = 8;
 
 /**
  * formatRailRating formats a raw Douban rate string for display on a poster tile badge.
  * formatRailRating
+ *
  * 将原始豆瓣 rate 字符串格式化以在海报砖块徽章上显示.
  *
  * Returns "N/A" when rate is missing, blank, or "0" so every poster always shows a rating badge.
+ *
  * 当 rate 缺失、为空或为 "0" 时返回 "N/A", 确保每张海报始终显示评分徽章.
  */
 function formatRailRating(rate?: string) {
@@ -79,7 +105,7 @@ function formatRailRating(rate?: string) {
 
 /**
  * HomePage is the root viewer route rendered at /.
- * HomePage
+ *
  * 是渲染在 / 路由下的观看者根组件.
  *
  * Data flow:
@@ -93,7 +119,9 @@ function formatRailRating(rate?: string) {
  * Success state: renders HomeHero with candidates + optional continue rail + full poster rail grid.
  *
  * 数据流:
+ *
  *   useDoubanHomeQuery → sections → selectHeroCandidates → HomeHero
+ *
  *                                  → 海报 rail (stagger motion.div 列表)
  *   useAuth → 作用域化 useWatchHistoryQuery → ContinueWatchingRail
  *
@@ -114,10 +142,22 @@ export function HomePage() {
   };
   const historyQuery = useWatchHistoryQuery(historyScope);
   const clearHistoryMutation = useClearWatchHistoryMutation(historyScope);
+  const anonymousHistoryItems = useSyncExternalStore(
+    subscribeAnonymousWatchHistory,
+    getAnonymousWatchHistorySnapshot,
+    getAnonymousWatchHistorySnapshot,
+  );
   const sections = useMemo(() => query.data?.sections ?? [], [query.data?.sections]);
-  const historyItems = historyQuery.isSuccess ? historyQuery.data.items : [];
+  const historyItems = auth.isAuthenticated
+    ? historyQuery.isSuccess
+      ? historyQuery.data.items
+      : []
+    : auth.status.kind === "anonymous"
+      ? anonymousHistoryItems
+      : [];
   const heroCandidates = useMemo(() => selectHeroCandidates(sections), [sections]);
   // When the user prefers reduced motion, stagger variants resolve to instant.
+  //
   // 用户偏好减少动画时, stagger 立即完成.
   const reduceMotion = useReducedMotion() ?? false;
   const parentVariants = reduceMotion ? undefined : staggerParent;
@@ -126,21 +166,41 @@ export function HomePage() {
   /**
    * searchTitle navigates to the search page pre-filled with the given title.
    * searchTitle
+   *
    * 导航至预填标题的搜索页.
    *
    * The title is URI-encoded to handle special characters in movie names.
+   *
    * title 经 URI 编码处理, 以正确传递电影名中的特殊字符.
    */
   function searchTitle(title: string) {
     navigate(`/search?q=${encodeURIComponent(title)}`);
   }
 
-  function searchHistoryItem(item: WatchHistoryItem) {
+  function searchHistoryItem(item: ContinueWatchingItem) {
+    // History cards intentionally re-enter aggregate search by title instead of reopening a stale
+    // provider-specific route. The server can then choose from the sources that are available now.
+    //
+    // 观看历史卡片按标题重新进入聚合搜索, 不直接打开可能已失效的来源路由.
+    // 服务端可以据此重新选择当前可用来源.
     const params = new URLSearchParams({ q: item.title });
     navigate(`/search?${params.toString()}`);
   }
 
   function clearHistory() {
+    // Clear only the active identity partition. Anonymous clear is local; authenticated clear is
+    // remote. Switching identity never clears or merges the inactive partition.
+    //
+    // 仅清空当前身份分区. 匿名清空作用于本地, 已认证清空作用于远端.
+    // 切换身份不会清空或合并未激活的分区.
+    if (auth.status.kind === "anonymous") {
+      if (!clearAnonymousWatchHistory()) {
+        toast.error({
+          title: t("home.continueWatching.clearErrorTitle"),
+        });
+      }
+      return;
+    }
     clearHistoryMutation.mutate(undefined, {
       onError: (error) => {
         toast.error({
@@ -217,6 +277,7 @@ export function HomePage() {
                   key={`${section.name}-${item.id}`}
                   role="listitem"
                   // Only the first STAGGER_CAP items stagger to keep total animation time bounded on long rails.
+                  //
                   // 只有前 STAGGER_CAP 项参与 stagger, 长列表的动画时长保持稳定.
                   variants={index < STAGGER_CAP ? childVariants : undefined}
                 >

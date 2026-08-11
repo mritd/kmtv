@@ -1,4 +1,5 @@
 // AdminSubscriptionsScreen — list, create with URL validation, sync, delete-with-confirm.
+//
 // AdminSubscriptionsScreen — 列表、含 URL 校验的创建、同步、二次确认删除.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
@@ -18,6 +19,7 @@ const DEFAULT_INTERVAL = 86400;
 
 /**
  * AdminSubscriptionsScreenContextValue — admin binding for tests.
+ *
  * AdminSubscriptionsScreenContextValue — 为测试提供 admin 绑定.
  */
 export interface AdminSubscriptionsScreenContextValue {
@@ -26,6 +28,7 @@ export interface AdminSubscriptionsScreenContextValue {
 
 /**
  * AdminSubscriptionsScreenContext — null-by-default; tests inject via Provider.
+ *
  * AdminSubscriptionsScreenContext — 默认 null, 测试通过 Provider 注入.
  */
 export const AdminSubscriptionsScreenContext = createContext<AdminSubscriptionsScreenContextValue | null>(null);
@@ -45,6 +48,7 @@ function useDefaultCtx(): AdminSubscriptionsScreenContextValue | null {
 
 /**
  * AdminSubscriptionsScreen — subscription management view.
+ *
  * AdminSubscriptionsScreen — 订阅管理视图.
  */
 export function AdminSubscriptionsScreen(){

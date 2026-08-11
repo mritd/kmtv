@@ -1,5 +1,6 @@
 /**
  * SourcesPanel tests — happy path, empty state, error state, and key interactions.
+ *
  * SourcesPanel 测试 — 正常路径、空状态、错误状态和关键交互.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -15,6 +16,7 @@ import { adminModalStore } from "@/store/adminModalStore";
 import { SourcesPanel } from "../SourcesPanel";
 
 // Minimal Source fixture reused across cases.
+//
 // 跨用例复用的最小 Source 数据.
 const healthySource: Source = {
   id: 1,
@@ -34,6 +36,7 @@ const healthySource: Source = {
 
 // Adult source marked via the structured is_adult field, NOT a name prefix —
 // this proves NSFW detection no longer depends on the 🔞 name convention.
+//
 // 通过结构化 is_adult 字段标记的成人源, 名称不含 🔞 前缀 — 证明 NSFW 判定不再依赖名称约定.
 const disabledNsfwSource: Source = {
   id: 2,
@@ -97,6 +100,7 @@ describe("SourcesPanel", () => {
       renderPanel({ listSources: async () => ({ sources: [] }) });
 
       // The panel heading is always visible; no rows rendered.
+      //
       // 面板标题始终可见; 无行渲染.
       expect(await screen.findByRole("heading", { name: "视频源" })).toBeInTheDocument();
       expect(screen.queryByText("Source A")).toBeNull();
@@ -108,6 +112,7 @@ describe("SourcesPanel", () => {
       renderPanel({ listSources: async () => Promise.reject(new Error("network error")) });
 
       // StatusState renders the title as a heading.
+      //
       // StatusState 将标题渲染为标题元素.
       expect(await screen.findByRole("heading", { name: "视频源加载失败" })).toBeInTheDocument();
     });
@@ -123,6 +128,7 @@ describe("SourcesPanel", () => {
 
       const rows = await screen.findAllByText(/Source A|Adult Source/);
       // Source A (non-NSFW) should appear before Adult Source (NSFW).
+      //
       // 非 NSFW 的 Source A 应排在 NSFW 的 Adult Source 之前.
       expect(rows[0]).toHaveTextContent("Source A");
       expect(rows[1]).toHaveTextContent("Adult Source");
@@ -135,6 +141,7 @@ describe("SourcesPanel", () => {
 
       await screen.findByText("Source A");
       // i18n key source.nsfwBadge = "NSFW"; only the is_adult source is marked.
+      //
       // i18n key source.nsfwBadge = "NSFW"; 仅 is_adult 源被标记.
       const badges = screen.getAllByText("NSFW");
       expect(badges).toHaveLength(1);
@@ -167,6 +174,7 @@ describe("SourcesPanel", () => {
       const bulkSetSourcesEnabled = vi.fn(async (_ids: number[], _enabled: boolean) => undefined);
       renderPanel({
         // Mix of enabled + disabled non-NSFW + disabled NSFW; only the disabled ones are targeted.
+        //
         // 混合 启用 + 禁用非 NSFW + 禁用 NSFW; 仅禁用的源会被启用.
         listSources: async () => ({ sources: [healthySource, disabledSource, disabledNsfwSource] }),
         bulkSetSourcesEnabled,
@@ -179,6 +187,7 @@ describe("SourcesPanel", () => {
       const [ids, enabled] = bulkSetSourcesEnabled.mock.calls[0];
       expect(enabled).toBe(true);
       // Both disabled sources (ids 3 and 2) targeted; the enabled source (id 1) excluded.
+      //
       // 两个禁用源 (id 3 和 2) 被启用; 已启用的源 (id 1) 被排除.
       expect([...ids].sort((a, b) => a - b)).toEqual([2, 3]);
     });
@@ -206,6 +215,7 @@ describe("SourcesPanel", () => {
 
       await screen.findByText("Source A");
       // aria-label is set by i18n key source.actionsAria.check: "检查 <name>"
+      //
       // aria-label 由 i18n key source.actionsAria.check 设置: "检查 <name>"
       const checkBtn = screen.getByRole("button", { name: "检查 Source A" });
       await user.click(checkBtn);

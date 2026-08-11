@@ -12,6 +12,7 @@ import (
 )
 
 // TestUpdateSource_ConcurrentWritesDoNotBusy is a regression guard for the
+//
 // SQLITE_BUSY storm that hit "启用 🔞 源" before the ConnectionHook fix.
 // PRAGMA busy_timeout is per-connection in SQLite, so the previous one-shot
 // db.Exec("PRAGMA busy_timeout=5000") only configured the first connection.
@@ -22,6 +23,7 @@ import (
 // real file-backed database. With the connection hook in place every new
 // pooled connection inherits busy_timeout=5000 and the writes serialize
 // cleanly. Without the hook, most updates fail.
+//
 // TestUpdateSource_ConcurrentWritesDoNotBusy 是 "启用 🔞 源" SQLITE_BUSY 风暴的回归护栏.
 // PRAGMA busy_timeout 是连接级的, 之前一次性的 db.Exec 只配置了第一条借出的连接,
 // database/sql 池后续按需创建的连接会回退到 busy_timeout=0,
@@ -74,6 +76,7 @@ func TestUpdateSource_ConcurrentWritesDoNotBusy(t *testing.T) {
 // TestBulkSetSourcesEnabled_AtomicAndIdempotent verifies the new bulk endpoint
 // flips many rows in one transaction, and that an unknown id rolls back the
 // entire batch.
+//
 // TestBulkSetSourcesEnabled_AtomicAndIdempotent 验证批量端点在单事务里翻转多行,
 // 且其中存在未知 id 时整批回滚, 数据库保持未修改状态.
 func TestBulkSetSourcesEnabled_AtomicAndIdempotent(t *testing.T) {
@@ -108,12 +111,14 @@ func TestBulkSetSourcesEnabled_AtomicAndIdempotent(t *testing.T) {
 	}
 
 	// Empty input is a no-op.
+	//
 	// 空输入是 no-op.
 	if err := s.BulkSetSourcesEnabled(nil, true); err != nil {
 		t.Errorf("BulkSetSourcesEnabled(nil) = %v, want nil", err)
 	}
 
 	// A missing id rolls back the entire batch: previously-enabled rows stay enabled.
+	//
 	// 含有不存在的 id 时整批回滚: 已启用的行保持启用状态.
 	withMissing := append([]int64{}, ids...)
 	withMissing = append(withMissing, 99999)

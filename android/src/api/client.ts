@@ -1,4 +1,5 @@
 // API client wiring fetch + bearer token + APIError mapping.
+//
 // 装配 fetch、bearer token 与 APIError 映射的 API client.
 
 import { APIError } from "./apiError";
@@ -8,6 +9,7 @@ const DEFAULT_TIMEOUT_MS = 20_000;
 
 /**
  * Configuration accepted by `createAPIClient`.
+ *
  * `createAPIClient` 接受的配置.
  */
 export interface APIClientOptions {
@@ -19,6 +21,7 @@ export interface APIClientOptions {
 
 /**
  * Per-call overrides.
+ *
  * 单次调用的覆盖参数.
  */
 export interface RequestOptions {
@@ -28,6 +31,7 @@ export interface RequestOptions {
 
 /**
  * Minimal API client surface used by feature modules.
+ *
  * 功能模块使用的最小 API client 边界.
  */
 export interface APIClient {
@@ -38,16 +42,19 @@ export interface APIClient {
   del: (path: string, opts?: RequestOptions) => Promise<void>;
   /**
    * GET binary bytes (e.g. an avatar) with the bearer header injected. Returns ArrayBuffer.
+   *
    * 携带 bearer 头获取二进制字节 (如头像), 返回 ArrayBuffer.
    */
   getBlob: (path: string, opts?: RequestOptions) => Promise<ArrayBuffer>;
   /**
    * PUT a multipart/form-data body. Content-Type is NOT set manually; fetch builds the boundary.
+   *
    * PUT multipart/form-data 请求体; 不手动设置 Content-Type, 由 fetch 自动追加 boundary.
    */
   putMultipart: <T>(path: string, form: FormData, opts?: RequestOptions) => Promise<T>;
   /**
    * DELETE that reads the JSON response body (mirrors iOS APIClient.deleteReturning).
+   *
    * 读取 JSON 响应体的 DELETE (对应 iOS APIClient.deleteReturning).
    */
   delReturning: <T>(path: string, opts?: RequestOptions) => Promise<T>;
@@ -135,6 +142,7 @@ async function performRequest<T>(
 
 /**
  * Build an APIClient bound to a base URL and token provider.
+ *
  * 构造一个与 baseURL 及 token provider 绑定的 APIClient.
  */
 export function createAPIClient(options: APIClientOptions): APIClient {
@@ -203,6 +211,7 @@ export function createAPIClient(options: APIClientOptions): APIClient {
     putMultipart: <T>(path: string, form: FormData, opts?: RequestOptions) => {
       // Authorization injected manually; Content-Type intentionally omitted so fetch sets the
       // multipart boundary itself.
+      //
       // 仅手动注入 Authorization, 不设置 Content-Type, 让 fetch 自动加上 multipart boundary.
       const headers = new Headers();
       const token = options.getToken();

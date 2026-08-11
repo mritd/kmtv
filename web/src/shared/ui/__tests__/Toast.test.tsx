@@ -49,6 +49,7 @@ describe("Toast", () => {
       vi.advanceTimersByTime(5000);
     });
     // Run real timers so the AnimatePresence exit completes.
+    //
     // 切回真实计时器让退出动画跑完.
     vi.useRealTimers();
     await waitFor(() => {
@@ -79,6 +80,7 @@ describe("Toast", () => {
 
 describe("useSessionExpiredToast — duplicate-on-remount guard (F4)", () => {
   // Each test fully resets the store (items + sessionToastFiredKey) so tests are independent.
+  //
   // 每个测试完整重置 store (items + sessionToastFiredKey) 以保证测试间独立.
   beforeEach(() => {
     useToastStore.setState({ items: [], sessionToastFiredKey: null });
@@ -105,6 +107,7 @@ describe("useSessionExpiredToast — duplicate-on-remount guard (F4)", () => {
     // Bug: lastFired is a per-instance useRef. When the host remounts, the new instance's
     // lastFired.current is null, so the effect fires the toast again.
     // Fix: module-level dedup key so the guard survives host unmount/remount.
+    //
     // 缺陷: lastFired 是实例级 useRef; 宿主重挂载时新实例的 lastFired.current 为 null,
     // effect 再次触发 toast.
     // 修复: 模块级去重 key, 跨宿主挂载/卸载持久.
@@ -113,6 +116,7 @@ describe("useSessionExpiredToast — duplicate-on-remount guard (F4)", () => {
     expect(useToastStore.getState().items).toHaveLength(1);
 
     // Unmount then remount with the SAME reason — must NOT fire again.
+    //
     // 卸载后用相同 reason 重挂载 — 不应再次触发.
     unmount();
     render(<SessionHost reason="unauthorized" />);
@@ -121,12 +125,14 @@ describe("useSessionExpiredToast — duplicate-on-remount guard (F4)", () => {
 
   it("fires a new toast when the reason changes after remount", () => {
     // After the fix, a genuinely different reason key should still trigger a fresh toast.
+    //
     // 修复后, 真正不同的 reason key 仍应触发新的 toast.
     render(<ToastContainer />);
     const { unmount } = render(<SessionHost reason="unauthorized" />);
     expect(useToastStore.getState().items).toHaveLength(1);
     unmount();
     // Clear items to make counting easier.
+    //
     // 清除条目以便计数.
     useToastStore.setState({ items: [] });
     render(<SessionHost reason="expired" />);
@@ -136,6 +142,7 @@ describe("useSessionExpiredToast — duplicate-on-remount guard (F4)", () => {
   it("fires again after a new auth cycle (reason: unauthorized → null → unauthorized)", () => {
     // High finding from Codex: the dedup key must be cleared when reason becomes non-toastable
     // (null / successful login), so a subsequent independent expiry can fire a fresh toast.
+    //
     // Codex High: 当 reason 变为不可弹 toast 的值时必须清除去重 key,
     // 以便后续独立的认证过期能触发新的 toast.
     render(<ToastContainer />);
@@ -143,13 +150,16 @@ describe("useSessionExpiredToast — duplicate-on-remount guard (F4)", () => {
     expect(useToastStore.getState().items).toHaveLength(1);
 
     // Simulate login: reason goes to null (auth cycle resets).
+    //
     // 模拟登录: reason 变为 null (认证周期重置).
     rerender(<SessionHost reason={null} />);
     // Clear items to simulate a fresh session.
+    //
     // 清除条目模拟新会话.
     useToastStore.setState({ items: [] });
 
     // New expiry with the same reason — must fire again.
+    //
     // 相同 reason 的新过期 — 必须再次触发 toast.
     rerender(<SessionHost reason="unauthorized" />);
     expect(useToastStore.getState().items).toHaveLength(1);

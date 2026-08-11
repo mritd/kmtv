@@ -1,4 +1,5 @@
 // APIError discriminated-union tests.
+//
 // APIError 判别式联合类型测试.
 
 import { APIError, localizedMessage } from "./apiError";

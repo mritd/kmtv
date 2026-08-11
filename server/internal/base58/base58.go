@@ -1,4 +1,5 @@
 // Package base58 implements base58 encoding/decoding.
+//
 // Package base58 实现 base58 编码和解码.
 package base58
 
@@ -58,6 +59,7 @@ var bigRadix = [...]*big.Int{
 }
 
 // Decode decodes a base58-encoded string to a byte slice.
+//
 // Decode 将 base58 编码字符串解码为字节切片.
 func Decode(s string) []byte {
 	answer := big.NewInt(0)
@@ -104,6 +106,7 @@ func Decode(s string) []byte {
 }
 
 // Encode encodes a byte slice to a base58 string.
+//
 // Encode 将字节切片编码为 base58 字符串.
 func Encode(b []byte) string {
 	x := new(big.Int).SetBytes(b)

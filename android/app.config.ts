@@ -1,4 +1,5 @@
 // Expo configuration for the KMTV Android client.
+//
 // KMTV Android 客户端的 Expo 配置.
 
 import type { ExpoConfig } from "@expo/config-types";

@@ -1,9 +1,11 @@
 /**
  * SourcePicker tests — source selection control with latency sorting and overflow collapse.
+ *
  * SourcePicker 测试 — 带延迟排序和溢出折叠的来源选择控件.
  *
  * Covers: empty list, rendering, current-item highlight, click selects, latencyLabel unit,
  *         sorting, overflow collapse/expand, aria-pressed contract.
+ *
  * 覆盖: 空列表、渲染、当前项高亮、点击选择、latencyLabel 单元测试、
  *       排序、溢出折叠/展开、aria-pressed 契约.
  */
@@ -14,6 +16,7 @@ import { describe, expect, it, vi } from "vitest";
 import { latencyLabel, SourcePicker, type SourcePickerItem } from "./SourcePicker";
 
 // Minimal two-source fixture.
+//
 // 最小双来源测试夹具.
 const twoSources: SourcePickerItem[] = [
   { key: "source-a", name: "Source A", durationMs: 800, status: "ready" },
@@ -31,6 +34,7 @@ describe("latencyLabel", () => {
 
   it("returns the unknown class when durationMs is negative", () => {
     // Negative values are treated as invalid/unknown.
+    //
     // 负值视为无效/未知.
     expect(latencyLabel(-1, "未知")).toEqual({ label: "未知", className: "source-latency-unknown" });
   });
@@ -53,12 +57,14 @@ describe("latencyLabel", () => {
 
   it("treats exactly 1000 ms as warn tier", () => {
     // Boundary: 1000 ms is exactly 1 s, which maps to warn (1 <= x < 3).
+    //
     // 边界: 1000ms 恰好为 1s, 映射到 warn (1 <= x < 3).
     expect(latencyLabel(1000, "未知")).toEqual({ label: "1.0s", className: "source-latency-warn" });
   });
 
   it("treats exactly 3000 ms as bad tier", () => {
     // Boundary: 3000 ms is exactly 3 s, which maps to bad (x >= 3).
+    //
     // 边界: 3000ms 恰好为 3s, 映射到 bad (x >= 3).
     expect(latencyLabel(3000, "未知")).toEqual({ label: "3.0s", className: "source-latency-bad" });
   });
@@ -112,6 +118,7 @@ describe("SourcePicker", () => {
 
       const buttons = screen.getAllByRole("button").filter((b) => b.classList.contains("source-button"));
       // Expected order: Fast (200ms) → Medium (2.0s) → Slow (5.0s) → Unknown.
+      //
       // 预期顺序: Fast (200ms) → Medium (2.0s) → Slow (5.0s) → Unknown.
       expect(buttons[0]).toHaveAccessibleName("Fast · 200ms");
       expect(buttons[1]).toHaveAccessibleName("Medium · 2.0s");
@@ -131,6 +138,7 @@ describe("SourcePicker", () => {
 
   describe("overflow collapse (more than 9 sources)", () => {
     // Build 12 sources with stable latency so sort order is deterministic.
+    //
     // 构建 12 个延迟稳定的来源以保证排序确定性.
     const manySources: SourcePickerItem[] = Array.from({ length: 12 }, (_, i) => ({
       key: `source-${i + 1}`,
@@ -142,6 +150,7 @@ describe("SourcePicker", () => {
     // The limit is three full rows of the desktop grid. Keeping it a multiple of the
     // column count is what stops the collapse from hiding a source that had room on
     // screen — at 8 the third row rendered two chips and hid the ninth.
+    //
     // 该上限是桌面网格的三整行. 保持它是列数的整数倍, 才能避免折叠掉屏幕上原本放得下的来源 —
     // 取 8 时第三行只排两个, 却把第九个藏了起来.
     it("collapses items beyond the first 9 and shows a toggle", () => {
@@ -181,6 +190,7 @@ describe("SourcePicker", () => {
       expect(screen.queryByRole("button", { name: "显示更多" })).toBeNull();
       expect(screen.queryByRole("button", { name: "收起" })).toBeNull();
       // All 9 source buttons are visible.
+      //
       // 全部 9 个来源按钮可见.
       expect(screen.getAllByRole("button").filter((b) => b.classList.contains("source-button"))).toHaveLength(9);
     });

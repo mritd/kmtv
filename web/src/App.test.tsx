@@ -11,13 +11,16 @@ describe("AppShell", () => {
     render(<AppShell tokenStore={createMemoryTokenStore()} apiClient={createTestAPI()} />);
 
     // Probe of /auth/me must complete before the unauthenticated branch renders the login form.
+    //
     // /auth/me 探测完成后才会渲染 unauthenticated 分支的登录表单.
     expect(await screen.findByRole("heading", { name: "KMTV" })).toBeInTheDocument();
     // Login form is i18n'd (auth namespace, zh test locale) and must not pre-fill credentials.
+    //
     // 登录表单已做 i18n (auth 命名空间, 测试语言为 zh), 且不得预填凭据.
     expect(screen.getByLabelText("用户名")).toHaveValue("");
     expect(screen.getByLabelText("密码")).toHaveValue("");
     // Username field is autofocused so visitors can type immediately.
+    //
     // 用户名输入框自动聚焦, 访客可直接输入.
     expect(screen.getByLabelText("用户名")).toHaveFocus();
   });
@@ -74,6 +77,7 @@ describe("AppShell", () => {
     const user = userEvent.setup();
     const tokenStore = createMemoryTokenStore();
     // Mock api.me resolves the boot probe to the anonymous identity.
+    //
     // api.me 让启动探测落到匿名身份.
     const api = createTestAPI({
       me: async () => ({ id: 0, username: "anonymous", role: "user" }),
@@ -82,15 +86,18 @@ describe("AppShell", () => {
     render(<AppShell tokenStore={tokenStore} apiClient={api} />);
 
     // Wait for the anonymous nav to mount.
+    //
     // 等待匿名身份下的导航挂载.
     await screen.findByRole("link", { name: "首页" });
 
     // Open the avatar popover and click the login button.
+    //
     // 打开头像 popover, 点击登录按钮.
     await user.click(screen.getByRole("button", { name: "账户菜单" }));
     await user.click(screen.getByRole("button", { name: "登录" }));
 
     // The login form must render (we are now on /login).
+    //
     // 登录表单出现 (此时已在 /login 上).
     expect(await screen.findByRole("heading", { name: "KMTV" })).toBeInTheDocument();
     expect(screen.getByLabelText("用户名")).toBeInTheDocument();
@@ -101,6 +108,7 @@ describe("AppShell", () => {
     const tokenStore = createMemoryTokenStore();
     // Mock api.login mirrors the real client:
     // write the token snapshot on success.
+    //
     // 模拟 api.login 与真实客户端一致, 成功后写入 token 快照.
     const api = createTestAPI({
       login: vi.fn(async () => {
@@ -113,9 +121,11 @@ describe("AppShell", () => {
     render(<AppShell tokenStore={tokenStore} apiClient={api} />);
 
     // Wait for probe to resolve to unauthenticated and the login button to mount.
+    //
     // 等待探测完成进入 unauthenticated 分支, 登录按钮挂载.
     const submit = await screen.findByRole("button", { name: "登录" });
     // Credentials are no longer pre-filled, so the user must type them before submitting.
+    //
     // 凭据不再预填, 用户必须先输入再提交.
     await user.type(screen.getByLabelText("用户名"), "admin");
     await user.type(screen.getByLabelText("密码"), "admin");

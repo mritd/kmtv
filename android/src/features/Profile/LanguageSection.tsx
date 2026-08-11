@@ -1,4 +1,5 @@
 // LanguageSection — pill radio for EN / ZH. Persists via i18nStore and live-switches i18next.
+//
 // LanguageSection — EN / ZH 二选一的 pill 单选, 通过 i18nStore 持久化并实时切换 i18next.
 
 import i18next from "i18next";
@@ -13,6 +14,7 @@ import { useI18nStore } from "@/store/i18nStore";
 
 /**
  * LanguageSection — EN / ZH pill radio.
+ *
  * LanguageSection — EN / ZH 二选一的 pill 单选.
  */
 export function LanguageSection() {

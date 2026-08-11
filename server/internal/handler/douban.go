@@ -11,6 +11,7 @@ import (
 )
 
 // DoubanCategories returns the list of available Douban categories.
+//
 // DoubanCategories 返回可用的 Douban 分类列表.
 func (h *Handler) DoubanCategories(c *gin.Context) {
 	categories := h.doubanSvc.GetCategories()
@@ -18,6 +19,7 @@ func (h *Handler) DoubanCategories(c *gin.Context) {
 }
 
 // DoubanList returns a paginated list of Douban items by category and type.
+//
 // DoubanList 按分类和类型返回分页 Douban 条目列表.
 func (h *Handler) DoubanList(c *gin.Context) {
 	category := c.Query("category")
@@ -56,6 +58,7 @@ func (h *Handler) DoubanList(c *gin.Context) {
 
 // recentHotRegionType maps a Chinese region name to the Douban recent_hot "type" parameter.
 // Movie uses Chinese names directly; TV and Show use Douban-specific type codes.
+//
 // recentHotRegionType 将中文地区名映射为 Douban recent_hot 的 "type" 参数.
 // 电影直接使用中文名称, 剧集和综艺使用 Douban 特定 type code.
 func recentHotRegionType(format, region string) string {
@@ -84,6 +87,7 @@ func recentHotRegionType(format, region string) string {
 		}
 	default:
 		// Movie: Chinese region names work directly.
+		//
 		// 电影: 中文地区名可以直接使用.
 		if region != "" {
 			return region
@@ -93,6 +97,7 @@ func recentHotRegionType(format, region string) string {
 }
 
 // DoubanRecommend returns recommended movies from Douban.
+//
 // DoubanRecommend 返回 Douban 推荐电影.
 func (h *Handler) DoubanRecommend(c *gin.Context) {
 	items, err := h.doubanSvc.GetRecommend(c.Request.Context())
@@ -106,6 +111,7 @@ func (h *Handler) DoubanRecommend(c *gin.Context) {
 }
 
 // DoubanHomeSections returns all home page sections with pre-fetched items.
+//
 // DoubanHomeSections 返回已预取条目的全部首页分区.
 func (h *Handler) DoubanHomeSections(c *gin.Context) {
 	sections := h.doubanSvc.GetHomeSections(c.Request.Context())
@@ -113,8 +119,10 @@ func (h *Handler) DoubanHomeSections(c *gin.Context) {
 }
 
 // DoubanRecommendByFilters returns Douban items filtered by kind, tag, format, and region.
+//
 // When tag is non-empty, uses the recent_hot API (for ranked lists like 热门/最新).
 // When tag is empty, uses the recommend API (for general browsing with format/region filters).
+//
 // DoubanRecommendByFilters 按 kind, tag, format 和 region 返回 Douban 条目.
 // tag 非空时使用 recent_hot API, 用于 热门/最新 等榜单.
 // tag 为空时使用 recommend API, 用于按 format/region 做通用浏览.
@@ -150,6 +158,7 @@ func (h *Handler) DoubanRecommendByFilters(c *gin.Context) {
 	var err error
 
 	// Ranking keywords work with the recent_hot API; everything else uses recommend.
+	//
 	// 排行类关键字使用 recent_hot API, 其他场景使用 recommend API.
 	recentHotTags := map[string]bool{
 		"热门": true, "最新": true, "豆瓣高分": true, "冷门佳片": true,
@@ -158,6 +167,7 @@ func (h *Handler) DoubanRecommendByFilters(c *gin.Context) {
 	if recentHotTags[tag] {
 		// recent_hot uses "type" for region filtering.
 		// Movie uses Chinese names directly; TV/Show use Douban type codes.
+		//
 		// recent_hot 使用 "type" 做地区过滤.
 		// 电影直接使用中文名称, 剧集和综艺使用 Douban type code.
 		recentHotType := recentHotRegionType(format, region)

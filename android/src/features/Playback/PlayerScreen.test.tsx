@@ -1,4 +1,5 @@
 // PlayerScreen tests — Video mounts after URL resolves; BackHandler exits full-screen first.
+//
 // PlayerScreen 测试 — URL 解析后 Video 挂载; BackHandler 优先退出全屏.
 
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
@@ -121,6 +122,7 @@ test("overlay background does not capture control button taps", async () => {
 
   // Overlay starts visible. The dimming layer is visual-only so it cannot steal taps from
   // transport buttons, the rate menu, fullscreen, or the slider.
+  //
   // 遮罩默认可见. 暗色层只负责视觉, 不抢播放按钮, 倍速菜单, 全屏按钮或进度条的触控.
   expect(queryByLabelText("player-overlay")).toBeTruthy();
   expect(getByTestId("playerOverlayDismissArea").props.pointerEvents).toBe("none");
@@ -205,6 +207,7 @@ test("Video onLoad seeks to resume position and marks consumed", async () => {
   const video = await findByTestId("video");
   await act(async () => { fireEvent(video, "onLoad", { duration: 600 }); });
   // After consumption, urlGenerationRef updates so a second onLoad doesn't re-seek.
+  //
   // 消费后 urlGenerationRef 已更新, 第二次 onLoad 不会再次 seek.
   await act(async () => { fireEvent(video, "onLoad", { duration: 600 }); });
   expect(video).toBeTruthy();
@@ -325,17 +328,20 @@ test("BackHandler dismisses full-screen before popping", async () => {
   await act(async () => { fireEvent.press(getByTestId("fullscreenButton")); });
   await waitFor(() => expect(getByTestId("exitFullscreenButton")).toBeTruthy());
   // The PlayerScreen registers a hardwareBackPress handler — grab the most recent registration.
+  //
   // PlayerScreen 注册 hardwareBackPress; 取最后一次注册的 handler.
   const handlerCall = [...spy.mock.calls].reverse().find((c) => c[0] === "hardwareBackPress");
   expect(handlerCall).toBeDefined();
   const handler = handlerCall![1] as () => boolean;
   // First back press while full-screen exits full-screen without closing the screen.
+  //
   // 全屏时第一次 back 只退出全屏, 不关闭页面.
   act(() => { handler(); });
   expect(onClose).not.toHaveBeenCalled();
   await waitFor(() => expect(queryByTestId("exitFullscreenButton")).toBeNull());
   await waitFor(() => expect(orientation.setOrientation).toHaveBeenCalledWith("portrait"));
   // The effect re-registers after exiting full-screen. The next back press closes the screen.
+  //
   // 退出全屏后 effect 重新注册, 下一次 back 才关闭页面.
   const normalHandlerCall = [...spy.mock.calls].reverse().find((c) => c[0] === "hardwareBackPress");
   expect(normalHandlerCall).toBeDefined();

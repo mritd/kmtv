@@ -1,4 +1,10 @@
 #!/bin/bash
+# ipa.sh selects an online physical iOS or tvOS device, builds the matching app,
+# and packages the app bundle inside Payload as a timestamped IPA archive.
+#
+# ipa.sh 选择在线的 iOS 或 tvOS 物理设备, 构建匹配的 app, 并将 app bundle 放入
+# Payload 后打包为带时间戳的 IPA archive.
+
 set -euo pipefail
 
 APPLE_DIR="$(cd "$(dirname "$0")/../apple" && pwd)"

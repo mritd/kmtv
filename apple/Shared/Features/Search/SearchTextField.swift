@@ -7,6 +7,7 @@ struct SearchTextField: UIViewRepresentable {
     var onSubmit: () -> Void
 
     /// Uses UIKit text field to keep iPad hit testing stable after navigation bar transitions.
+    ///
     /// 使用 UIKit 文本框, 避免 iPad 导航栏切换后命中测试不稳定.
     func makeUIView(context: Context) -> UITextField {
         let textField = UITextField()

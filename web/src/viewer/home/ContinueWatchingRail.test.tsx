@@ -1,4 +1,5 @@
 // ContinueWatchingRail tests — cover semantic rail rendering, clamped progress, selection, and guarded clearing.
+//
 // ContinueWatchingRail 测试 — 覆盖语义化 rail 渲染, 进度限制, 选择回调和受保护清空.
 
 import { render, screen, within } from "@testing-library/react";
@@ -7,7 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { WatchHistoryItem } from "@/api/types";
 
-import { ContinueWatchingRail } from "./ContinueWatchingRail";
+import { ContinueWatchingRail, type ContinueWatchingItem } from "./ContinueWatchingRail";
 
 function makeHistoryItem(overrides: Partial<WatchHistoryItem> = {}): WatchHistoryItem {
   const index = overrides.id ?? 1;
@@ -90,6 +91,25 @@ describe("ContinueWatchingRail", () => {
     render(<ContinueWatchingRail items={[item]} onSelect={onSelect} onClear={vi.fn()} isClearing={false} />);
 
     await user.click(screen.getByRole("button", { name: /Pick Me/ }));
+
+    expect(onSelect).toHaveBeenCalledWith(item);
+  });
+
+  it("accepts anonymous local history cards with stable string IDs", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const item: ContinueWatchingItem = {
+      id: "anonymous:pick me",
+      title: "Pick Me",
+      cover: "",
+      episode: "01",
+      progress_sec: 60,
+      duration_sec: 120,
+    };
+
+    render(<ContinueWatchingRail items={[item]} onSelect={onSelect} onClear={vi.fn()} isClearing={false} />);
+
+    await user.click(screen.getByRole("button", { name: "Pick Me, 01" }));
 
     expect(onSelect).toHaveBeenCalledWith(item);
   });

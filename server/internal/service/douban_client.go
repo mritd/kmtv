@@ -15,6 +15,7 @@ import (
 )
 
 // GetList fetches a list of items from Douban by category and media type.
+//
 // GetList 按分类和媒体类型从 Douban 获取条目列表.
 func (ds *DoubanService) GetList(ctx context.Context, category, mediaType string, start, count int) ([]DoubanItem, error) {
 	apiURL := "https://movie.douban.com/j/search_subjects?" + url.Values{
@@ -64,6 +65,7 @@ func (ds *DoubanService) GetList(ctx context.Context, category, mediaType string
 }
 
 // GetRecentHot fetches items from the Douban mobile recent_hot API.
+//
 // GetRecentHot 从 Douban 移动端 recent_hot API 获取条目.
 func (ds *DoubanService) GetRecentHot(ctx context.Context, kind, category, mediaType string, start, count int) ([]DoubanItem, error) {
 	apiURL := "https://m.douban.com/rexxar/api/v2/subject/recent_hot/" + url.PathEscape(kind) + "?" + url.Values{
@@ -143,12 +145,14 @@ func extractYearFromSubtitle(subtitle string) string {
 }
 
 // GetRecommend returns recommended movies using the recent_hot API.
+//
 // GetRecommend 使用 recent_hot API 返回推荐电影.
 func (ds *DoubanService) GetRecommend(ctx context.Context) ([]DoubanItem, error) {
 	return ds.GetRecentHot(ctx, "movie", "热门", "全部", 0, 20)
 }
 
 // GetRecommendByFilters fetches items from the Douban mobile recommend API filtered by kind, tag, format, and region.
+//
 // GetRecommendByFilters 按 kind, tag, format 和 region 从 Douban 移动端 recommend API 获取条目.
 func (ds *DoubanService) GetRecommendByFilters(ctx context.Context, kind, tag, format, region string, start, count int) ([]DoubanItem, error) {
 	selectedCategories := map[string]string{}

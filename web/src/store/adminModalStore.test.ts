@@ -1,8 +1,10 @@
 /**
  * Tests for adminModalStore — single-active-modal controller for the admin panel.
+ *
  * 管理弹窗 store 测试 — 管理面板的单活动弹窗控制器.
  *
  * Covers: initial state, open(), close(), payload replacement, all AdminModalPayload variants.
+ *
  * 覆盖: 初始状态、open()、close()、payload 替换、所有 AdminModalPayload 变体.
  */
 
@@ -14,7 +16,9 @@ import type { AdminUser, Source, Subscription } from "@/api/types";
 
 // ---------------------------------------------------------------------------
 // Test fixtures — minimal objects satisfying the API types
+//
 // 测试夹具 — 满足 API 类型的最小对象
+//
 // ---------------------------------------------------------------------------
 
 const minimalSource: Source = {
@@ -53,7 +57,9 @@ const minimalUser: AdminUser = {
 
 // ---------------------------------------------------------------------------
 // Reset before each test — mirrors the setup.ts pattern
+//
 // 每个测试前重置 — 与 setup.ts 模式一致
+//
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
@@ -69,6 +75,7 @@ describe("adminModalStore", () => {
     // These tests verify the post-reset state enforced by close() and beforeEach.
     // The true module-level initial state is identical, but testing it in isolation
     // would require a fresh module import — these cases pin the reset contract instead.
+    //
     // 这些测试验证 close() 和 beforeEach 执行后的重置状态.
     // 模块级初始状态与重置后相同, 但隔离测试需要新 import — 此处锁定重置契约.
     it("current is null after close() (no modal open)", () => {
@@ -84,6 +91,7 @@ describe("adminModalStore", () => {
 
     it("replaces a previously open payload without an explicit close()", () => {
       // Opening a second modal must not require the caller to close first.
+      //
       // 打开第二个弹窗不需要调用方先显式关闭.
       adminModalStore.getState().open({ kind: "source.new" });
       adminModalStore.getState().open({ kind: "subscription.new" });
@@ -171,6 +179,7 @@ describe("adminModalStore", () => {
 
     it("is idempotent when called while already closed", () => {
       // Calling close() on an already-closed store must not throw or corrupt state.
+      //
       // 在已关闭的 store 上调用 close() 不应抛出异常或破坏状态.
       adminModalStore.getState().close();
       adminModalStore.getState().close();
@@ -182,6 +191,7 @@ describe("adminModalStore", () => {
     it("notifies subscribers when the modal opens and closes", () => {
       const snapshots: Array<AdminModalPayload | null> = [];
       // vanilla createStore.subscribe receives (newState, prevState).
+      //
       // vanilla createStore.subscribe 接收 (newState, prevState).
       const unsub = adminModalStore.subscribe((state) => {
         snapshots.push(state.current);

@@ -1,4 +1,5 @@
 // PasswordSection — current/next/confirm SecureField triplet + Save button.
+//
 // PasswordSection — 当前/新/确认 三个 SecureField + 保存按钮.
 
 import React, { useState } from "react";
@@ -12,6 +13,7 @@ import type { UseProfileResult } from "./useProfile";
 
 /**
  * Props for PasswordSection — receives the `useProfile` result so it can read+write fields.
+ *
  * PasswordSection 的 props — 接收 useProfile 结果以读写各字段.
  */
 export interface PasswordSectionProps {
@@ -20,6 +22,7 @@ export interface PasswordSectionProps {
 
 /**
  * PasswordSection — collapsed by default; expands to three SecureFields + Save on header tap.
+ *
  * PasswordSection — 默认折叠; 点击标题展开三个 SecureField 与保存按钮.
  */
 export function PasswordSection({ profile }: PasswordSectionProps) {

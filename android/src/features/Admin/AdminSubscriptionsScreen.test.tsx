@@ -1,4 +1,5 @@
 // AdminSubscriptionsScreen tests — list / create / sync / delete-with-confirm.
+//
 // AdminSubscriptionsScreen 测试 — 列表、创建、同步、二次确认删除.
 
 import { fireEvent, render, waitFor } from "@testing-library/react-native";
@@ -73,6 +74,7 @@ test("create rejects bad url then accepts good one", async () => {
   const admin = makeAdmin({ createSubscription: createSub });
   const { getByTestId, findByText, findByTestId } = render(wrap(admin));
   // Wait for the initial empty-list fetch to settle so the loading spinner unmounts.
+  //
   // 等待初始空列表 fetch 完成, 让 loading spinner 卸载.
   fireEvent.press(await findByTestId("subAddOpen"));
   fireEvent.changeText(getByTestId("subUrlInput"), "ftp://nope");

@@ -23,6 +23,7 @@ type updateSourceRequest struct {
 }
 
 // ListSources returns all video sources.
+//
 // ListSources 返回所有视频源.
 func (h *Handler) ListSources(c *gin.Context) {
 	sources, err := h.store.ListSources()
@@ -34,6 +35,7 @@ func (h *Handler) ListSources(c *gin.Context) {
 }
 
 // CreateSource creates a new video source.
+//
 // CreateSource 创建一个新视频源.
 func (h *Handler) CreateSource(c *gin.Context) {
 	var src model.Source
@@ -63,6 +65,7 @@ func (h *Handler) CreateSource(c *gin.Context) {
 }
 
 // UpdateSource updates an existing video source.
+//
 // UpdateSource 更新已有视频源.
 func (h *Handler) UpdateSource(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -111,6 +114,7 @@ func (h *Handler) UpdateSource(c *gin.Context) {
 }
 
 // BulkSetSourcesEnabledRequest is the request body for BulkSetSourcesEnabled.
+//
 // BulkSetSourcesEnabledRequest 是批量启用/禁用视频源接口的请求体.
 type BulkSetSourcesEnabledRequest struct {
 	IDs     []int64 `json:"ids"`
@@ -118,9 +122,12 @@ type BulkSetSourcesEnabledRequest struct {
 }
 
 // BulkSetSourcesEnabled atomically toggles the enabled flag for many sources at once.
+//
 // BulkSetSourcesEnabled 在单次请求中原子地批量启用或禁用多个视频源.
+//
 // Designed to replace fan-out PUTs from admin UIs (e.g. "Enable all NSFW sources"),
 // which previously raced against the SQLite writer lock and failed with SQLITE_BUSY.
+//
 // 设计目的是替代管理端的散列 PUT 请求 (例如 "启用 🔞 源"),
 // 这些散列请求过去会撞到 SQLite 写锁并返回 SQLITE_BUSY.
 func (h *Handler) BulkSetSourcesEnabled(c *gin.Context) {
@@ -147,6 +154,7 @@ func (h *Handler) BulkSetSourcesEnabled(c *gin.Context) {
 }
 
 // DeleteSource deletes a video source.
+//
 // DeleteSource 删除一个视频源.
 func (h *Handler) DeleteSource(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -168,6 +176,7 @@ func (h *Handler) DeleteSource(c *gin.Context) {
 }
 
 // CheckSource triggers a health check for a single source.
+//
 // CheckSource 触发单个视频源的健康检查.
 func (h *Handler) CheckSource(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -186,6 +195,7 @@ func (h *Handler) CheckSource(c *gin.Context) {
 }
 
 // CheckAllSources triggers a health check for all enabled sources.
+//
 // CheckAllSources 触发所有已启用视频源的健康检查.
 func (h *Handler) CheckAllSources(c *gin.Context) {
 	go h.sourceSvc.RunHealthCheck()
@@ -193,9 +203,11 @@ func (h *Handler) CheckAllSources(c *gin.Context) {
 }
 
 // ImportSources imports sources from a source config JSON body.
+//
 // ImportSources 从 source config JSON 请求体导入视频源.
 func (h *Handler) ImportSources(c *gin.Context) {
 	// Limit the import body to 10MB to avoid unbounded memory use.
+	//
 	// 将导入请求体限制为 10MB, 避免无限制占用内存.
 	data, err := io.ReadAll(io.LimitReader(c.Request.Body, 10<<20))
 	if err != nil {

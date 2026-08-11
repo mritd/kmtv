@@ -1,5 +1,6 @@
 /**
  * DetailSkeleton — Suspense fallback mirroring the DetailPage two-column layout.
+ *
  * DetailSkeleton — 镜像 DetailPage 双列布局的 Suspense 回退组件.
  *
  * Responsibilities / 职责:
@@ -11,18 +12,20 @@
  *   Mirrors DetailPage's main grid: .detail-player-grid
  *     Left (.detail-main):  playback panel + state pills + description copy
  *     Right (.detail-sidebar): source picker list + episode grid
+ *
  *   镜像 DetailPage 主网格: .detail-player-grid
  *     左侧 (.detail-main): 播放面板 + 状态 pill + 描述文案
  *     右侧 (.detail-sidebar): source picker 列表 + 集数网格
  *
  * Callers / 调用方:
- *   app/AppRoutes.tsx (Suspense fallback for the /detail/:source/:id lazy route)
+ *   app/AppRoutes.tsx (Suspense fallback for the /detail/:token lazy route)
  *
  * Test exclusion / 测试排除:
  *   This file matches the vitest.config.ts coverage exclude pattern for skeletons directories.
  *   No tests are needed: this component has no conditional branches, no state, and no callbacks.
  *   All branching is structural CSS driven by the real DetailPage layout; visual correctness
  *   is validated by E2E Suspense observation.
+ *
  *   此文件匹配 vitest.config.ts 的 skeletons 目录覆盖率排除模式.
  *   无需测试: 该组件无条件分支、无状态、无回调.
  *   所有分支均由真实 DetailPage 布局驱动的结构 CSS; 视觉正确性由 E2E Suspense 观察验证.
@@ -32,10 +35,12 @@ import { Skeleton } from "@/shared/ui/Skeleton";
 
 /**
  * DetailSkeleton — pure presentational Suspense fallback for DetailPage.
+ *
  * DetailSkeleton — DetailPage 的纯展示型 Suspense 回退.
  *
  * Uses aria-hidden on decorative sub-sections so screen readers skip the
  * individual placeholder shapes and only announce the top-level role="status".
+ *
  * 对装饰性子区域使用 aria-hidden, 让屏幕阅读器跳过单个占位形状,
  * 只公告顶层 role="status".
  */
@@ -70,6 +75,7 @@ export function DetailSkeleton() {
         heading + grid in one, and .detail-sidebar itself is a bare layout container.
         The heading placeholder is a sibling of the grid, not a cell inside it — as a
         child of .source-picker it consumed a chip slot and pushed the sources down.
+
         两个区块都放在 .detail-control-panel 中, 因为真实侧栏正是用它包裹标题与网格,
         而 .detail-sidebar 本身只是一个不带样式的布局容器.
         标题占位是网格的兄弟节点而非其中一格 — 作为 .source-picker 的子元素时

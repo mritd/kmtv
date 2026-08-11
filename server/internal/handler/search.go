@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -14,9 +15,10 @@ import (
 )
 
 // Search performs multi-source aggregated search.
+//
 // Search 执行多视频源聚合搜索.
 func (h *Handler) Search(c *gin.Context) {
-	query := c.Query("q")
+	query := strings.TrimSpace(c.Query("q"))
 	if query == "" {
 		c.JSON(http.StatusBadRequest, errs.MissingParam.WithMsg("query parameter 'q' is required"))
 		return
@@ -36,11 +38,13 @@ func (h *Handler) Search(c *gin.Context) {
 	}
 
 	// Enrich results missing desc by fetching detail from the fastest source, up to 5 results in parallel.
+	//
 	// 对缺少简介的结果补充详情, 从最快视频源拉取, 最多并行处理 5 个结果.
 	h.enrichDescriptions(c, results)
 
 	// Never emit "results": null (the service returns nil for zero sources / no matches);
 	// clients call array methods on this field and a null crashes them.
+	//
 	// 不能返回 "results": null (服务在零源/无匹配时返回 nil); 客户端会对该字段调用数组方法, null 会导致崩溃.
 	if results == nil {
 		results = []model.SearchResult{}
@@ -51,6 +55,7 @@ func (h *Handler) Search(c *gin.Context) {
 
 // enrichDescriptions fetches detail from the fastest source per result to get descriptions.
 // Limited to the first 5 results to avoid excessive concurrent HTTP requests.
+//
 // enrichDescriptions 从每个结果最快的视频源拉取详情来补充简介.
 // 仅处理前 5 个结果, 避免产生过多并发 HTTP 请求.
 func (h *Handler) enrichDescriptions(c *gin.Context, results []model.SearchResult) {
@@ -85,6 +90,7 @@ func (h *Handler) enrichDescriptions(c *gin.Context, results []model.SearchResul
 }
 
 // fetchDescFromDetail fetches the detail API for a single source+videoID and returns the description.
+//
 // fetchDescFromDetail 拉取单个 source+videoID 的详情 API 并返回简介.
 func (h *Handler) fetchDescFromDetail(ctx context.Context, sourceKey, videoID string) string {
 	src, err := h.store.GetSourceByKey(sourceKey)
@@ -103,6 +109,7 @@ func (h *Handler) fetchDescFromDetail(ctx context.Context, sourceKey, videoID st
 }
 
 // SearchSuggestions returns an empty suggestions array.
+//
 // SearchSuggestions 返回空 suggestions 数组.
 func (h *Handler) SearchSuggestions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"suggestions": []string{}})

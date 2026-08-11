@@ -10,6 +10,7 @@ import (
 )
 
 // CreateMediaToken stores a hashed URL-bound media token.
+//
 // CreateMediaToken 保存 hash 后且绑定 URL 的媒体 token.
 func (s *Store) CreateMediaToken(tokenHash string, authSessionID int64, kind, urlHash, sourceKey string, expiresAt time.Time) (*model.MediaToken, error) {
 	now := time.Now()
@@ -44,6 +45,7 @@ func (s *Store) CreateMediaToken(tokenHash string, authSessionID int64, kind, ur
 }
 
 // GetValidMediaToken returns a live media token matching token, kind, and URL hash.
+//
 // GetValidMediaToken 返回匹配 token, kind 和 URL hash 的有效媒体 token.
 func (s *Store) GetValidMediaToken(tokenHash, kind, urlHash string) (*model.MediaToken, error) {
 	var token model.MediaToken
@@ -71,6 +73,7 @@ func (s *Store) GetValidMediaToken(tokenHash, kind, urlHash string) (*model.Medi
 }
 
 // TouchMediaToken marks a media token as used.
+//
 // TouchMediaToken 标记媒体 token 已使用.
 func (s *Store) TouchMediaToken(id int64) error {
 	_, err := s.db.Exec(`UPDATE media_tokens SET used_at = ? WHERE id = ?`, time.Now(), id)
@@ -81,6 +84,7 @@ func (s *Store) TouchMediaToken(id int64) error {
 }
 
 // DeleteExpiredTokens deletes expired auth and media token rows.
+//
 // DeleteExpiredTokens 删除已经过期的 auth 和 media token 记录.
 func (s *Store) DeleteExpiredTokens() error {
 	if _, err := s.db.Exec(`DELETE FROM media_tokens WHERE expires_at <= ?`, time.Now()); err != nil {

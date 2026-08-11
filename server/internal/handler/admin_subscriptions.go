@@ -14,6 +14,7 @@ import (
 )
 
 // ListSubscriptions returns all subscriptions.
+//
 // ListSubscriptions 返回所有订阅.
 func (h *Handler) ListSubscriptions(c *gin.Context) {
 	subs, err := h.store.ListSubscriptions()
@@ -25,6 +26,7 @@ func (h *Handler) ListSubscriptions(c *gin.Context) {
 }
 
 // CreateSubscription creates a new subscription.
+//
 // CreateSubscription 创建一个新订阅.
 func (h *Handler) CreateSubscription(c *gin.Context) {
 	var sub model.Subscription
@@ -55,6 +57,7 @@ func (h *Handler) CreateSubscription(c *gin.Context) {
 	// Best-effort: sync sources right after import so they appear without waiting for the
 	// next cron tick or a manual sync. A failure here (slow or unreachable URL) is logged but
 	// does not fail creation — the record exists and the user can retry via the manual sync button.
+	//
 	// 尽力而为: 导入后立即同步源, 让源无需等待下次 cron 或手动同步即可出现.
 	// 此处失败 (URL 慢或不可达) 仅记录日志, 不让创建失败 — 记录已存在, 用户可点手动同步重试.
 	if err := h.sourceSvc.SyncSubscription(id); err != nil {
@@ -65,6 +68,7 @@ func (h *Handler) CreateSubscription(c *gin.Context) {
 }
 
 // UpdateSubscription updates an existing subscription.
+//
 // UpdateSubscription 更新已有订阅.
 func (h *Handler) UpdateSubscription(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -100,6 +104,7 @@ func (h *Handler) UpdateSubscription(c *gin.Context) {
 }
 
 // DeleteSubscription deletes a subscription.
+//
 // DeleteSubscription 删除一个订阅.
 func (h *Handler) DeleteSubscription(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -122,6 +127,7 @@ func (h *Handler) DeleteSubscription(c *gin.Context) {
 }
 
 // SyncSubscription triggers a sync for a single subscription.
+//
 // SyncSubscription 触发单个订阅同步.
 func (h *Handler) SyncSubscription(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)

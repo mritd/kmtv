@@ -207,6 +207,7 @@ describe("global styles", () => {
     // the same slot in the same container, so a cap applied to only some of them resizes
     // the panel the moment one is swapped for the next. Asserting they share ONE rule is
     // the point — three separate rules with equal values would drift apart silently.
+    //
     // 回归防护: 骨架屏, 起播前占位块与播放器占据同一容器的同一位置,
     // 只给其中一部分加上限, 会在替换的瞬间改变面板大小.
     // 断言它们共用同一条规则才是关键 — 三条取值相同的独立规则会悄悄漂移.
@@ -219,12 +220,14 @@ describe("global styles", () => {
     // Floor first: below a 162px-tall viewport the calc() goes negative, and because
     // max-width rejects negative lengths a bare calc() computes to 0 and the player
     // disappears outright. Verified in Chrome by forcing the negative case.
+    //
     // 下限优先: 视口高度低于 162px 时 calc() 为负, 而 max-width 不接受负长度,
     // 裸 calc() 会被算成 0, 播放器直接消失. 已在 Chrome 中强制该场景验证.
     expect(capRule).toContain("max(320px, calc((100vh - var(--player-viewport-chrome)) * 16 / 9))");
     // Scoped ABOVE the single-column breakpoint on purpose: the chrome constant was
     // measured on desktop, and applying it to a landscape phone caps a ~776px column
     // at ~405px.
+    //
     // 刻意限定在单列断点之上: 该常量是在桌面量的,
     // 用于横屏手机会把约 776px 的单列压到约 405px.
     expect(css).not.toMatch(/^\.player \{[^}]*max-width/m);
@@ -235,6 +238,7 @@ describe("global styles", () => {
     // The video is the content, so the detail page opts out of the shared 1720px measure.
     // Scoped rather than raising .page itself, which also drives home, search, favorites,
     // account and admin.
+    //
     // 视频本身就是内容, 因此详情页不使用共用的 1720px 版心.
     // 采用作用域限定而非抬高 .page, 后者还驱动着首页, 搜索, 收藏, 账号与管理页.
     const pageCss = cssBlock(css, ".page");
@@ -252,6 +256,7 @@ describe("global styles", () => {
     // plus the 36px padding and 2px border of the .detail-control-panel around it.
     // An open-ended fr instead let the sidebar track the display — 812px at 2560,
     // where nine sources wrap to four columns and strand one on the last row.
+    //
     // 582px 是实测值而非拍脑袋: 3 个按钮 x 176px + 2 个间距 x 8px = 544px 列表宽度,
     // 加上外层 .detail-control-panel 的 36px 内边距与 2px 边框.
     // 换成没有上限的 fr 会让侧栏随显示器变宽 — 2560 下达到 812px,
@@ -261,6 +266,7 @@ describe("global styles", () => {
 
     // The cap is only worth having while the sidebar is a column; below the
     // single-column breakpoint the grid collapses to 1fr and the cap is moot.
+    //
     // 上限只在侧栏仍是一列时有意义; 单列断点以下网格塌成 1fr, 上限自然失效.
     const singleColumnCss = css.match(/@media \(max-width: 920px\) \{[\s\S]*?\n\}/)?.[0] ?? "";
     expect(singleColumnCss).toContain(".detail-player-grid,");
@@ -272,10 +278,13 @@ describe("global styles", () => {
     // .detail-sidebar holds only .detail-control-panel cards, which already carry the
     // border, background and 18px padding. Listing the sidebar alongside them nested a
     // card in a card and spent 38px of width on the duplicate inset.
+    //
     // .detail-sidebar 只装 .detail-control-panel 卡片, 而卡片本就带边框, 背景与 18px 内边距.
     // 把侧栏也列进去会形成"卡中卡", 并把 38px 宽度花在重复的内缩上.
+    //
     // The character class stops at the comment's closing */, so a comment that merely
     // mentions .detail-sidebar cannot satisfy or break this assertion.
+    //
     // 字符类会在注释结束的 */ 处停下, 因此仅在注释中提到 .detail-sidebar 既不会满足
     // 也不会破坏该断言.
     const cardRuleSelectors = css.match(/([.\w\s,-]+)\{\s*\n\s*border: 1px solid var\(--border\);\s*\n\s*border-radius: 16px;/)?.[1] ?? "";
@@ -284,9 +293,12 @@ describe("global styles", () => {
     expect(cardRuleSelectors).not.toContain(".detail-sidebar");
 
     // It keeps the grid + gap that make it a layout container, and nothing else.
+    //
     // 它保留使其成为布局容器的网格与间距, 仅此而已.
+    //
     // Anchored on .detail-main: several unrelated rules share the display/gap pair,
     // and an unanchored match lands on the first of them (.result-list).
+    //
     // 锚定在 .detail-main 上: 另有若干无关规则共用同样的 display/gap 组合,
     // 不加锚点会匹配到其中第一条 (.result-list).
     const layoutRuleSelectors = css.match(/\.detail-main,[.\w\s,-]*\{\s*\n\s*display: grid;\s*\n\s*gap: 16px;/)?.[0] ?? "";
@@ -326,6 +338,7 @@ describe("global styles", () => {
   // name. That is how a 148px floor shipped: chips whose badge read "1.7s" fit and
   // hid the six beside them reading "227ms". Widths measured in Chrome at the
   // inherited 16px system-ui, not estimated.
+  //
   // 列宽下限决定 auto-fit 排几列, 因此下限低于单个按钮所需宽度时不只是排得挤,
   // 而是会静默截断每一个名称. 148px 的下限正是这样混过去的:
   // 徽标为 "1.7s" 的按钮放得下, 掩盖了旁边六个 "227ms" 的按钮.
@@ -355,6 +368,7 @@ describe("global styles", () => {
     // Regression guard: .poster-tile is a <button> that shrink-to-fits; without width:100% an
     // unloaded poster collapses to a fraction of the cell and snaps to full size once the image
     // loads. Verified via headless layout measurement (loaded vs pending tile width).
+    //
     // 回归防护: .poster-tile 是会收缩到内容的 <button>; 缺少 width:100% 时未加载海报会塌缩到单元格的
     // 一小部分, 待图片加载后突然撑满. 已通过无头布局测量验证 (loaded 与 pending tile 宽度).
     const tileCss = cssBlock(css, ".poster-tile");
@@ -366,6 +380,7 @@ describe("global styles", () => {
     const css = readFileSync("src/style.css", "utf8");
     // Regression guard: a still-loading lazy poster <img> must paint a placeholder fill behind it,
     // otherwise the transparent <img> reveals the .poster-frame shadow as a bare dark box.
+    //
     // 回归防护: 懒加载中的海报 <img> 背后必须有占位填充, 否则透明的 <img> 会露出 .poster-frame 阴影成为空框.
     const posterMediaCss = cssBlock(css, ".poster-media");
 
@@ -377,6 +392,7 @@ describe("global styles", () => {
     const css = readFileSync("src/style.css", "utf8");
     // The variant must hang off the row container (.category-chip-row-region .category-chip),
     // not a chip-level descendant selector that could never match a chip of itself.
+    //
     // 该变体必须挂在行容器上 (.category-chip-row-region .category-chip),
     // 而非永远无法匹配自身的 chip 级后代选择器.
     const regionChipCss = cssBlock(css, ".category-chip-row-region .category-chip");
@@ -398,21 +414,25 @@ describe("global styles", () => {
 
     // The outer progress card stays frameless;
     // visual weight lives in the phase cards.
+    //
     // 外层进度卡保持无外框, 视觉重量交给阶段卡.
     expect(progressCardCss).not.toContain("border:");
     expect(progressCardCss).not.toContain("background:");
     // The track clips the fill;
     // the fill uses --search-phase-progress with a width transition.
+    //
     // 轨道裁剪填充, 填充用 --search-phase-progress 配合 width 过渡.
     expect(phaseBarCss).toContain("overflow: hidden");
     expect(phaseFillCss).toContain("width: var(--search-phase-progress");
     expect(phaseFillCss).toContain("var(--accent)");
     expect(phaseFillCss).toContain("transition: width");
     // Active state runs a single GPU-friendly translateX shimmer.
+    //
     // 活跃态用单一 transform translateX 的 shimmer 动画.
     expect(activeShimmerCss).toContain("animation: search-phase-shimmer");
     expect(activeShimmerCss).toContain("translateX");
     // Done state has no animation, just a settled fill color.
+    //
     // 完成态无动画, 仅保留稳定填充颜色.
     expect(doneFillCss).not.toContain("animation:");
   });

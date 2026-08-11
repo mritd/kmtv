@@ -13,8 +13,11 @@ import (
 )
 
 // GetSettings returns settings as a key-value map.
+//
 // GetSettings 以 key-value map 返回设置.
+//
 // Public access returns only public settings; admin access returns all allowed settings.
+//
 // 匿名访问只返回公开设置; 管理员访问返回所有允许管理的设置.
 func (h *Handler) GetSettings(c *gin.Context) {
 	role, _ := c.Get("role")
@@ -29,6 +32,7 @@ func (h *Handler) GetSettings(c *gin.Context) {
 	result := make(map[string]string, len(settings))
 	if isAdmin {
 		// Seed defaults so missing rows still surface a sane initial value on the admin form.
+		//
 		// 用默认值预填, 让 DB 中尚未写入的项也能在管理端表单展示合理初始值.
 		for key, value := range service.SettingDefaults() {
 			result[key] = value
@@ -43,6 +47,7 @@ func (h *Handler) GetSettings(c *gin.Context) {
 	}
 
 	// Always include server version.
+	//
 	// 始终包含服务端版本.
 	result["version"] = version.Version
 
@@ -50,6 +55,7 @@ func (h *Handler) GetSettings(c *gin.Context) {
 }
 
 // UpdateSettings accepts a key-value map and updates each setting.
+//
 // UpdateSettings 接收 key-value map 并逐项更新设置.
 func (h *Handler) UpdateSettings(c *gin.Context) {
 	var settings map[string]string

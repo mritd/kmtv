@@ -16,6 +16,7 @@ describe("detailStore", () => {
     const k1 = detailStore.getState().ensureEntry("s1", "v1");
     const firstTouched = detailStore.getState().entries[k1].lastTouched;
     // Wait a microsecond so the timestamp tick can move.
+    //
     // 等一个 tick 让时间戳前进.
     await new Promise<void>((resolve) => setTimeout(resolve, 2));
     const k2 = detailStore.getState().ensureEntry("s1", "v1");

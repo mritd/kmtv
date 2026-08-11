@@ -1,4 +1,5 @@
 // EpisodeGrid tests — render all, press dispatches index, accessibilityState selected flag.
+//
 // EpisodeGrid 测试 — 渲染全部、点击派发索引、accessibilityState selected 标志.
 
 import { fireEvent, render } from "@testing-library/react-native";

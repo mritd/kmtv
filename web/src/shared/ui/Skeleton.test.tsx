@@ -1,4 +1,5 @@
 // Tests for the Skeleton and SkeletonGroup loading placeholder components.
+//
 // Skeleton 和 SkeletonGroup 加载占位组件测试.
 //
 // Coverage targets: render + ARIA roles (standalone vs. group) + style props + class composition.
@@ -16,6 +17,7 @@ describe("Skeleton", () => {
       const span = container.querySelector("span");
       expect(span).toBeInTheDocument();
       // Non-standalone skeletons are aria-hidden so SkeletonGroup is the single live region.
+      //
       // 非 standalone skeleton 设置 aria-hidden, 让 SkeletonGroup 成为唯一实时区域.
       expect(span).toHaveAttribute("aria-hidden", "true");
       expect(span).not.toHaveAttribute("role");
@@ -63,6 +65,7 @@ describe("Skeleton", () => {
     it("sets width from a percentage string and height from a pixel string", () => {
       // Use px for height because happy-dom converts rem to px (16px base) during style resolution,
       // which makes rem-value assertions unreliable in unit tests.
+      //
       // 高度使用 px, 因为 happy-dom 会将 rem 转换为 px (16px 基准), rem 断言在单元测试中不可靠.
       const { container } = render(<Skeleton width="100%" height="48px" />);
       const span = container.querySelector("span");
@@ -73,6 +76,7 @@ describe("Skeleton", () => {
       const { container } = render(<Skeleton />);
       const span = container.querySelector("span");
       // No inline width/height → browser uses CSS class rules.
+      //
       // 无内联宽高 → 浏览器使用 CSS 类规则.
       expect(span?.style.width).toBe("");
       expect(span?.style.height).toBe("");
@@ -114,6 +118,7 @@ describe("SkeletonGroup", () => {
       </SkeletonGroup>,
     );
     // Children are rendered inside the single status region — no double announcements.
+    //
     // 子节点在唯一 status 区域内渲染, 不产生重复播报.
     expect(document.querySelectorAll(".skeleton")).toHaveLength(2);
   });

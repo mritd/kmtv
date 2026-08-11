@@ -6,6 +6,7 @@ import (
 )
 
 // FormatID converts a JSON-decoded any value, usually float64 or string, to a string ID.
+//
 // FormatID 将 JSON 解析得到的 any 值, 通常是 float64 或 string, 转成字符串 ID.
 func FormatID(v any) string {
 	switch id := v.(type) {
@@ -19,6 +20,7 @@ func FormatID(v any) string {
 }
 
 // User represents a system user.
+//
 // User 表示系统用户.
 type User struct {
 	ID                int64     `json:"id"`
@@ -32,6 +34,7 @@ type User struct {
 }
 
 // Source represents a video source endpoint.
+//
 // Source 表示视频源端点.
 type Source struct {
 	ID         int64     `json:"id"`
@@ -50,6 +53,7 @@ type Source struct {
 }
 
 // Subscription for auto-updating sources from a config URL.
+//
 // Subscription 表示从配置 URL 自动更新视频源的订阅.
 type Subscription struct {
 	ID         int64     `json:"id"`
@@ -61,6 +65,7 @@ type Subscription struct {
 }
 
 // Setting is a key-value pair for site configuration.
+//
 // Setting 表示站点配置 key-value.
 type Setting struct {
 	Key       string    `json:"key"`
@@ -69,6 +74,7 @@ type Setting struct {
 }
 
 // WatchHistoryItem stores the latest playback state for one user/title pair.
+//
 // WatchHistoryItem 保存某个用户/标题组合的最近播放状态.
 type WatchHistoryItem struct {
 	ID           int64     `json:"id"`
@@ -90,6 +96,7 @@ type WatchHistoryItem struct {
 }
 
 // SearchResult represents a deduplicated search result across multiple sources.
+//
 // SearchResult 表示跨多个视频源去重后的搜索结果.
 type SearchResult struct {
 	Title   string         `json:"title"`
@@ -101,6 +108,7 @@ type SearchResult struct {
 }
 
 // SourceResult represents one source's data for a specific video.
+//
 // SourceResult 表示某个视频源中指定视频的数据.
 type SourceResult struct {
 	SourceKey  string    `json:"source_key"`
@@ -112,6 +120,7 @@ type SourceResult struct {
 }
 
 // Episode represents a single episode/video URL.
+//
 // Episode 表示单个分集或视频 URL.
 type Episode struct {
 	Name string `json:"name"`
@@ -119,6 +128,7 @@ type Episode struct {
 }
 
 // VideoDetail represents full detail of a video from a specific source.
+//
 // VideoDetail 表示来自指定视频源的视频完整详情.
 type VideoDetail struct {
 	ID       string      `json:"id"`
@@ -134,9 +144,12 @@ type VideoDetail struct {
 }
 
 // VideoSourceResponse is the standard compatible video-source API response.
+//
 // VideoSourceResponse 表示标准兼容视频源 API 响应.
+//
 // Note: page, pagecount, limit, and total use any because compatible backends
 // return them as either string or number inconsistently.
+//
 // 注意: page, pagecount, limit 和 total 使用 any, 因为兼容后端可能返回 string 或 number.
 type VideoSourceResponse struct {
 	Code      int               `json:"code"`
@@ -149,8 +162,11 @@ type VideoSourceResponse struct {
 }
 
 // VideoSourceItem is a single video item from a compatible video-source API.
+//
 // VideoSourceItem 表示兼容视频源 API 返回的单个视频条目.
+//
 // Note: VodID uses any because some backends return it as int, others as string.
+//
 // 注意: VodID 使用 any, 因为部分后端返回 int, 部分后端返回 string.
 type VideoSourceItem struct {
 	VodID       any    `json:"vod_id"`
@@ -167,6 +183,7 @@ type VideoSourceItem struct {
 }
 
 // SourceConfig is the top-level structure of an imported source config.
+//
 // SourceConfig 表示导入视频源配置的顶层结构.
 type SourceConfig struct {
 	CacheTTL int                          `json:"cache_time"`
@@ -174,6 +191,7 @@ type SourceConfig struct {
 }
 
 // SourceConfigEntry is a single source entry in the config.
+//
 // SourceConfigEntry 表示配置中的单个视频源条目.
 type SourceConfigEntry struct {
 	Name    string `json:"name"`

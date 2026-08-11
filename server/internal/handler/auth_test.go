@@ -405,6 +405,7 @@ func TestProtectedAuthHandlersRejectMissingContextUser(t *testing.T) {
 }
 
 // uploadAvatarHTTP uploads a tiny valid PNG via the real HTTP stack and returns the response.
+//
 // uploadAvatarHTTP 通过真实 HTTP 栈上传一张极小的合法 PNG 并返回响应.
 func uploadAvatarHTTP(t *testing.T, r *gin.Engine, bearer string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -415,6 +416,7 @@ func uploadAvatarHTTP(t *testing.T, r *gin.Engine, bearer string) *httptest.Resp
 		t.Fatalf("CreateFormFile: %v", err)
 	}
 	// Minimal PNG header so http.DetectContentType returns image/png.
+	//
 	// 最小 PNG 头, 使 http.DetectContentType 返回 image/png.
 	_, _ = part.Write([]byte{
 		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -435,6 +437,7 @@ func uploadAvatarHTTP(t *testing.T, r *gin.Engine, bearer string) *httptest.Resp
 // TestUpdateProfilePreservesAvatarAfterUpload guards against the cached bearer snapshot
 // going stale after an avatar upload, which previously made the next profile save drop the
 // avatar from its response. The test must drive the real Auth middleware so the cache is exercised.
+//
 // TestUpdateProfilePreservesAvatarAfterUpload 防止头像上传后 bearer 缓存快照变陈旧,
 // 此前会导致下一次保存 profile 时响应丢失头像. 测试必须经过真实 Auth middleware 才能命中缓存路径.
 func TestUpdateProfilePreservesAvatarAfterUpload(t *testing.T) {
@@ -444,6 +447,7 @@ func TestUpdateProfilePreservesAvatarAfterUpload(t *testing.T) {
 	bearer := loginAndGetBearer(t, r, "alice", "pass123")
 
 	// Upload an avatar; the response should advertise it.
+	//
 	// 上传头像; 响应应包含头像地址.
 	rec := uploadAvatarHTTP(t, r, bearer)
 	if rec.Code != http.StatusOK {
@@ -454,6 +458,7 @@ func TestUpdateProfilePreservesAvatarAfterUpload(t *testing.T) {
 	}
 
 	// Saving the profile must keep the avatar, tracking the (possibly renamed) username.
+	//
 	// 保存 profile 时必须保留头像, 并跟随 (可能变更的) 用户名.
 	body, _ := json.Marshal(map[string]string{"username": "alice2"})
 	rec = httptest.NewRecorder()
@@ -471,6 +476,7 @@ func TestUpdateProfilePreservesAvatarAfterUpload(t *testing.T) {
 
 // TestUpdateProfileReflectsAvatarDeletion is the symmetric guard: after deleting the avatar,
 // the cached snapshot must not resurrect it on the next profile save.
+//
 // TestUpdateProfileReflectsAvatarDeletion 是对称防护: 删除头像后, 缓存快照不能在下一次保存 profile 时复活它.
 func TestUpdateProfileReflectsAvatarDeletion(t *testing.T) {
 	h, r := setupTestHandler(t)

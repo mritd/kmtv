@@ -1,3 +1,10 @@
+/**
+ * SearchPage integration tests cover streamed progress and results, query replacement,
+ * malformed-source filtering, detail navigation, and favorite synchronization.
+ *
+ * SearchPage 集成测试覆盖流式进度与结果, 查询替换, 异常来源过滤, 详情导航和收藏同步.
+ */
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -106,6 +113,7 @@ describe("SearchPage", () => {
     renderSearch({
       searchStream: async (_query: string, onEvent: (event: SearchStreamEvent) => void) => {
         // Runtime payloads can violate API types, so this test feeds the unsafe JSON shape directly.
+        //
         // 运行时 payload 可能违反 API 类型, 所以这里直接输入不安全 JSON 形状.
         onEvent({ type: "result", response: { results: null } } as unknown as SearchStreamEvent);
       },
@@ -119,6 +127,7 @@ describe("SearchPage", () => {
     renderSearch({
       searchStream: async (_query: string, onEvent: (event: SearchStreamEvent) => void) => {
         // Runtime payloads can contain null sources from upstream aggregation.
+        //
         // 运行时 payload 可能包含上游聚合返回的 null sources.
         onEvent({ type: "result", response: { results: [{ title: "Unsafe Movie", sources: null }] } } as unknown as SearchStreamEvent);
       },
@@ -307,6 +316,7 @@ describe("SearchPage", () => {
     let onEventCapture: ((event: SearchStreamEvent) => void) | undefined;
     // searchStream hangs until the test fires a result manually.
     // searchStream
+    //
     // 挂起直到测试手动触发结果.
     const searchStream = vi.fn(async (_query: string, onEvent: (event: SearchStreamEvent) => void) => {
       onEventCapture = onEvent;
@@ -355,6 +365,7 @@ describe("SearchPage", () => {
     expect(searchStream).toHaveBeenCalledTimes(1);
 
     // Navigate away mid-search.
+    //
     // 中途离开页面.
     await user.click(screen.getByRole("button", { name: "Go to favorites" }));
     expect(screen.queryByText("4 / 10")).toBeNull();
@@ -362,12 +373,14 @@ describe("SearchPage", () => {
 
     // Navigate back;
     // previous SSE is still running, no new stream is started.
+    //
     // 返回页面, 原 SSE 仍在跑, 不会启动新流.
     await user.click(screen.getByRole("button", { name: "Back to search" }));
     expect(await screen.findByText("4 / 10")).toBeInTheDocument();
     expect(searchStream).toHaveBeenCalledTimes(1);
 
     // The still-running stream can deliver a result and the UI picks it up.
+    //
     // 仍在运行的流可以送出结果, UI 会显示.
     act(() => onEventCapture?.({ type: "result", response: { results: [result("Returned Movie")] } }));
     expect(await screen.findByRole("heading", { name: "Returned Movie" })).toBeInTheDocument();

@@ -12,6 +12,7 @@ var errNilProcessor = errors.New("nil concurrent processor")
 // GoProcess applies processor to each slice item with a concurrency limit and preserves result order.
 // When failFast is true, it returns on the first processor error and cancels remaining work.
 // When failFast is false, it processes all scheduled work and returns joined errors.
+//
 // GoProcess 按并发限制处理每个 slice item, 并保持返回结果顺序与输入一致.
 // failFast 为 true 时, 它在首个 processor 错误后返回并取消剩余任务.
 // failFast 为 false 时, 它会处理所有已调度任务并返回合并后的错误.
@@ -63,6 +64,7 @@ func GoProcess[T any, R any](
 // GoProcessMap applies processor to each map entry with a concurrency limit.
 // When failFast is true, it returns on the first processor error and cancels remaining work.
 // When failFast is false, it processes all scheduled work and returns joined errors.
+//
 // GoProcessMap 按并发限制处理每个 map entry.
 // failFast 为 true 时, 它在首个 processor 错误后返回并取消剩余任务.
 // failFast 为 false 时, 它会处理所有已调度任务并返回合并后的错误.
@@ -115,6 +117,7 @@ func GoProcessMap[K comparable, T any, X comparable, R any](
 }
 
 // goProcessTasks runs prepared tasks with a fixed worker pool.
+//
 // goProcessTasks 使用固定 worker pool 执行已准备好的任务.
 func goProcessTasks[T any](
 	ctx context.Context,
@@ -150,6 +153,7 @@ func goProcessTasks[T any](
 	}
 
 	// Keep WaitGroup and channel lifecycle handling in this shared worker loop.
+	//
 	// 将 WaitGroup 和 channel 生命周期控制集中在这个共享 worker 循环里.
 	for range concurrency {
 		wg.Add(1)
@@ -167,6 +171,7 @@ func goProcessTasks[T any](
 
 	for _, item := range items {
 		// Stop scheduling new tasks once cancellation is observed.
+		//
 		// 发现取消后停止继续投递新任务.
 		select {
 		case <-ctx.Done():

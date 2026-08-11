@@ -1,12 +1,18 @@
 /**
  * SourceImportForm — modal form for bulk-importing sources from a JSON bundle.
+ *
  * SourceImportForm — 从 JSON bundle 批量导入视频源的弹窗表单.
  *
  * Responsibilities / 职责:
- *   - Accept raw JSON text and parse it client-side before submission — 接受原始 JSON 文本并在提交前客户端解析
- *   - Validate that the parsed value is a non-array object — 校验解析结果为非数组对象
- *   - Dispatch importBundle mutation and show result count in toast — 触发 importBundle mutation 并通过 toast 显示导入数量
- *   - Show toast on mutation error — mutation 错误时显示 toast
+ *   - Accept raw JSON text and parse it client-side before submission.
+ *   - Validate that the parsed value is a non-array object.
+ *   - Dispatch importBundle and show the imported count in a toast.
+ *   - Show a toast when the mutation fails.
+ *
+ *   - 接受原始 JSON 文本并在提交前由客户端解析.
+ *   - 校验解析结果为非数组对象.
+ *   - 触发 importBundle mutation 并通过 toast 显示导入数量.
+ *   - mutation 失败时显示 toast.
  *
  * Key exports / 主要导出:
  *   SourceImportForm
@@ -24,10 +30,12 @@ import { useSourcesMutations } from "../hooks/useSourcesMutations";
 
 /**
  * SourceImportForm renders the JSON bundle import modal form.
+ *
  * SourceImportForm 渲染 JSON bundle 导入弹窗表单.
  *
  * The textarea accepts a raw JSON object (not an array).
  * The bundle is forwarded to the API as-is after client-side validation.
+ *
  * textarea 接受原始 JSON 对象 (非数组).
  * 客户端校验通过后 bundle 原样转发给 API.
  */
@@ -45,11 +53,13 @@ export function SourceImportForm({ onDone }: { onDone: () => void }) {
       parsed = JSON.parse(raw);
     } catch {
       // Surface a user-visible error instead of swallowing the parse failure.
+      //
       // 向用户显示解析错误而非静默吞掉.
       setError(t("source.import.errorInvalidJson"));
       return;
     }
     // Reject non-object payloads (arrays, primitives) — the API expects an object bundle.
+    //
     // 拒绝非对象 payload (数组、基本类型) — API 期望对象 bundle.
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       setError(t("source.import.errorRequired"));

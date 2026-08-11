@@ -37,6 +37,7 @@ describe("resetUserScopedState", () => {
     const queryClient = new QueryClient();
     const events: string[] = [];
     // Spy on cancelQueries to delay resolution and record ordering.
+    //
     // 监听 cancelQueries 推迟其 promise 解析以验证顺序.
     const originalCancel = queryClient.cancelQueries.bind(queryClient);
     vi.spyOn(queryClient, "cancelQueries").mockImplementation(async (filters) => {
@@ -61,6 +62,7 @@ describe("resetUserScopedState", () => {
 describe("registerUserScopedReset", () => {
   test("invokes registered callback during resetUserScopedState", async () => {
     // Register a callback into the global registry, then verify it is called by the lifecycle.
+    //
     // 向全局注册表注册回调, 验证生命周期调用时它被执行.
     const queryClient = new QueryClient();
     const fn = vi.fn();
@@ -74,6 +76,7 @@ describe("registerUserScopedReset", () => {
 
   test("unregister removes the callback so subsequent resets skip it", async () => {
     // After unregister the callback must NOT be called on the next transition.
+    //
     // 注销后的下一次身份切换中, 该回调不得被调用.
     const queryClient = new QueryClient();
     const fn = vi.fn();
@@ -87,6 +90,7 @@ describe("registerUserScopedReset", () => {
 
   test("calling unregister twice is a no-op and does not throw", () => {
     // Defensive: double-unregister must not corrupt the registry or throw.
+    //
     // 防御: 双重注销不得破坏注册表或抛出异常.
     const fn = vi.fn();
     const unregister = registerUserScopedReset(fn);
@@ -98,6 +102,7 @@ describe("registerUserScopedReset", () => {
 
   test("reset still runs for all clear reasons (unauthorized / expired / external)", async () => {
     // All AuthClearReason values must trigger the same cancel+clear+userScoped sequence.
+    //
     // reason 本身是 void 使用的透传参数, 所有清除原因均应触发同一套 cancel+clear+用户作用域重置流程.
     const queryClient = new QueryClient();
     await queryClient.prefetchQuery({ queryKey: ["k"], queryFn: async () => 42 });
@@ -114,6 +119,7 @@ describe("registerUserScopedReset", () => {
 
   test("devicePreferences callbacks are never called during identity transitions", async () => {
     // Regardless of reason, devicePreferences (theme/language) must survive user switches.
+    //
     // 无论何种原因, 设备偏好 (主题/语言) 在用户切换中均须保留.
     const queryClient = new QueryClient();
     const themeReset = vi.fn();

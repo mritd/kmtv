@@ -1,4 +1,5 @@
 // MMKV-backed favorites storage tests.
+//
 // MMKV 收藏存储测试.
 
 import { _resetForTests } from "./mmkv";

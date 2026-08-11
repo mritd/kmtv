@@ -66,6 +66,7 @@ export const themeStorageKey = "kmtv.theme";
  * - set(): 写入前通过 normalizeThemePreference 规范化, 确保无效偏好不被持久化.
  *
  * @param storage - Injectable StorageLike; defaults to window.localStorage for production.
+ *
  *                  可注入的 StorageLike; 生产环境默认使用 window.localStorage.
  */
 export function createLocalThemeStore(storage: ThemeStorageLike = window.localStorage): ThemeStore {

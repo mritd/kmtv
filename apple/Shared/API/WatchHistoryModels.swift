@@ -1,6 +1,7 @@
 import Foundation
 
 /// Server-synchronized continue-watching item.
+///
 /// 服务端同步的继续观看条目.
 struct WatchHistoryResponseItem: Codable, Sendable, Identifiable {
     let id: Int
@@ -33,12 +34,14 @@ struct WatchHistoryResponseItem: Codable, Sendable, Identifiable {
 }
 
 /// List wrapper returned by GET /history.
+///
 /// GET /history 返回的列表包装.
 struct WatchHistoryResponse: Codable, Sendable {
     let items: [WatchHistoryResponseItem]
 }
 
 /// Request body for PUT /history.
+///
 /// PUT /history 请求体.
 struct WatchHistoryRequest: Codable, Sendable {
     let sourceKey: String

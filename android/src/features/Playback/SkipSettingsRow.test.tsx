@@ -1,4 +1,5 @@
 // SkipSettingsRow tests — chip labels, ± buttons, value clamp at 0.
+//
 // SkipSettingsRow 测试 — 胶囊文案、加减按钮、下限 0 截断.
 
 import { fireEvent, render } from "@testing-library/react-native";
@@ -30,6 +31,7 @@ test("renders both chips with seconds suffix", () => {
   expect(getByText("Skip Intro")).toBeTruthy();
   expect(getByText("30s")).toBeTruthy();
   // Both chips show "0s" / "30s" — assert at least one "0s" exists.
+  //
   // 两个胶囊各自显示 0s/30s — 断言至少一个 0s 存在.
   expect(getAllByText("0s").length).toBeGreaterThan(0);
 });

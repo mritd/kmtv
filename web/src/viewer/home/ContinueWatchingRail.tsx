@@ -1,23 +1,30 @@
 /**
- * ContinueWatchingRail — presentational home rail for server-synced incomplete watch history.
- * ContinueWatchingRail — 首页继续观看展示 rail, 用于服务端同步的未完成观看记录.
+ * ContinueWatchingRail — presentational home rail for the active identity's incomplete watch history.
+ *
+ * ContinueWatchingRail — 首页继续观看展示 rail, 用于当前身份作用域内的未完成观看记录.
  *
  * Responsibilities / 职责:
- *   - Render up to ten WatchHistoryItem entries as a semantic horizontal poster rail
- *     — 将最多十条 WatchHistoryItem 渲染为语义化横向海报 rail
+ *   - Render up to ten presentation-compatible watch-history entries as a semantic horizontal poster rail
+ *
+ *     — 将最多十条展示兼容的观看历史条目渲染为语义化横向海报 rail
+ *
  *   - Clamp derived progress into the accessible 0-100 range
+ *
  *     — 将派生进度限制在辅助技术可读的 0-100 范围内
+ *
  *   - Delegate selection and guarded clearing to parent callbacks without owning data fetching
+ *
  *     — 通过父级回调处理选择和受保护清空, 不拥有数据获取逻辑
  *
  * Key exports / 主要导出:
  *   ContinueWatchingRail, ContinueWatchingRailProps
  *
  * Callers / 调用方:
- *   viewer/home/HomePage.tsx (Task 3 integration)
+ *   viewer/home/HomePage.tsx
  *
  * ADR locks / ADR 约束:
  *   ADR-014 requires bilingual module headers and JSDoc for exported symbols.
+ *
  *   ADR-014 要求双语模块头和导出符号 JSDoc.
  */
 
@@ -25,7 +32,6 @@ import { useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { useTranslation } from "react-i18next";
 
-import type { WatchHistoryItem } from "@/api/types";
 import { staggerChild, staggerParent } from "@/animation/motionPresets";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
@@ -34,22 +40,41 @@ import { PosterImage } from "@/shared/ui/PosterImage";
 const maxRailItems = 10;
 
 /**
+ * ContinueWatchingItem is the narrow presentation shape consumed by ContinueWatchingRail.
+ *
+ * ContinueWatchingItem 是 ContinueWatchingRail 消费的窄展示形态.
+ *
+ * Server WatchHistoryItem and local anonymous history entries remain structurally compatible.
+ *
+ * 服务端 WatchHistoryItem 和本地匿名历史条目都保持结构兼容.
+ */
+export interface ContinueWatchingItem {
+  id: number | string;
+  title: string;
+  cover: string;
+  episode: string;
+  progress_sec: number;
+  duration_sec: number;
+}
+
+/**
  * ContinueWatchingRailProps are the pure presentation inputs for ContinueWatchingRail.
- * ContinueWatchingRailProps
- * 是 ContinueWatchingRail 的纯展示输入.
+ *
+ * ContinueWatchingRailProps 是 ContinueWatchingRail 的纯展示输入.
  *
  * `items` are already scoped and filtered by the parent data boundary. This component does not
  * fetch, mutate, or inspect authentication state.
+ *
  * items 已由父级数据边界完成作用域隔离和筛选. 此组件不获取数据, 不执行 mutation, 也不检查认证状态.
  */
 export interface ContinueWatchingRailProps {
-  items: WatchHistoryItem[];
-  onSelect(item: WatchHistoryItem): void;
+  items: readonly ContinueWatchingItem[];
+  onSelect(item: ContinueWatchingItem): void;
   onClear(): void;
   isClearing: boolean;
 }
 
-function clampProgressPercent(item: WatchHistoryItem): number {
+function clampProgressPercent(item: ContinueWatchingItem): number {
   if (!Number.isFinite(item.progress_sec) || !Number.isFinite(item.duration_sec) || item.duration_sec <= 0) {
     return 0;
   }
@@ -58,18 +83,19 @@ function clampProgressPercent(item: WatchHistoryItem): number {
   return Math.min(100, Math.max(0, rawPercent));
 }
 
-function episodeLabel(item: WatchHistoryItem): string | undefined {
+function episodeLabel(item: ContinueWatchingItem): string | undefined {
   return item.episode.trim() || undefined;
 }
 
 /**
- * ContinueWatchingRail renders a horizontal continue-watching rail and a guarded clear action.
- * ContinueWatchingRail
- * 渲染横向继续观看 rail 和受保护的清空操作.
+ * ContinueWatchingRail renders a horizontal continue-watching rail and a confirmation-gated clear action.
+ *
+ * ContinueWatchingRail 渲染横向继续观看 rail 和需要确认的清空操作.
  *
  * The component is intentionally presentational: parent code supplies the already-loaded items,
  * selection callback, clear callback, and pending state. Empty inputs render nothing so HomePage
  * can fail quietly when history is unavailable.
+ *
  * 此组件有意保持纯展示: 父级传入已加载条目, 选择回调, 清空回调和 pending 状态.
  * 空输入不渲染内容, 让 HomePage 在观看记录不可用时保持静默降级.
  */

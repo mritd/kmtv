@@ -1,4 +1,5 @@
 // SourceSwitcher tests — full render, collapse toggle, click propagation.
+//
 // SourceSwitcher 测试 — 完整渲染、折叠切换、点击透传.
 
 import { fireEvent, render } from "@testing-library/react-native";

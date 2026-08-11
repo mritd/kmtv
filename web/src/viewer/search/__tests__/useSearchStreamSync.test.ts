@@ -1,3 +1,10 @@
+/**
+ * Focused useSearchStreamSync race tests cover controller ownership, orphan recovery,
+ * superseded queries, and rejection of stale SSE events.
+ *
+ * useSearchStreamSync 竞争条件专项测试覆盖 controller 所有权, 孤儿流恢复, 查询替换和过期 SSE 事件拒绝.
+ */
+
 import { renderHook, act } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
@@ -14,6 +21,7 @@ beforeEach(() => {
 
 // ScriptedSearchEvent uses Extract so each variant's payload is typed correctly.
 // ScriptedSearchEvent
+//
 // 用 Extract 让每个分支 payload 类型正确.
 type ScriptedSearchEvent =
   | { kind: "progress"; data: Extract<SearchStreamEvent, { type: "progress" }>["progress"] }
@@ -22,6 +30,7 @@ type ScriptedSearchEvent =
 
 // scriptedSearchAPI builds an APIClient mock that emits a scripted SSE sequence.
 // scriptedSearchAPI
+//
 // 构建一个按脚本发送 SSE 序列的 APIClient mock.
 type SearchStreamFn = APIClient["searchStream"];
 type SearchStreamMock = Mock<SearchStreamFn>;
@@ -62,6 +71,7 @@ describe("useSearchStreamSync", () => {
     renderHook(() => useSearchStreamSync(api));
     // Synthesize an orphan:
     // loading without a controller.
+    //
     // 构造孤儿状态: loading 但无控制器.
     act(() => {
       searchStore.setState({ status: "loading", lastSubmittedQuery: "q", activeController: null });
@@ -87,11 +97,13 @@ describe("useSearchStreamSync", () => {
   it("stale events from a superseded controller do not mutate state", async () => {
     type Emit = (event: SearchStreamEvent) => void;
     // Box the emit handler so a captured closure assignment is visible after `await`.
+    //
     // 用对象包装 emit, 避免 TS 在 await 后把变量收窄回 null.
     const slot: { emit: Emit | null } = { emit: null };
     const searchStream: APIClient["searchStream"] = vi.fn(async (_q, onEvent) => {
       slot.emit = onEvent;
       // Hang until the test fires the late event manually.
+      //
       // 挂起直到测试手动触发 late event.
       await new Promise(() => undefined);
     });
@@ -105,6 +117,7 @@ describe("useSearchStreamSync", () => {
     act(() => searchStore.getState().submitQuery("B"));
     await Promise.resolve();
     // Now have A's onEvent fire a stale result.
+    //
     // 让 A 的 onEvent 发出过期结果.
     act(() => captured({ type: "result", response: { results: [{ title: "STALE", sources: [] }] } }));
     expect(searchStore.getState().results).toEqual([]);

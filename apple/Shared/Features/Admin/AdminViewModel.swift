@@ -15,6 +15,7 @@ final class AdminViewModel {
     let currentUserId: Int
 
     /// Protocol dependency keeps admin API behavior replaceable in unit tests.
+    ///
     /// 使用协议依赖让管理 API 行为可以在单元测试中替换.
     private let apiClient: any AdminAPIProtocol
 
@@ -57,6 +58,7 @@ final class AdminViewModel {
         do {
             try await apiClient.checkAllSources()
             // Backend health checks are asynchronous, so wait briefly before reloading.
+            //
             // 后端健康检查是异步执行的, 因此短暂等待后再刷新列表.
             try? await Task.sleep(for: .seconds(5))
             await loadSources()
@@ -164,6 +166,7 @@ final class AdminViewModel {
 
     func updateSetting(key: String, value: String) async {
         // Optimistically update local settings so the form reflects the user's choice immediately.
+        //
         // 先乐观更新本地设置, 让表单立即反映用户选择.
         settings[key] = value
         do {

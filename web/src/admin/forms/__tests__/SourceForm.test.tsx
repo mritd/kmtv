@@ -1,5 +1,6 @@
 /**
  * SourceForm tests — verifies the is_adult toggle is wired into create and edit payloads.
+ *
  * SourceForm 测试 — 验证 is_adult 开关已接入新建与编辑请求体.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

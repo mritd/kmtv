@@ -147,8 +147,11 @@ struct TVSearchContentView: View {
 
     private var tvSearchResults: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 32), count: 5), spacing: 32) {
-            // Search aggregation can return duplicate business ids; use row index for SwiftUI identity.
-            // 聚合搜索可能返回重复业务 id, 这里使用行下标作为 SwiftUI 渲染标识.
+            // SearchResult.id can collide across rows that share title/provider but differ by year.
+            // Use the namespaced row index so SwiftUI never reuses a result or skeleton incorrectly.
+            //
+            // 同标题和视频源但年份不同的结果可能产生相同 SearchResult.id. 使用带命名空间的
+            // 行下标, 避免 SwiftUI 错误复用结果行或骨架行.
             ForEach(searchRows) { row in
                 let result = row.result
                 Button {
@@ -262,8 +265,11 @@ struct SearchContentView: View {
     }
 
     private var searchResults: some View {
-        // Search aggregation can return duplicate business ids; use row index for SwiftUI identity.
-        // 聚合搜索可能返回重复业务 id, 这里使用行下标作为 SwiftUI 渲染标识.
+        // SearchResult.id can collide across rows that share title/provider but differ by year.
+        // Use the namespaced row index so SwiftUI never reuses a result or skeleton incorrectly.
+        //
+        // 同标题和视频源但年份不同的结果可能产生相同 SearchResult.id. 使用带命名空间的
+        // 行下标, 避免 SwiftUI 错误复用结果行或骨架行.
         ForEach(searchRows) { row in
             let result = row.result
             Button {
@@ -464,6 +470,7 @@ struct SearchContentView: View {
 
 private struct SearchResultRow: Identifiable {
     /// Namespaced identity avoids SwiftUI reusing skeleton rows for real results.
+    ///
     /// 带命名空间的标识避免 SwiftUI 将骨架屏行复用为真实结果行.
     let id: SearchRowIdentity
     let result: SearchResult

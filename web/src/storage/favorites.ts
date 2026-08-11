@@ -11,12 +11,14 @@
  *
  * NOTE: This module intentionally does NOT register a user-scoped reset because favorites are
  * device-local preferences, not server-session state. They survive logout by design.
+ *
  * 注意: 本模块不注册用户范围重置, 因为收藏是设备本地偏好, 而非服务器会话状态.
  * 它们在登出后仍保留, 这是有意为之.
  */
 import type { SearchResult, SourceResult } from "@/api/types";
 
 // LOCKED storage key — must not change. Renaming breaks existing user data.
+//
 // 锁定的存储键 — 禁止更改, 重命名会破坏现有用户数据.
 export const favoritesKey = "kmtv.favorites";
 
@@ -41,6 +43,7 @@ export interface FavoriteItem {
 // readItems — parse localStorage, return [] on any error or unexpected schema.
 // Guards against non-array JSON (e.g. `{}` or a scalar) to prevent downstream callers
 // from crashing on `.some()`/`.filter()` when the stored value is not an array.
+//
 // readItems — 解析 localStorage, 任何错误或意外 schema 时返回 [].
 // 防止非数组 JSON (如 `{}` 或标量) 导致下游调用方在非数组上调用 `.some()`/`.filter()` 而崩溃.
 function readItems(): FavoriteItem[] {
@@ -50,6 +53,7 @@ function readItems(): FavoriteItem[] {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) {
       // Stored value is not an array — treat as corrupt and clear it.
+      //
       // 存储值不是数组 — 视为损坏并清除.
       window.localStorage.removeItem(favoritesKey);
       return [];
@@ -58,6 +62,7 @@ function readItems(): FavoriteItem[] {
   } catch {
     // Corrupt favorite data should not block browsing.
     // Remove the bad entry so the next write starts clean.
+    //
     // 损坏的收藏数据不能阻塞浏览. 清除损坏条目, 下次写入从头开始.
     window.localStorage.removeItem(favoritesKey);
     return [];
@@ -65,6 +70,7 @@ function readItems(): FavoriteItem[] {
 }
 
 // writeItems — serialize and persist the full list.
+//
 // writeItems — 序列化并持久化完整列表.
 function writeItems(items: FavoriteItem[]): void {
   window.localStorage.setItem(favoritesKey, JSON.stringify(items));
@@ -218,6 +224,7 @@ export function toggleResultFavorite(result: SearchResult): FavoriteItem[] {
   const source = Array.isArray(result.sources) ? result.sources[0] : undefined;
   if (!source) {
     // No usable source — return unchanged list rather than creating an incomplete entry.
+    //
     // 没有可用 source — 返回未修改的列表, 不创建不完整条目.
     return items;
   }

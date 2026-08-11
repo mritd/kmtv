@@ -1,4 +1,5 @@
 // i18n setup smoke test — verifies translation lookup works for both languages.
+//
 // i18n 设置冒烟测试, 验证两种语言的翻译查找.
 
 import { initI18n } from "./index";

@@ -23,6 +23,7 @@ final class PlayerViewModel {
     private let logger = Logger(subsystem: "com.mritd.kmtv", category: "playback")
 
     // Data.
+    //
     // 详情数据与当前选中线路.
     var detail: VideoDetail?
     var sources: [SourceResult]
@@ -34,6 +35,7 @@ final class PlayerViewModel {
     var error: String?
 
     // Playback UI state (updated by time observer).
+    //
     // 播放 UI 状态, 由时间观察器持续更新.
     var currentTime: TimeInterval = 0
     var duration: TimeInterval = 0
@@ -69,15 +71,18 @@ final class PlayerViewModel {
     var isBuffering: Bool = false
 
     /// Observable player handle used by SwiftUI to mount the video layer.
+    ///
     /// SwiftUI 通过这个可观察播放器引用挂载视频图层.
     private(set) var player: AVPlayer?
 
     // Playback settings.
+    //
     // 播放设置.
     var skipIntroSeconds: Int = 0
     var skipOutroSeconds: Int = 0
 
     // Progress tracking.
+    //
     // 播放进度跟踪.
     private var lastSaveTime: TimeInterval = 0
     private var skipOutroTriggered = false
@@ -91,6 +96,7 @@ final class PlayerViewModel {
     private let progressStore: PlaybackProgressStore
 
     /// Coordinates player side effects while this view model owns user-visible state.
+    ///
     /// 播放器副作用交给 coordinator 管理, 当前视图模型只维护用户可见状态.
     private let coordinator = PlaybackCoordinator()
 
@@ -184,7 +190,9 @@ final class PlayerViewModel {
 				duration: item.durationSec
 			)
 		} catch {
-			// Missing or temporarily unavailable remote history falls back to the user-scoped cache.
+			// Missing or temporarily unavailable remote history leaves the user-scoped cache in place.
+			//
+			// 远端历史不存在或暂时不可用时, 保留当前用户范围内的本地缓存.
 		}
 	}
 
@@ -233,6 +241,7 @@ final class PlayerViewModel {
     }
 
     /// Resolves the selected episode through `/playback/url` before AVPlayer sees it.
+    ///
     /// 在交给 AVPlayer 前, 先通过 `/playback/url` 解析当前选中的剧集地址.
     func preparePlaybackURL() async throws -> URL {
         guard let ep = currentEpisode else {
@@ -256,6 +265,7 @@ final class PlayerViewModel {
     private func startPlayer(with url: URL) {
         skipOutroTriggered = false
         // Show loading feedback while AVPlayer resolves playlists and media segments.
+        //
         // AVPlayer 解析播放列表和媒体片段期间先显示加载反馈.
         isPlaying = false
         isBuffering = true
@@ -391,6 +401,7 @@ final class PlayerViewModel {
 
     func onTimeUpdate(current: TimeInterval, total: TimeInterval) {
         // Don't overwrite currentTime while user is dragging the slider.
+        //
         // 用户拖动进度条时不覆盖 currentTime, 避免 UI 跳动.
         if !isSeeking {
             currentTime = current
@@ -464,6 +475,7 @@ final class PlayerViewModel {
         guard let source = sources.first(where: { $0.sourceKey == sourceKey }) else { return }
 
         // Only fetch episodes for the new source, preserve existing detail info.
+        //
         // 切源时只拉取新源剧集, 保留当前影片元数据.
         do {
             let d = try await apiClient.detail(sourceKey: sourceKey, videoId: source.videoId)
@@ -505,6 +517,7 @@ final class PlayerViewModel {
     // MARK: - Auto-fallback
 
     /// Handles failed playback by trying another CDN line first, then another source.
+    ///
     /// 处理播放失败: 优先尝试下一条 CDN 线路, 再尝试下一个视频源.
     func handlePlaybackError() async {
         let nextLine = currentLineIndex + 1
@@ -523,6 +536,7 @@ final class PlayerViewModel {
     }
 
     /// Drops failed sources and loads the next source that exposes playable episodes.
+    ///
     /// 移除失败视频源, 并加载下一个能提供可播放剧集的视频源.
     private func autoFallbackSource(failedKey: String) async {
         removeSource(failedKey)
@@ -572,6 +586,7 @@ final class PlayerViewModel {
 	}
 
     /// Applies detail refreshes without replacing stable movie metadata during source switching.
+    ///
     /// 切换视频源时只刷新剧集, 避免覆盖稳定的影片元数据.
     private func applyDetail(_ newDetail: VideoDetail) {
         if let existing = detail {
@@ -702,6 +717,7 @@ final class PlayerViewModel {
         // Safety net: primary cleanup is via cleanup() called from view lifecycle.
         // This class is @MainActor and owned by SwiftUI views, so deallocation
         // happens on the main thread. assumeIsolated is safe here.
+        //
         // 兜底清理: 主要清理由视图生命周期调用 cleanup 完成.
         // 该类由 SwiftUI 在 MainActor 上持有, 因此这里使用 assumeIsolated 是安全的.
         MainActor.assumeIsolated {

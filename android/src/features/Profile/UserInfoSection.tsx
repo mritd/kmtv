@@ -1,4 +1,5 @@
 // UserInfoSection — avatar + username + role + server. Triggers Alert for avatar actions.
+//
 // UserInfoSection — 头像 + 用户名 + 角色 + 服务器. 通过 Alert 触发头像相关操作.
 
 import { Ionicons } from "@expo/vector-icons";
@@ -16,6 +17,7 @@ import type { UseProfileResult } from "./useProfile";
 
 /**
  * Props for UserInfoSection.
+ *
  * UserInfoSection 的 props.
  */
 export interface UserInfoSectionProps {
@@ -28,6 +30,7 @@ export interface UserInfoSectionProps {
 
 /**
  * UserInfoSection — top section of ProfileScreen.
+ *
  * UserInfoSection — ProfileScreen 顶部信息区.
  */
 export function UserInfoSection({ user, isAnonymous, apiClient, serverURL, profile }: UserInfoSectionProps) {

@@ -1,4 +1,5 @@
 // ServerSetupScreen lets the user enter a server URL + optional credentials.
+//
 // ServerSetupScreen 让用户输入服务器 URL 及可选凭据.
 
 import { useMemo, useState } from "react";
@@ -14,6 +15,7 @@ const DEV_DEFAULT_SERVER_URL = __DEV__ && process.env.NODE_ENV !== "test" ? "htt
 
 /**
  * Screen where the user supplies the backend URL and optional credentials.
+ *
  * 用户输入后端 URL 与可选凭据的屏幕.
  */
 export function ServerSetupScreen() {

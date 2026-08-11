@@ -1,4 +1,5 @@
 // HeroCarousel test: renders all items, advances index after 5 s via fake timers.
+//
 // HeroCarousel 测试: 渲染全部条目, 通过假定时器在 5 秒后推进索引.
 
 import { act, render } from "@testing-library/react-native";
@@ -51,6 +52,7 @@ describe("HeroCarousel", () => {
   it("renders nothing when items is empty", () => {
     const { toJSON } = render(wrap(<HeroCarousel baseURL="https://x" items={[]} />));
     // The ThemeProvider wraps an empty fragment but HeroCarousel itself returns null.
+    //
     // ThemeProvider 包裹了空 fragment, HeroCarousel 自身返回 null.
     expect(toJSON()).toBeNull();
   });

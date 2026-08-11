@@ -2,6 +2,7 @@
 // Idempotent brand asset generator: renders SVGs in assets/brand/*.svg
 // into 1024x1024 PNGs at assets/{icon,adaptive-icon,splash}.png via rsvg-convert.
 // Validates output dimensions + file size so a silent rsvg failure cannot ship a blank PNG.
+//
 // 幂等的品牌资源生成器: 将 assets/brand/*.svg 用 rsvg-convert 渲染为 1024x1024 PNG, 写入 assets/.
 // 同时校验尺寸与文件大小, 防止 rsvg 静默失败时落下空白 PNG.
 

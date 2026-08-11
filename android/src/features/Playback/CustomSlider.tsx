@@ -1,5 +1,6 @@
 // CustomSlider — thin progress slider with small round thumb that grows on drag. Production uses
 // PanResponder; tests drive the same callbacks through the _panForTest prop.
+//
 // CustomSlider — 细进度条 + 小圆头, 拖动时放大. 生产使用 PanResponder; 测试通过 _panForTest 触发同一回调.
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -15,6 +16,7 @@ const SLIDER_HEIGHT = 32;
 
 /**
  * Props for CustomSlider — value in [0, 1] plus optional drag callbacks.
+ *
  * CustomSlider 的 props — value 在 [0, 1] 之间, 配合可选的拖动回调.
  */
 export interface CustomSliderProps {
@@ -26,8 +28,10 @@ export interface CustomSliderProps {
    * Test escape hatch — production code never sets this. Receives a function that fires the same
    * drag callbacks PanResponder would, so the component is testable under jest. Marked `@internal`
    * so tsc surfaces it but consumer-facing tooling (typedoc, IDE hints in app code) hides it.
+   *
    * 测试逃生口 — 生产代码不设置. 接受一个回调, 内部触发与 PanResponder 等价的拖动回调.
    * 标记 `@internal`, tsc 仍可见, 但文档与 IDE 提示对消费方隐藏.
+   *
    * @internal
    */
   _panForTest?: (pan: (ratio: number, phase: "start" | "end") => void) => void;
@@ -39,6 +43,14 @@ function clamp01(v: number): number {
   return v;
 }
 
+/**
+ * Converts an absolute page X coordinate into a slider ratio. The slider's left edge maps
+ * to 0, its right edge maps to 1, and coordinates outside the bounds are clamped. Returns 0
+ * when the width is zero or negative, or either coordinate is not finite.
+ *
+ * 将页面绝对 X 坐标转换为滑块比例. 滑块左边缘对应 0, 右边缘对应 1,
+ * 超出边界的坐标会被钳制. 当宽度为零或负数, 或任一坐标不是有限数值时返回 0.
+ */
 export function sliderRatioFromPageX(pageX: number, sliderLeft: number, width: number): number {
   if (width <= 0 || !Number.isFinite(pageX) || !Number.isFinite(sliderLeft)) return 0;
   return clamp01((pageX - sliderLeft) / width);
@@ -47,6 +59,7 @@ export function sliderRatioFromPageX(pageX: number, sliderLeft: number, width: n
 /**
  * Thin slider with growing thumb. Updates display position immediately during drag, but only
  * commits the seek when the gesture ends.
+ *
  * 拖动时立即更新视觉位置, 松手时才执行 seek 提交.
  */
 export function CustomSlider({ value, onDragStart, onDragEnd, testID, _panForTest }: CustomSliderProps) {
@@ -101,6 +114,7 @@ export function CustomSlider({ value, onDragStart, onDragEnd, testID, _panForTes
   // Keep a ref to the latest dispatchPan so the once-created PanResponder always sees the latest
   // onDragStart/onDragEnd. Without this the responder would capture only the first render's
   // callbacks and later rate / duration changes would be dropped.
+  //
   // 用 ref 持有最新 dispatchPan, 让仅创建一次的 PanResponder 始终命中最新的回调.
   // 否则 responder 会闭包首次渲染的回调, 后续 rate / duration 改变将丢失.
   const dispatchPanRef = useRef(dispatchPan);

@@ -1,4 +1,5 @@
 // ProfileScreen — composes all profile sub-sections and wires them to authStore + serverStore.
+//
 // ProfileScreen — 组装 Profile 各子节, 接入 authStore + serverStore.
 
 import { Ionicons } from "@expo/vector-icons";
@@ -24,6 +25,7 @@ import { useProfile } from "./useProfile";
 
 /**
  * Context value to inject stubbed apiClient + auth in tests; nullable when default factory is fine.
+ *
  * 测试时注入 stub apiClient + auth 的 context, 默认工厂可用时传 null.
  */
 export interface ProfileScreenContextValue {
@@ -34,6 +36,7 @@ export interface ProfileScreenContextValue {
 
 /**
  * Optional ProfileScreen context for tests.
+ *
  * ProfileScreen 的可选 context, 主要用于测试.
  */
 export const ProfileScreenContext = createContext<ProfileScreenContextValue | null>(null);
@@ -54,6 +57,7 @@ function useDefaultContext(): ProfileScreenContextValue | null {
 /**
  * Inner ProfileScreen — owns the `useProfile` hook. Only mounted once `ctx` is non-null so the
  * hook's deps are stable for the lifetime of the component.
+ *
  * ProfileScreen 的内层组件 — 持有 useProfile hook. 仅当 ctx 非空时挂载, 保证 hook 依赖稳定.
  */
 function ProfileInner({ ctx }: { ctx: ProfileScreenContextValue }) {
@@ -138,6 +142,7 @@ function ProfileInner({ ctx }: { ctx: ProfileScreenContextValue }) {
 
 /**
  * ProfileScreen — Me tab root.
+ *
  * ProfileScreen — Me Tab 的根.
  */
 export function ProfileScreen() {

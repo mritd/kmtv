@@ -1,9 +1,11 @@
 /**
  * useForm tests — happy path, field updates, cross-field validation, and error injection.
+ *
  * useForm 测试 — 正常路径、字段更新、跨字段校验和错误注入.
  *
  * Note: useForm has no reset API and no explicit dirty-state flag.
  * Successive setField calls demonstrate value update and error-clearing behaviour.
+ *
  * 注意: useForm 无 reset API, 无显式 dirty 标志.
  * 通过连续 setField 调用验证值更新和错误清除行为.
  */
@@ -13,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import { useForm } from "./useForm";
 
 // Simple form shape used across tests.
+//
 // 跨用例复用的简单表单形态.
 type TestForm = { name: string; count: number };
 
@@ -35,6 +38,7 @@ describe("useForm", () => {
       });
       expect(result.current.values.name).toBe("hello");
       // Other field must remain at initial value.
+      //
       // 其他字段保持初始值.
       expect(result.current.values.count).toBe(0);
     });
@@ -46,6 +50,7 @@ describe("useForm", () => {
         }),
       );
       // Trigger validation to populate the error.
+      //
       // 触发校验以填充错误.
       act(() => {
         result.current.validate();
@@ -53,6 +58,7 @@ describe("useForm", () => {
       expect(result.current.errors.name).toBe("required");
 
       // Now type into the field — error should be cleared immediately.
+      //
       // 输入字段 — 错误应立即清除.
       act(() => {
         result.current.setField("name", "x");
@@ -73,6 +79,7 @@ describe("useForm", () => {
       expect(result.current.errors.b).toBe("b required");
 
       // Fix field b — field a's error should remain.
+      //
       // 修复 b 字段 — a 字段的错误应保留.
       act(() => { result.current.setField("b", "ok"); });
       expect(result.current.errors.a).toBe("a required");

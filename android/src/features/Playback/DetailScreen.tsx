@@ -1,4 +1,5 @@
 // DetailScreen — info hero + source picker + episode grid + Play CTA. M4 root for Detail navigation.
+//
 // DetailScreen — 信息头图 + 源选择器 + 剧集网格 + 播放按钮. M4 中 Detail 导航的根组件.
 
 import { BlurView } from "expo-blur";
@@ -28,6 +29,7 @@ import { useFavoriteToggle } from "./useFavoriteToggle";
 
 /**
  * Context value lets tests inject a stub DetailAPI + onPlay handler without booting the store stack.
+ *
  * 通过 context 测试可注入 stub DetailAPI 与 onPlay 回调, 无需启动 store.
  */
 export interface DetailScreenContextValue {
@@ -39,6 +41,7 @@ export interface DetailScreenContextValue {
 
 /**
  * Optional context — wired by tests; production reads serverStore + navigation directly.
+ *
  * 可选 context — 测试注入; 生产路径直接读 serverStore + navigation.
  */
 export const DetailScreenContext = createContext<DetailScreenContextValue | null>(null);
@@ -67,6 +70,7 @@ function useDefaultContext(
 
 /**
  * DetailScreen props — Detail route params shaped by HomeStack/CategoriesStack.
+ *
  * DetailScreen props — HomeStack/CategoriesStack 提供的 Detail 路由参数.
  */
 export interface DetailScreenProps {
@@ -76,6 +80,7 @@ export interface DetailScreenProps {
 
 /**
  * DetailScreen — entry component for the Detail route.
+ *
  * DetailScreen — Detail 路由的入口组件.
  */
 export function DetailScreen({ route, navigation }: DetailScreenProps) {
@@ -146,6 +151,7 @@ function DetailInner({ ctx, destination }: { ctx: DetailScreenContextValue; dest
   // onPlay accepts an explicit episode index so EpisodeGrid clicks don't race against
   // setCurrentEpisodeIndex's commit. videoId is looked up from the active source so a source
   // switch propagates the right videoId — `...destination` would carry the original one.
+  //
   // onPlay 显式接收剧集索引, 避免 EpisodeGrid 点击与 setCurrentEpisodeIndex 提交竞态.
   // videoId 从当前源查 (而非 `...destination`), 切源后 videoId 才能跟着变.
   const onPlay = (episodeIndex: number) => {

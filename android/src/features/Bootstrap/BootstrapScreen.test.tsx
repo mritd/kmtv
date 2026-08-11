@@ -1,4 +1,5 @@
 // BootstrapScreen renders a spinner and triggers authStore.bootstrap on mount.
+//
 // BootstrapScreen 显示加载指示并在挂载时触发 authStore.bootstrap.
 
 import { render, screen, waitFor } from "@testing-library/react-native";

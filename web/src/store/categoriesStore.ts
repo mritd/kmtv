@@ -1,5 +1,6 @@
 /**
  * categoriesStore — browse-page filter selection that survives route unmounts.
+ *
  * categoriesStore — 浏览页的筛选选择, 在路由卸载时保持.
  *
  * Responsibilities / 职责:
@@ -8,10 +9,11 @@
  *   - Provide reset() so navigating away and back (or logging out) starts clean when needed — 提供 reset(), 在需要时让离开后返回 (或登出) 从干净状态开始
  *
  * Why a store and not local state / 为何用 store 而非组件本地 state:
- *   The page unmounts on navigation (AnimatePresence mode="wait"). Local useState would reset the
- *   filters every time the user opens an item and presses Back. A module-level store preserves the
- *   selection across remounts within a session, matching the established searchStore/detailStore pattern.
- *   页面在导航时卸载 (AnimatePresence mode="wait"). 本地 useState 会在用户每次打开条目并返回时重置筛选.
+ *   The page component unmounts whenever the active route changes. Local useState would therefore
+ *   reset the filters every time the user opens an item and presses Back. A module-level store preserves
+ *   the selection across remounts within a session, matching the established searchStore/detailStore pattern.
+ *
+ *   活动路由变化时页面组件会卸载, 因此本地 useState 会在用户打开条目并返回时重置筛选.
  *   模块级 store 在会话内跨重挂保留选择, 与既有的 searchStore/detailStore 模式一致.
  *
  * State shape / 状态结构:
@@ -36,6 +38,7 @@ import type { CategorySelection } from "@/viewer/categories/categoryFilter";
 
 /**
  * CategoriesState — full state + action contract of categoriesStore.
+ *
  * CategoriesState — categoriesStore 的完整状态与 action 接口.
  */
 export interface CategoriesState extends CategorySelection {
@@ -46,6 +49,7 @@ export interface CategoriesState extends CategorySelection {
 }
 
 // initialState is extracted so reset() can spread it atomically.
+//
 // 提取 initialState 以便 reset() 原子地展开.
 const initialState: CategorySelection = {
   groupKey: null,
@@ -55,6 +59,7 @@ const initialState: CategorySelection = {
 
 /**
  * categoriesStore — vanilla Zustand store (consumed in React via `useStore(categoriesStore, selector)`).
+ *
  * categoriesStore — 原生 Zustand store (在 React 中通过 `useStore(categoriesStore, selector)` 消费).
  */
 export const categoriesStore = createStore<CategoriesState>()((set, get) => ({
@@ -62,10 +67,12 @@ export const categoriesStore = createStore<CategoriesState>()((set, get) => ({
 
   selectGroup: (key) => {
     // No-op when re-selecting the current group so the user's sub/region choice is preserved.
+    //
     // 重选当前分组时不操作, 以保留用户的子分类/地区选择.
     if (key === get().groupKey) return;
     // Switching group clears sub + region; categoryFilter then resolves them to the new group's
     // first options (the old names no longer exist there).
+    //
     // 切换分组会清空子分类与地区; categoryFilter 随后将其解析到新分组的首个选项 (旧名称已不存在).
     set({ groupKey: key, subName: null, regionName: null });
   },

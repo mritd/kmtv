@@ -1,4 +1,5 @@
 // CategoriesScreen — tabs + sub/region chips + responsive poster grid driven by useDoubanRecommendInfiniteQuery.
+//
 // CategoriesScreen — tab + 子分类/地区胶囊 + 自适应海报网格, 由 useDoubanRecommendInfiniteQuery 驱动.
 
 import { useNavigation } from "@react-navigation/native";
@@ -33,6 +34,7 @@ import { flattenCategoryPages } from "./categoryItems";
 /**
  * Context lets tests inject a stub DoubanAPI + serverURL + onSearchTitle without booting
  * serverStore / authStore. Production path uses CategoriesScreen's default factory.
+ *
  * 测试可通过 context 注入 stub DoubanAPI + serverURL + onSearchTitle, 无需启动 serverStore / authStore.
  * 生产路径走 CategoriesScreen 的默认工厂.
  */
@@ -61,6 +63,7 @@ function useDefaultDoubanAPI(): { api: DoubanAPI | null; serverURL: string } {
 /**
  * Re-export pickNumColumns from the shared breakpoints module so existing tests + callers
  * keep their `import { pickNumColumns } from "./CategoriesScreen"` paths working.
+ *
  * 从共享断点模块再导出 pickNumColumns, 保持现有测试与调用方的导入路径不变.
  */
 export const pickNumColumns = pickNumColumnsFromBreakpoints;
@@ -72,11 +75,13 @@ function formatGridRating(rate?: string): string {
 
 /**
  * CategoriesScreen — entry point exported to the navigator.
+ *
  * CategoriesScreen — 导出给导航器的入口组件.
  *
  * Two render paths: context-driven (tests + embedded) and production. Splitting them keeps
  * useNavigation off the test path so the test fixture is not forced to wrap in NavigationContainer
  * to satisfy a default it never uses.
+ *
  * 两条渲染路径: 由 context 驱动 (测试与嵌入) 与生产路径. 拆分两路径让 useNavigation 仅在生产路径调用,
  * 测试不再被强迫包 NavigationContainer 仅为满足一个用不到的默认行为.
  */

@@ -1,12 +1,18 @@
 /**
  * ChangePasswordForm — modal form for updating a user's password.
+ *
  * ChangePasswordForm — 修改用户密码的弹窗表单.
  *
  * Responsibilities / 职责:
- *   - Validate that new_password is non-empty and confirm_password matches — 校验新密码非空且确认密码一致
- *   - Provide real-time mismatch feedback as confirm_password is typed — 实时反馈确认密码不匹配
- *   - Submit via useUsersMutations.update (reuses update, setting only password) — 通过 update mutation 提交
- *   - Show toast on mutation error — mutation 错误时显示 toast
+ *   - Validate that new_password is non-empty and confirm_password matches.
+ *   - Provide real-time mismatch feedback as confirm_password is typed.
+ *   - Submit through useUsersMutations.update, changing only the password.
+ *   - Show a toast when the mutation fails.
+ *
+ *   - 校验 new_password 非空且 confirm_password 一致.
+ *   - 输入 confirm_password 时实时提示不匹配.
+ *   - 通过 useUsersMutations.update 提交, 仅修改密码.
+ *   - mutation 失败时显示 toast.
  *
  * Key exports / 主要导出:
  *   ChangePasswordForm
@@ -26,6 +32,7 @@ import { useUsersMutations } from "../hooks/useUsersMutations";
 import { useForm } from "./useForm";
 
 // ChangePasswordValues holds the two controlled field values for the form.
+//
 // ChangePasswordValues 持有表单两个受控字段的值.
 type ChangePasswordValues = {
   new_password: string;
@@ -34,9 +41,11 @@ type ChangePasswordValues = {
 
 /**
  * ChangePasswordForm renders the change-password modal form for the given user.
+ *
  * ChangePasswordForm 为指定用户渲染修改密码弹窗表单.
  *
  * `onDone` is called on both successful submission and cancel.
+ *
  * onDone 在提交成功和取消时均会被调用.
  */
 export function ChangePasswordForm({ user, onDone }: { user: AdminUser; onDone: () => void }) {
@@ -47,6 +56,7 @@ export function ChangePasswordForm({ user, onDone }: { user: AdminUser; onDone: 
     {
       new_password: (value) => (value ? undefined : t("user.password.errors.newRequired")),
       // confirm_password validator checks equality against the full form — cross-field.
+      //
       // confirm_password 校验函数通过完整表单值跨字段检查相等性.
       confirm_password: (value, form) =>
         value === form.new_password ? undefined : t("user.password.errors.mismatch"),
@@ -55,6 +65,7 @@ export function ChangePasswordForm({ user, onDone }: { user: AdminUser; onDone: 
 
   // Real-time mismatch feedback: sync confirm_password error as either field changes.
   // Avoids waiting for submit to surface "passwords don't match".
+  //
   // 实时不匹配反馈: 任一字段变更时同步 confirm_password 错误.
   // 避免用户等到提交才看到"密码不一致".
   useEffect(() => {
@@ -63,11 +74,13 @@ export function ChangePasswordForm({ user, onDone }: { user: AdminUser; onDone: 
     setErrors((prev) => {
       if (mismatch) {
         // Already showing mismatch error — no state update needed.
+        //
         // 已有不匹配错误 — 无需更新 state.
         if (prev.confirm_password) return prev;
         return { ...prev, confirm_password: t("user.password.errors.mismatch") };
       }
       // Passwords now match — clear the error if present.
+      //
       // 密码已一致 — 若存在错误则清除.
       if (!prev.confirm_password) return prev;
       const { confirm_password: _omit, ...rest } = prev;
@@ -81,6 +94,7 @@ export function ChangePasswordForm({ user, onDone }: { user: AdminUser; onDone: 
     event.preventDefault();
     if (!validate()) return;
     // Only the password field is updated; username and role carry over unchanged.
+    //
     // 仅更新 password 字段; username 和 role 保持不变.
     const payload: UpdateUserPayload = {
       username: user.username,

@@ -29,6 +29,7 @@ var (
 )
 
 // FrontendFS holds the embedded frontend files, set by main package.
+//
 // FrontendFS 保存由 main package 注入的内嵌前端文件.
 var FrontendFS embed.FS
 
@@ -38,6 +39,7 @@ var rootCmd = &cobra.Command{
 	Long:  "KMTV is a video aggregation player that collects and plays videos from multiple sources.",
 	// Version drives the auto-registered -v/--version flag; the template prints
 	// the full build summary (version, commit, build time) on its own.
+	//
 	// Version 驱动自动注册的 -v/--version 选项; 模板单独打印完整构建摘要
 	// (版本号、commit、编译时间).
 	Version: version.Info(),
@@ -58,6 +60,7 @@ var rootCmd = &cobra.Command{
 // chooseDBPath applies precedence: an explicit --db-path flag wins, otherwise
 // the KMTV_DB_PATH env value (if non-empty), otherwise the flag default.
 // flagChanged reports whether --db-path was set explicitly on the command line.
+//
 // chooseDBPath 按优先级选择: 显式 --db-path > KMTV_DB_PATH 环境变量 > 默认值.
 // flagChanged 表示 --db-path 是否在命令行被显式设置.
 func chooseDBPath(flagChanged bool, flagVal, envVal string) string {
@@ -71,6 +74,7 @@ func chooseDBPath(flagChanged bool, flagVal, envVal string) string {
 }
 
 // resolveDBPath resolves the effective database path from the flag and env.
+//
 // resolveDBPath 从 flag 和环境变量解析出生效的数据库路径.
 func resolveDBPath(cmd *cobra.Command) string {
 	return chooseDBPath(cmd.Flags().Changed("db-path"), dbPath, os.Getenv(consts.EnvDBPath))
@@ -81,12 +85,14 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&dbPath, "db-path", "kmtv.db", "database file path (use :memory: or set KMTV_DB_PATH=:memory: for an ephemeral in-memory database)")
 	// Print only the build summary for -v/--version instead of the default
 	// "kmtv version <...>" wrapper, since Info() is already self-describing.
+	//
 	// -v/--version 只打印构建摘要, 而非默认的 "kmtv version <...>" 包装,
 	// 因为 Info() 本身已包含完整描述.
 	rootCmd.SetVersionTemplate("{{.Version}}\n")
 }
 
 // prepareServer initializes runtime dependencies and returns a ready Gin engine.
+//
 // prepareServer 初始化运行时依赖并返回可用的 Gin engine.
 func prepareServer(databasePath string, frontendFS embed.FS) (*store.Store, func(), *gin.Engine, error) {
 	lines := strings.Split(version.Info(), "\n")
@@ -105,6 +111,7 @@ func prepareServer(databasePath string, frontendFS embed.FS) (*store.Store, func
 	}
 
 	// Initialize store before services so all DB-backed dependencies are ready.
+	//
 	// 先初始化 store, 确保所有依赖数据库的服务可用.
 	s, err := store.New(databasePath)
 	if err != nil {
@@ -113,6 +120,7 @@ func prepareServer(databasePath string, frontendFS embed.FS) (*store.Store, func
 	cleanup := func() { _ = s.Close() }
 
 	// Apply runtime settings from DB without failing startup on invalid values.
+	//
 	// 从数据库应用运行时设置, 无效值沿用默认值且不阻断启动.
 	service.ApplyRuntimeSettingsFromReader(s)
 	logrus.Infof("Search concurrency: %d, Search timeout: %s, Probe concurrency: %d, Probe timeout: %s",
@@ -120,6 +128,7 @@ func prepareServer(databasePath string, frontendFS embed.FS) (*store.Store, func
 		service.GetProbeConcurrency(), service.GetProbeTimeout())
 
 	// Initialize services.
+	//
 	// 初始化服务层依赖.
 	authSvc := service.NewAuthService(s)
 	mediaSvc := service.NewMediaTokenService(s)
@@ -136,6 +145,7 @@ func prepareServer(databasePath string, frontendFS embed.FS) (*store.Store, func
 	// holds the store and the source service for the whole time. Joining it here
 	// stops cleanup from closing those out from under an import still in flight,
 	// and bounds the goroutine's lifetime to prepareServer's caller.
+	//
 	// 初始导入涉及网络请求, 因此放在后台执行, 但它全程持有 store 与 source service.
 	// 在此 join 可避免 cleanup 在导入仍在进行时将两者关闭,
 	// 同时把该 goroutine 的生命周期限制在 prepareServer 调用方之内.
@@ -147,6 +157,7 @@ func prepareServer(databasePath string, frontendFS embed.FS) (*store.Store, func
 	}
 
 	// Ensure default admin user exists; if newly created, optionally seed initial sources from env.
+	//
 	// 确保默认管理员存在; 如果是新建用户, 则可按环境变量导入初始视频源.
 	freshDB := false
 	if u, err := s.GetUserByUsername("admin"); err != nil {
@@ -171,6 +182,7 @@ func prepareServer(databasePath string, frontendFS embed.FS) (*store.Store, func
 	}
 
 	// Setup Gin engine and register routes.
+	//
 	// 初始化 Gin engine 并注册路由.
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -230,6 +242,7 @@ func seedSourcesFromURL(s *store.Store, sourceSvc *service.SourceService, config
 	logrus.Infof("Seeded %d initial sources", count)
 
 	// Create a subscription record so env-based first-start seeding matches the old default behavior.
+	//
 	// 创建订阅记录, 使环境变量驱动的首次启动导入行为与旧默认行为保持一致.
 	if _, err := s.CreateSubscription(configURL, true, 86400); err != nil {
 		logrus.Errorf("Failed to create initial source subscription: %v", err)
@@ -237,6 +250,7 @@ func seedSourcesFromURL(s *store.Store, sourceSvc *service.SourceService, config
 }
 
 // Execute runs the root command.
+//
 // Execute 运行 root command.
 func Execute() {
 	cobra.CheckErr(rootCmd.Execute())

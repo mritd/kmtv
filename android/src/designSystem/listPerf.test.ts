@@ -1,4 +1,5 @@
 // listPerf constants smoke tests; lock spec-derived values to prevent silent regressions.
+//
 // listPerf 常量冒烟测试, 锁定 spec 派生值, 防止静默回归.
 
 import { LIST_PERF_DEFAULT, LIST_PERF_GRID, LIST_PERF_HORIZONTAL } from "./listPerf";

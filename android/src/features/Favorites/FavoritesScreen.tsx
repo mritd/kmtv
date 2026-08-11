@@ -1,4 +1,5 @@
 // FavoritesScreen — list of favorites with swipe-to-delete. Replaces the M1 placeholder.
+//
 // FavoritesScreen — 带左滑删除的收藏列表, 替换 M1 占位.
 
 import { Ionicons } from "@expo/vector-icons";
@@ -18,6 +19,7 @@ import { FavoriteRow } from "./FavoriteRow";
 
 /**
  * Props injected by FavoritesStack. `navigation.navigate` lands on Player.
+ *
  * 由 FavoritesStack 注入的 props. navigation.navigate 跳转到 Player.
  */
 export interface FavoritesScreenProps {
@@ -26,6 +28,7 @@ export interface FavoritesScreenProps {
 
 /**
  * FavoritesScreen — root of the FavoritesTab. Hydrates from MMKV every time the tab is focused.
+ *
  * FavoritesScreen — FavoritesTab 的根. 每次 tab 被聚焦时从 MMKV 重新读取.
  */
 export function FavoritesScreen({ navigation }: FavoritesScreenProps) {

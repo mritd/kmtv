@@ -1,4 +1,5 @@
 // FavoriteRow tests.
+//
 // FavoriteRow 测试.
 
 import { render, fireEvent } from "@testing-library/react-native";

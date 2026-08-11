@@ -1,4 +1,5 @@
 // Global jest setup: mocks for native modules unavailable in node.
+//
 // 全局 jest 启动配置: mock 在 node 环境无法运行的原生模块.
 
 import "@testing-library/jest-native/extend-expect";
@@ -9,6 +10,7 @@ import { NativeModules } from "react-native";
 };
 
 // react-native-mmkv: in-memory Map per instance, mirroring the createMMKV() v4 API.
+//
 // react-native-mmkv: 每个实例使用内存 Map, 复刻 createMMKV() v4 API.
 jest.mock(
   "react-native-mmkv",
@@ -44,6 +46,7 @@ jest.mock(
 );
 
 // expo-secure-store: in-memory Map.
+//
 // expo-secure-store: 内存 Map.
 jest.mock(
   "expo-secure-store",
@@ -58,6 +61,7 @@ jest.mock(
 );
 
 // expo-localization: deterministic en locale by default.
+//
 // expo-localization: 默认返回 en, 避免依赖宿主语言.
 jest.mock(
   "expo-localization",
@@ -68,6 +72,7 @@ jest.mock(
 
 // react-native-reanimated: 4.4.0 ships a broken official mock (`mock.js` → missing `./src/mock`).
 // Hand-rolled stub covers the Skeleton + HeroCarousel use cases (shared values + brightness loop).
+//
 // react-native-reanimated: 4.4.0 的官方 mock 入口缺失依赖路径, 这里用手写 stub 覆盖
 // Skeleton + HeroCarousel 使用到的共享值与亮度循环 API.
 jest.mock(
@@ -109,6 +114,7 @@ jest.mock(
 // expo-image: render a plain RN <Image> so jest can introspect props.
 // `Image.prefetch` is attached via Object.assign so HomeScreen's prefetch call resolves
 // in tests without exercising the real native module.
+//
 // expo-image: 测试时退化为普通 <Image>, 同时通过 Object.assign 挂载 prefetch,
 // 让 HomeScreen 的预取调用在不触发原生模块的情况下也能通过测试.
 jest.mock(
@@ -135,6 +141,7 @@ jest.mock(
 // react-native-sse: manual driver. Tests get an EventSource constructor that records the
 // instance and exposes dispatch() / triggerError() / triggerClose() so each test simulates
 // the SSE frames it needs. The latest instance is kept on the global so tests can grab it.
+//
 // react-native-sse: 手动驱动. 测试拿到的 EventSource 构造函数会记录实例并暴露 dispatch()
 // triggerError() / triggerClose(), 让用例按需模拟 SSE 帧, 最新实例挂到全局供测试读取.
 jest.mock(
@@ -177,6 +184,7 @@ jest.mock(
 // imperative ref exposing seek/presentFullscreenPlayer/dismissFullscreenPlayer. Lifecycle callback
 // props (onLoad/onProgress/onError/onBuffer/onEnd) are forwarded so tests can drive them via
 // `fireEvent(video, "onLoad", { duration: 30 })`.
+//
 // react-native-video: 可测试的 <Video /> 占位. 测试拿到 <View testID="video" /> 与暴露
 // seek / presentFullscreenPlayer / dismissFullscreenPlayer 的 imperative ref. 透传
 // onLoad/onProgress/onError/onBuffer/onEnd 到 View props, 让测试通过
@@ -224,11 +232,13 @@ jest.mock(
 // `react-native/Libraries/Utilities/BackHandler` breaks `@react-navigation/native`'s
 // `useBackButton` (it imports BackHandler from the top-level `react-native` which expects the
 // default-export shape). PlayerScreen tests spy on `BackHandler.addEventListener` per-test instead.
+//
 // BackHandler 不在此全局 mock — 深路径 mock 会破坏 @react-navigation/native 的 useBackButton
 // (它从顶层 react-native 取 BackHandler, 期望 default export 形状). PlayerScreen 测试改用
 // 单测内 jest.spyOn(BackHandler, "addEventListener").
 
 // expo-blur: degrade to a styled <View /> so layout tests can introspect props.
+//
 // expo-blur: 退化为带样式的 <View />, 让布局测试能够断言 props.
 jest.mock(
   "expo-blur",
@@ -249,6 +259,7 @@ jest.mock(
 
 // expo-image-picker: returns a deterministic stub asset so tests don't need a native runtime.
 // Use the SDK 17 `mediaTypes: ["images"]` shape; `MediaTypeOptions` is deprecated in 17.x.
+//
 // expo-image-picker: 返回确定性 stub asset, 测试无需原生运行时. SDK 17 使用 mediaTypes: ["images"],
 // MediaTypeOptions 在 17.x 已废弃.
 jest.mock(
@@ -263,6 +274,7 @@ jest.mock(
 );
 
 // expo-image-manipulator: deterministic stub that returns a synthetic compressed URI.
+//
 // expo-image-manipulator: 返回确定性的合成已压缩 URI.
 jest.mock(
   "expo-image-manipulator",
@@ -278,6 +290,7 @@ jest.mock(
 
 // react-native-gesture-handler: stub Swipeable and GestureHandlerRootView to plain RN views;
 // surface renderRightActions inside a testID="swipeable-actions" wrapper for assertions.
+//
 // react-native-gesture-handler: 把 Swipeable 与 GestureHandlerRootView 退化为普通 RN view,
 // 把 renderRightActions 暴露在 testID="swipeable-actions" 容器里供断言.
 jest.mock(

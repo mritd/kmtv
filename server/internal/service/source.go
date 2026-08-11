@@ -24,6 +24,7 @@ import (
 )
 
 // SourceService manages video sources, health checks, and subscription sync.
+//
 // SourceService 管理视频源, 健康检查和订阅同步.
 type SourceService struct {
 	store         *store.Store
@@ -39,12 +40,14 @@ type SourceService struct {
 }
 
 // NewSourceService creates a new SourceService.
+//
 // NewSourceService 创建一个新的 SourceService.
 func NewSourceService(s *store.Store) *SourceService {
 	return NewSourceServiceWithClient(s, NewSSRFSafeClient(10*time.Second))
 }
 
 // NewSourceServiceWithClient creates a SourceService with an injected HTTP client.
+//
 // NewSourceServiceWithClient 使用注入的 HTTP client 创建 SourceService.
 func NewSourceServiceWithClient(s *store.Store, client *http.Client) *SourceService {
 	if client == nil {
@@ -64,6 +67,7 @@ func NewSourceServiceWithClient(s *store.Store, client *http.Client) *SourceServ
 // Start initializes cron jobs for health check and subscription sync.
 // Health check: read interval from settings (default 1h), run on startup.
 // Subscription sync: per subscription with auto_update=true.
+//
 // Start 初始化健康检查和订阅同步的 cron job.
 // 健康检查: 从设置读取间隔, 默认 1h, 启动时执行一次.
 // 订阅同步: 对 auto_update=true 的订阅分别创建任务.
@@ -81,6 +85,7 @@ func (ss *SourceService) Start() error {
 	ss.mu.Unlock()
 
 	// Get health check interval from settings.
+	//
 	// 从设置读取健康检查间隔.
 	intervalStr, err := ss.store.GetSetting(consts.SettingHealthCheckInterval)
 	if err != nil {
@@ -98,6 +103,7 @@ func (ss *SourceService) Start() error {
 	}
 
 	// Schedule health check cron.
+	//
 	// 注册健康检查 cron.
 	spec := fmt.Sprintf("@every %ds", intervalSec)
 	if _, err := ss.cron.AddFunc(spec, ss.RunHealthCheck); err != nil {
@@ -108,6 +114,7 @@ func (ss *SourceService) Start() error {
 	}
 
 	// Schedule subscription sync for auto_update subscriptions.
+	//
 	// 为 auto_update 订阅注册同步 cron.
 	subs, err := ss.store.ListSubscriptions()
 	if err != nil {
@@ -133,6 +140,7 @@ func (ss *SourceService) Start() error {
 	ss.cron.Start()
 
 	// Run health check on startup.
+	//
 	// 启动时执行一次健康检查.
 	go ss.RunHealthCheck()
 
@@ -140,6 +148,7 @@ func (ss *SourceService) Start() error {
 }
 
 // Stop stops all cron jobs and cancels in-flight health checks.
+//
 // Stop 停止所有 cron job, 并取消正在执行的健康检查.
 func (ss *SourceService) Stop() {
 	ss.mu.Lock()
@@ -151,6 +160,7 @@ func (ss *SourceService) Stop() {
 
 // RunHealthCheck checks all enabled sources with concurrent workers.
 // It is safe to call concurrently; duplicate invocations are skipped.
+//
 // RunHealthCheck 使用并发 worker 检查所有已启用视频源.
 // 它可以被并发调用; 重复调用会被跳过.
 func (ss *SourceService) RunHealthCheck() {
@@ -169,6 +179,7 @@ func (ss *SourceService) RunHealthCheck() {
 	logrus.WithField("count", len(sources)).Info("starting health check")
 
 	// Mark all queued sources as checking up front so the admin UI can show progress.
+	//
 	// 提前把所有待检源标记为 checking, 让管理面板能展示进行中状态.
 	for _, s := range sources {
 		if err := ss.store.UpdateSourceHealth(s.ID, consts.HealthChecking); err != nil {
@@ -177,6 +188,7 @@ func (ss *SourceService) RunHealthCheck() {
 	}
 
 	// Health-check failures are recorded per source instead of failing the whole batch.
+	//
 	// 健康检查失败会按视频源记录状态, 不会让整个批次失败.
 	_, _ = utils.GoProcess(ss.ctx, sources, 5, false, func(ctx context.Context, s model.Source) (struct{}, error) {
 		health := consts.HealthHealthy
@@ -209,6 +221,7 @@ func (ss *SourceService) RunHealthCheck() {
 }
 
 // CheckSingleSource checks one source's health and returns the health status.
+//
 // CheckSingleSource 检查单个视频源健康状态并返回结果.
 func (ss *SourceService) CheckSingleSource(id int64) (string, error) {
 	src, err := ss.store.GetSourceByID(id)
@@ -220,6 +233,7 @@ func (ss *SourceService) CheckSingleSource(id int64) (string, error) {
 	}
 
 	// Mark the source as checking so concurrent admin views see progress.
+	//
 	// 标记为 checking, 其它管理端能看到进行中状态.
 	if err := ss.store.UpdateSourceHealth(id, consts.HealthChecking); err != nil {
 		logrus.Warnf("mark source checking [%s] (%s) failed: %v", src.Name, src.Key, err)
@@ -252,6 +266,7 @@ func (ss *SourceService) CheckSingleSource(id int64) (string, error) {
 
 // ImportConfig imports sources from source config.json bytes.
 // Returns the number of sources imported/updated.
+//
 // ImportConfig 从 source config.json 字节内容导入视频源.
 // 返回导入或更新的视频源数量.
 func (ss *SourceService) ImportConfig(data []byte) (int, error) {
@@ -266,6 +281,7 @@ func (ss *SourceService) ImportConfig(data []byte) (int, error) {
 		// NSFW sources default to disabled on first import; the UpsertSourceByKey
 		// CONFLICT clause leaves existing rows' enabled flag untouched, so this
 		// only affects new inserts.
+		//
 		// 首次导入的 🔞 视频源默认禁用; UpsertSourceByKey 的 CONFLICT 子句
 		// 不会改写已存在行的 enabled 字段, 所以只影响新插入.
 		if src.IsAdult {
@@ -283,6 +299,7 @@ func (ss *SourceService) ImportConfig(data []byte) (int, error) {
 }
 
 // SyncSubscription fetches and imports sources from a subscription URL.
+//
 // SyncSubscription 从订阅 URL 拉取并导入视频源.
 func (ss *SourceService) SyncSubscription(id int64) error {
 	sub, err := ss.store.GetSubscriptionByID(id)
@@ -308,6 +325,7 @@ func (ss *SourceService) SyncSubscription(id int64) error {
 	}
 
 	// Limit subscription payloads to 10MB to avoid unbounded memory use.
+	//
 	// 将订阅响应限制为 10MB, 避免无限制占用内存.
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 	if err != nil {
@@ -328,6 +346,7 @@ func (ss *SourceService) SyncSubscription(id int64) error {
 }
 
 // addSubCron registers a cron job for a subscription.
+//
 // addSubCron 为订阅注册 cron job.
 func (ss *SourceService) addSubCron(subID int64, intervalSec int) error {
 	if intervalSec <= 0 {
@@ -358,6 +377,7 @@ func (ss *SourceService) rollbackSubCrons() {
 }
 
 // RemoveSubCron removes the cron job for a subscription.
+//
 // RemoveSubCron 移除订阅对应的 cron job.
 func (ss *SourceService) RemoveSubCron(subID int64) {
 	ss.mu.Lock()
@@ -369,6 +389,7 @@ func (ss *SourceService) RemoveSubCron(subID int64) {
 }
 
 // UpdateSubCron updates the cron job for a subscription (remove old, add new).
+//
 // UpdateSubCron 更新订阅对应的 cron job, 先移除旧任务再添加新任务.
 func (ss *SourceService) UpdateSubCron(subID int64, autoUpdate bool, intervalSec int) {
 	ss.mu.Lock()
@@ -385,6 +406,7 @@ func (ss *SourceService) UpdateSubCron(subID int64, autoUpdate bool, intervalSec
 }
 
 // buildHealthCheckURL constructs a video-source health check URL without the wd parameter.
+//
 // buildHealthCheckURL 构造不带 wd 参数的视频源健康检查 URL.
 func buildHealthCheckURL(apiURL string) string {
 	sep := "?"

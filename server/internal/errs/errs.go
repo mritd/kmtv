@@ -1,4 +1,5 @@
 // Package errs provides structured API error responses with machine-readable codes.
+//
 // Package errs 提供带机器可读 code 的结构化 API 错误响应.
 package errs
 
@@ -6,6 +7,7 @@ import "fmt"
 
 // E is a structured API error response.
 // Usage: c.JSON(http.StatusBadRequest, errs.InvalidRequest)
+//
 // E 表示结构化 API 错误响应.
 // 用法: c.JSON(http.StatusBadRequest, errs.InvalidRequest)
 type E struct {
@@ -18,12 +20,14 @@ func (e E) Error() string {
 }
 
 // WithMsg returns a copy with a custom message, keeping the same code.
+//
 // WithMsg 返回带自定义 message 的副本, code 保持不变.
 func (e E) WithMsg(msg string) E {
 	return E{Code: e.Code, Message: msg}
 }
 
 // --- Auth (10xx) ---
+//
 // --- 认证错误 (10xx) ---
 
 var (
@@ -36,6 +40,7 @@ var (
 )
 
 // --- Avatar (11xx) ---
+//
 // --- 头像错误 (11xx) ---
 
 var (
@@ -47,6 +52,7 @@ var (
 )
 
 // --- Resource (12xx) ---
+//
 // --- 资源错误 (12xx) ---
 
 var (
@@ -62,6 +68,7 @@ var (
 )
 
 // --- General (13xx) ---
+//
 // --- 通用错误 (13xx) ---
 
 var (

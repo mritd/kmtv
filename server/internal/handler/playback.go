@@ -21,6 +21,7 @@ type playbackURLRequest struct {
 }
 
 // PlaybackURL returns a playable URL for the current playback mode.
+//
 // PlaybackURL 按当前播放模式返回可播放 URL.
 func (h *Handler) PlaybackURL(c *gin.Context) {
 	var req playbackURLRequest

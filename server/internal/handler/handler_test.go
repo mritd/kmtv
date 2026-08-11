@@ -62,6 +62,7 @@ func createTestUser(t *testing.T, h *Handler, username, password, role string) i
 }
 
 // disableAnonymousAccess sets anonymous_access to "false" so that Auth requires a valid bearer token.
+//
 // disableAnonymousAccess 将 anonymous_access 设为 "false", 使 Auth 要求有效 bearer token.
 func disableAnonymousAccess(t *testing.T, h *Handler) {
 	t.Helper()
@@ -71,6 +72,7 @@ func disableAnonymousAccess(t *testing.T, h *Handler) {
 }
 
 // adminBearer returns a bearer auth header for the given admin username.
+//
 // adminBearer 为指定 admin 用户返回 bearer 认证 header.
 func adminBearer(t *testing.T, h *Handler, username string) string {
 	t.Helper()
@@ -96,6 +98,7 @@ func decodeJSON(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 }
 
 // loginAndGetBearer performs an HTTP login and returns the bearer auth header.
+//
 // loginAndGetBearer 执行登录请求并返回 bearer 认证 header.
 func loginAndGetBearer(t *testing.T, r *gin.Engine, username, password string) string {
 	t.Helper()

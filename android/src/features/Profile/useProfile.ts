@@ -1,4 +1,5 @@
 // useProfile — owns the ProfileScreen state machine. Pure callbacks; no global side effects.
+//
 // useProfile — 承载 ProfileScreen 的状态机. 纯回调, 无全局副作用.
 
 import * as ImageManipulator from "expo-image-manipulator";
@@ -12,6 +13,7 @@ import { clearWatchHistory, loadWatchHistory } from "@/storage/watchHistory";
 
 /**
  * Args passed in by ProfileScreen.
+ *
  * 由 ProfileScreen 注入的依赖.
  */
 export interface UseProfileArgs {
@@ -25,6 +27,7 @@ export interface UseProfileArgs {
 
 /**
  * State + actions exposed to ProfileScreen.
+ *
  * 暴露给 ProfileScreen 的状态与动作.
  */
 export interface UseProfileResult {
@@ -49,6 +52,7 @@ export interface UseProfileResult {
 
   /**
    * Launch the platform photo picker, compress to JPEG (≤ 256 px on the longer edge), upload.
+   *
    * 调起系统相册, 压缩为 JPEG (长边 ≤ 256 px) 后上传.
    */
   pickAndUploadAvatar: () => Promise<void>;
@@ -63,6 +67,7 @@ export interface UseProfileResult {
 
 /**
  * useProfile — composes the four ProfileScreen sub-actions into one hook.
+ *
  * useProfile — 把 ProfileScreen 的四类子操作组合成单一 hook.
  */
 export function useProfile({ auth, historyAPI, user, serverURL, onUserChanged, initialWatchCount = 0 }: UseProfileArgs): UseProfileResult {
@@ -118,6 +123,7 @@ export function useProfile({ auth, historyAPI, user, serverURL, onUserChanged, i
   const pickAndUploadAvatar = useCallback(async () => {
     try {
       // Pre-flight: ensure photo permission. Android 14 partial-grant still returns granted=true.
+      //
       // 预先确认相册权限. Android 14 部分授权也会返回 granted=true.
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) {
@@ -133,6 +139,7 @@ export function useProfile({ auth, historyAPI, user, serverURL, onUserChanged, i
       // Resize so the LONGEST edge is at most 256 px (server cap is 256 KB; clamping only width
       // would let portrait images blow past it). Pick the resize axis based on the picker's
       // reported dimensions; fall back to width when ambiguous.
+      //
       // 按长边 ≤ 256 px 缩放 (server 上限 256 KB; 仅按 width 限制会让竖图溢出).
       // 根据 picker 返回的宽高决定缩放轴, 缺值时回退到 width.
       const asset = picked.assets[0];

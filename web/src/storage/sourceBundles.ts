@@ -27,19 +27,23 @@ import type { DetailResponse, SearchResult, SourceResult } from "@/api/types";
 
 // storageVersion is embedded in every stored record and must match the version field in isStore().
 // Bumping this value intentionally invalidates all legacy stored bundles (migration-free fresh start).
+//
 // storageVersion 嵌入每条存储记录并必须与 isStore() 中的 version 字段匹配.
 // 提升该值会有意使所有旧存储 bundle 失效 (免迁移冷启动).
 const storageVersion = 1;
 
 // maxBundles caps the number of bundles written per session.
+//
 // maxBundles 限制每次会话写入的 bundle 数量上限.
 const maxBundles = 30;
 
 // maxBundleAgeMs — bundles older than 7 days are treated as stale and discarded on read.
+//
 // maxBundleAgeMs — 超过 7 天的 bundle 视为过期, 读取时丢弃.
 const maxBundleAgeMs = 7 * 24 * 60 * 60 * 1000;
 
 // LOCKED storage key — must not change. Renaming breaks existing user data.
+//
 // 锁定的存储键 — 禁止更改, 重命名会破坏现有用户数据.
 export const sourceBundleStorageKey = "kmtv.sourceBundles.v1";
 
@@ -100,6 +104,7 @@ export interface SourceBundle {
 }
 
 // SourceBundleStore is the top-level localStorage envelope.
+//
 // SourceBundleStore 是 localStorage 的顶层封装结构.
 interface SourceBundleStore {
   version: typeof storageVersion;
@@ -107,16 +112,19 @@ interface SourceBundleStore {
 }
 
 // StoredRecord is the parsed-but-unvalidated shape of any unknown JSON object from storage.
+//
 // StoredRecord 是从存储读取到的任意未经验证的 JSON 对象形状.
 type StoredRecord = Record<string, unknown>;
 
 // DetailOptionalStringKey enumerates the string fields that may optionally appear on DetailResponse.
+//
 // DetailOptionalStringKey 枚举 DetailResponse 上可选的字符串字段.
 type DetailOptionalStringKey = "type" | "year" | "cover" | "desc" | "director" | "actor" | "area";
 
 // SanitizeOptions controls whether episode data is preserved during sanitization.
 // When restoring from localStorage, keepEpisodeData is false — URLs are stripped for privacy.
 // When sanitizing in-memory navigation state (sanitizeSourceBundle), keepEpisodeData is true.
+//
 // SanitizeOptions 控制净化时是否保留集数数据.
 // 从 localStorage 恢复时, keepEpisodeData 为 false — 删除 URL 保护隐私.
 // 净化内存中的导航状态 (sanitizeSourceBundle) 时, keepEpisodeData 为 true.
@@ -314,6 +322,7 @@ export function markSourceBundleDetailFailed(
 
 // readStore — parse, validate, and trim the full bundle list from localStorage.
 // Returns [] on any error, unknown version, or missing key.
+//
 // readStore — 解析、验证并剪枝 localStorage 中的完整 bundle 列表.
 // 任何错误、未知版本或键缺失时返回 [].
 function readStore(): SourceBundle[] {
@@ -335,6 +344,7 @@ function readStore(): SourceBundle[] {
       window.localStorage.removeItem(sourceBundleStorageKey);
     } catch {
       // Ignore cleanup failures; callers should still see an empty store.
+      //
       // 忽略清理失败; 调用方仍应得到空存储.
     }
     return [];
@@ -348,6 +358,7 @@ function readStore(): SourceBundle[] {
 }
 
 // writeStore — strip transient data and persist, swallowing quota errors.
+//
 // writeStore — 删除瞬态数据后持久化, 静默吞掉配额错误.
 function writeStore(bundles: SourceBundle[]): void {
   const store: SourceBundleStore = { version: storageVersion, bundles: trimBundles(bundles.map(persistentBundle)) };
@@ -355,16 +366,19 @@ function writeStore(bundles: SourceBundle[]): void {
     window.localStorage.setItem(sourceBundleStorageKey, JSON.stringify(store));
   } catch {
     // Storage may be unavailable or full. Saving is best-effort.
+    //
     // 存储可能不可用或已满. 保存是尽力而为.
   }
 }
 
 // persistentBundle strips episode URLs (privacy) and detail state (non-persistent).
+//
 // persistentBundle 删除集数 URL (隐私保护) 和 detail 状态 (非持久数据).
 function persistentBundle(bundle: SourceBundle): SourceBundle {
   return {
     ...bundle,
     // Destructure to drop the `episodes` field from every SourceResult before persisting.
+    //
     // 在持久化前通过解构从每个 SourceResult 中删除 `episodes` 字段.
     sources: bundle.sources.map(({ episodes: _episodes, ...source }) => source),
     details: {},
@@ -372,6 +386,7 @@ function persistentBundle(bundle: SourceBundle): SourceBundle {
 }
 
 // trimBundles filters out expired bundles and keeps only the maxBundles most-recent by updatedAt.
+//
 // trimBundles 过滤过期 bundle 并只保留 updatedAt 最新的 maxBundles 条.
 function trimBundles(bundles: SourceBundle[]): SourceBundle[] {
   const cutoff = Date.now() - maxBundleAgeMs;
@@ -382,6 +397,7 @@ function trimBundles(bundles: SourceBundle[]): SourceBundle[] {
 }
 
 // sameBundle returns true if two bundles represent the same media (by mediaID or overlapping sources).
+//
 // sameBundle 如果两个 bundle 代表相同媒体 (通过 mediaID 或重叠 source) 则返回 true.
 function sameBundle(left: SourceBundle, right: SourceBundle): boolean {
   if (mediaID(left) === mediaID(right)) {
@@ -389,12 +405,14 @@ function sameBundle(left: SourceBundle, right: SourceBundle): boolean {
   }
 
   // Also deduplicate when any source key overlaps, even if the media title differs.
+  //
   // 即使媒体标题不同, 只要有任意 source key 重叠也去重.
   const rightIDs = new Set(right.sources.map(sourceID));
   return left.sources.some((source) => rightIDs.has(sourceID(source)));
 }
 
 // isStore validates that the parsed JSON matches the expected SourceBundleStore envelope.
+//
 // isStore 验证解析后的 JSON 是否匹配预期的 SourceBundleStore 结构.
 function isStore(value: unknown): value is SourceBundleStore {
   return (
@@ -408,6 +426,7 @@ function isStore(value: unknown): value is SourceBundleStore {
 }
 
 // sanitizeBundle coerces a raw unknown value into a SourceBundle or returns null on failure.
+//
 // sanitizeBundle 将原始 unknown 值强制转换为 SourceBundle, 失败时返回 null.
 function sanitizeBundle(value: unknown, options: SanitizeOptions): SourceBundle | null {
   if (!isRecord(value) || typeof value.title !== "string" || !Array.isArray(value.sources)) {
@@ -435,6 +454,7 @@ function sanitizeBundle(value: unknown, options: SanitizeOptions): SourceBundle 
 }
 
 // sanitizeDetails iterates the details record and drops any entry that fails validation.
+//
 // sanitizeDetails 遍历 details record, 丢弃任何验证失败的条目.
 function sanitizeDetails(value: unknown): Record<string, SourceBundleDetail> {
   if (!isRecord(value)) {
@@ -452,6 +472,7 @@ function sanitizeDetails(value: unknown): Record<string, SourceBundleDetail> {
 }
 
 // sanitizeDetail validates and coerces a single detail entry from raw storage.
+//
 // sanitizeDetail 验证并强制转换存储中的单个 detail 条目.
 function sanitizeDetail(id: string, value: unknown): SourceBundleDetail | null {
   if (!isRecord(value)) {
@@ -482,6 +503,7 @@ function sanitizeDetail(id: string, value: unknown): SourceBundleDetail | null {
 
 // detailIdentity extracts the sourceKey + videoId from a stored detail entry.
 // Prefers explicit string fields; falls back to parsing the JSON-encoded composite key.
+//
 // detailIdentity 从存储的 detail 条目中提取 sourceKey + videoId.
 // 优先使用显式字符串字段; 回退到解析 JSON 编码的复合键.
 function detailIdentity(id: string, value: StoredRecord): Pick<SourceBundleDetail, "sourceKey" | "videoId"> | null {
@@ -502,6 +524,7 @@ function detailIdentity(id: string, value: StoredRecord): Pick<SourceBundleDetai
 }
 
 // sanitizeDetailResponse validates and coerces a stored DetailResponse value.
+//
 // sanitizeDetailResponse 验证并强制转换存储的 DetailResponse 值.
 function sanitizeDetailResponse(value: unknown): DetailResponse | null {
   if (!isRecord(value) || typeof value.id !== "string" || typeof value.title !== "string") {
@@ -527,6 +550,7 @@ function sanitizeDetailResponse(value: unknown): DetailResponse | null {
 }
 
 // isEpisode checks that a value has the string name and url fields required by the Episode type.
+//
 // isEpisode 检查值是否具有 Episode 类型要求的 name 和 url 字符串字段.
 function isEpisode(value: unknown): boolean {
   return isRecord(value) && typeof value.name === "string" && typeof value.url === "string";
@@ -534,6 +558,7 @@ function isEpisode(value: unknown): boolean {
 
 // copyOptionalDetailString copies a string field from source to target only if it is a string.
 // Non-string values (null, number, array, etc.) are silently dropped.
+//
 // copyOptionalDetailString 仅当字段为字符串时才将其从 source 复制到 target.
 // 非字符串值 (null、number、array 等) 静默丢弃.
 function copyOptionalDetailString(source: StoredRecord, target: DetailResponse, key: DetailOptionalStringKey): void {
@@ -543,6 +568,7 @@ function copyOptionalDetailString(source: StoredRecord, target: DetailResponse, 
 }
 
 // sanitizeSourceResult validates and coerces a single SourceResult from raw storage.
+//
 // sanitizeSourceResult 验证并强制转换存储中的单个 SourceResult.
 function sanitizeSourceResult(value: unknown, options: SanitizeOptions): SourceResult | null {
   if (
@@ -572,12 +598,14 @@ function sanitizeSourceResult(value: unknown, options: SanitizeOptions): SourceR
 }
 
 // optionalString returns the value if it is a string, otherwise undefined.
+//
 // optionalString 若值为字符串则返回该值, 否则返回 undefined.
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
 // isRecord is a narrowing helper that confirms an unknown value is a non-null object.
+//
 // isRecord 是一个类型收窄辅助函数, 确认 unknown 值为非 null 对象.
 function isRecord(value: unknown): value is StoredRecord {
   return typeof value === "object" && value !== null;

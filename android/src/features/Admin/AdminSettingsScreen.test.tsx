@@ -1,4 +1,5 @@
 // AdminSettingsScreen tests — fetch -> edit -> diff-only PUT, clamp, URL validation.
+//
 // AdminSettingsScreen 测试 — 拉取 -> 编辑 -> 仅 diff PUT, 含 clamp 与 URL 校验.
 
 import { fireEvent, render, waitFor } from "@testing-library/react-native";

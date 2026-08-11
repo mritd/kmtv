@@ -1,5 +1,6 @@
 /**
  * SystemSettingsPanel tests — happy path, error state, edit/cancel flow, and validation.
+ *
  * SystemSettingsPanel 测试 — 正常路径、错误状态、编辑/取消流程和字段校验.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -13,6 +14,7 @@ import { createTestAPI } from "@/test/testAPI";
 import { SystemSettingsPanel } from "../SystemSettingsPanel";
 
 // Minimal settings map covering both a number field and a boolean field.
+//
 // 覆盖数字字段和布尔字段的最小配置映射.
 const baseSettings = {
   search_concurrency: "8",
@@ -55,9 +57,11 @@ describe("SystemSettingsPanel", () => {
       renderPanel();
 
       // The human-readable label for search_concurrency is "搜索并发".
+      //
       // search_concurrency 的人类可读标签是 "搜索并发".
       expect(await screen.findByText("搜索并发")).toBeInTheDocument();
       // In read-only mode there are no <input> fields.
+      //
       // 只读模式下不应有 <input> 字段.
       expect(screen.queryByRole("spinbutton")).toBeNull();
     });
@@ -67,6 +71,7 @@ describe("SystemSettingsPanel", () => {
 
       // Backend semantics: nsfw_filter_enabled=true enables the filter (blocks NSFW).
       // The label must reflect filtering, never "allow", or admins misread the toggle.
+      //
       // 后端语义: nsfw_filter_enabled=true 启用过滤 (屏蔽 NSFW). 标签必须体现"过滤"而非"允许".
       expect(await screen.findByText("NSFW 内容过滤 (全站)")).toBeInTheDocument();
       expect(screen.queryByText(/允许 *NSFW/)).toBeNull();
@@ -76,6 +81,7 @@ describe("SystemSettingsPanel", () => {
       renderPanel();
 
       // Version line: "版本: v0.0.0-dev"
+      //
       // 版本行: "版本: v0.0.0-dev"
       expect(await screen.findByText("v0.0.0-dev", { exact: false })).toBeInTheDocument();
     });
@@ -98,6 +104,7 @@ describe("SystemSettingsPanel", () => {
       await user.click(screen.getByRole("button", { name: "编辑" }));
 
       // In edit mode number inputs are rendered.
+      //
       // 编辑模式下数字输入框出现.
       expect(screen.getAllByRole("spinbutton").length).toBeGreaterThan(0);
     });
@@ -107,6 +114,7 @@ describe("SystemSettingsPanel", () => {
       renderPanel();
 
       // Read-only first: the stored value is the code "tencent".
+      //
       // 先看只读态: 存储的值是码值 "tencent".
       await screen.findByText("搜索并发");
       expect(screen.getByText("腾讯 CDN")).toBeInTheDocument();
@@ -115,6 +123,7 @@ describe("SystemSettingsPanel", () => {
       // Then the edit-mode listbox, which is the path that used to fall back to a Chinese
       // `label` baked into editableSettingsSchema. That fallback is gone — the schema now
       // carries codes only, and anything user-facing must come through t().
+      //
       // 再看编辑态的 listbox, 这条路径此前会回退到写死在 editableSettingsSchema 里的中文 label.
       // 该回退已移除 — schema 现在只带码值, 任何面向用户的文案都必须经由 t() 取得.
       await user.click(screen.getByRole("button", { name: "编辑" }));
@@ -135,6 +144,7 @@ describe("SystemSettingsPanel", () => {
       await user.click(screen.getByRole("button", { name: "编辑" }));
 
       // Change the search_concurrency field (aria-label = the key, not the label).
+      //
       // 修改 search_concurrency 字段 (aria-label = key, 非标签).
       const concurrencyInput = screen.getByRole("spinbutton", { name: "search_concurrency" });
       await user.clear(concurrencyInput);
@@ -144,6 +154,7 @@ describe("SystemSettingsPanel", () => {
       await user.click(screen.getByRole("button", { name: "取消" }));
 
       // Back to read-only mode; no inputs.
+      //
       // 回到只读模式; 无输入框.
       expect(screen.queryByRole("spinbutton")).toBeNull();
     });
@@ -164,10 +175,12 @@ describe("SystemSettingsPanel", () => {
 
       await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
       // Only the changed key is submitted — not the entire settings map.
+      //
       // 只提交变更的键, 而非整个配置映射.
       expect(updateSettings).toHaveBeenLastCalledWith({ search_concurrency: "12" });
 
       // After successful save, returns to read-only mode.
+      //
       // 成功保存后回到只读模式.
       await waitFor(() => expect(screen.queryByRole("spinbutton")).toBeNull());
     });
@@ -181,11 +194,13 @@ describe("SystemSettingsPanel", () => {
       await user.click(screen.getByRole("button", { name: "编辑" }));
 
       // Submit without changing anything.
+      //
       // 不修改任何内容直接提交.
       await user.click(screen.getByRole("button", { name: "保存" }));
 
       expect(updateSettings).not.toHaveBeenCalled();
       // Still exits edit mode.
+      //
       // 仍然退出编辑模式.
       await waitFor(() => expect(screen.queryByRole("spinbutton")).toBeNull());
     });
@@ -206,6 +221,7 @@ describe("SystemSettingsPanel", () => {
       await user.click(screen.getByRole("button", { name: "保存" }));
 
       // Validation error appears; updateSettings is NOT called.
+      //
       // 校验错误出现; updateSettings 不被调用.
       expect(await screen.findByRole("alert")).toBeInTheDocument();
       expect(updateSettings).not.toHaveBeenCalled();

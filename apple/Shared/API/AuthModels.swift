@@ -1,6 +1,7 @@
 import Foundation
 
 /// Authenticated user profile returned by the backend.
+///
 /// 后端返回的已认证用户资料.
 struct User: Codable, Sendable {
     let id: Int
@@ -36,6 +37,7 @@ struct User: Codable, Sendable {
 }
 
 /// Login response containing user fields and an opaque bearer token.
+///
 /// 登录响应, 包含用户字段和 opaque bearer token.
 struct LoginResponse: Codable, Sendable {
     let user: User
@@ -53,6 +55,7 @@ struct LoginResponse: Codable, Sendable {
     }
 
     /// Decodes the flattened login response into a nested user object.
+    ///
     /// 将扁平登录响应解码为嵌套 user 对象.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -68,6 +71,7 @@ struct LoginResponse: Codable, Sendable {
     }
 
     /// Encodes the login response back to the backend's flattened JSON shape.
+    ///
     /// 按后端扁平 JSON 结构重新编码登录响应.
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -82,6 +86,7 @@ struct LoginResponse: Codable, Sendable {
 }
 
 /// Login request payload.
+///
 /// 登录请求载荷.
 struct LoginRequest: Codable, Sendable {
     let username: String
@@ -89,12 +94,14 @@ struct LoginRequest: Codable, Sendable {
 }
 
 /// Profile update request payload.
+///
 /// 用户资料更新请求载荷.
 struct ProfileRequest: Codable, Sendable {
     let username: String
 }
 
 /// Password change request payload.
+///
 /// 密码修改请求载荷.
 struct PasswordRequest: Codable, Sendable {
     let oldPassword: String
@@ -107,6 +114,7 @@ struct PasswordRequest: Codable, Sendable {
 }
 
 /// Standard backend message response.
+///
 /// 后端标准 message 响应.
 struct MessageResponse: Codable, Sendable {
     let message: String

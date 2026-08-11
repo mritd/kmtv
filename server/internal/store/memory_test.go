@@ -8,6 +8,7 @@ import (
 )
 
 // TestIsMemoryDSN covers the predicate that routes New into in-memory mode.
+//
 // TestIsMemoryDSN 覆盖将 New 路由到内存模式的判定谓词.
 func TestIsMemoryDSN(t *testing.T) {
 	tests := []struct {
@@ -34,6 +35,7 @@ func TestIsMemoryDSN(t *testing.T) {
 // in-memory database across separate database/sql borrows. A write on one call
 // must be visible on a later call; without the single-connection pin, a plain
 // :memory: DB is private per connection and the read would see an empty DB.
+//
 // TestMemoryStore_SharedAcrossBorrows 验证 :memory: store 在多次 database/sql
 // 借还之间共享同一个内存库. 一次调用的写入必须在后续调用可见; 没有单连接钉死,
 // 纯 :memory: 库是每连接私有的, 读取会看到空库.
@@ -55,6 +57,7 @@ func TestMemoryStore_SharedAcrossBorrows(t *testing.T) {
 
 	// A separate call performs a separate borrow from the pool; it must still
 	// observe the same in-memory database.
+	//
 	// 另一次调用会从连接池另行借用连接, 仍须观察到同一个内存库.
 	got, err := s.GetSourceByID(id)
 	if err != nil {
@@ -68,6 +71,7 @@ func TestMemoryStore_SharedAcrossBorrows(t *testing.T) {
 // TestMemoryStore_ConcurrentAccess proves the single pinned connection lets
 // concurrent reads/writes on a :memory: store complete without error or data
 // loss. It would deadlock or drop rows if the connection pinning were wrong.
+//
 // TestMemoryStore_ConcurrentAccess 证明单条钉死连接下, :memory: store 的并发读写
 // 全部成功且不丢数据. 若连接钉死有误, 会死锁或丢行.
 func TestMemoryStore_ConcurrentAccess(t *testing.T) {

@@ -1,4 +1,5 @@
 // PosterImage wraps expo-image with a theme-aware placeholder and URL resolver.
+//
 // PosterImage 封装 expo-image, 提供主题感知的占位图与 URL 解析.
 
 import { Image, type ImageStyle as ExpoImageStyle } from "expo-image";
@@ -9,6 +10,7 @@ import { useTheme } from "./useTheme";
 
 /**
  * Join a relative cover path to baseURL, mirroring iOS heroImageURL().
+ *
  * 拼接相对 cover 与 baseURL, 与 iOS heroImageURL() 行为一致.
  */
 export function resolvePosterURL(baseURL: string, cover: string): string | null {
@@ -32,6 +34,7 @@ interface Props {
 /**
  * PosterImage shows a theme-coloured placeholder when no cover is provided,
  * and an expo-image otherwise.
+ *
  * 当未提供 cover 时显示主题占位图, 否则使用 expo-image.
  */
 export function PosterImage({ baseURL, cover, style, testID, contentFit = "cover" }: Props) {

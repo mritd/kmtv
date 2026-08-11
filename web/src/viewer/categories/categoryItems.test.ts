@@ -1,5 +1,6 @@
 /**
  * Tests for categoryItems — page flattening + dedup.
+ *
  * categoryItems 测试 — 分页扁平化 + 去重.
  */
 

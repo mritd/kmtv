@@ -1,4 +1,5 @@
 // PosterImage tests cover placeholder rendering and URL resolution.
+//
 // PosterImage 测试覆盖占位图渲染与 URL 解析.
 
 import { render } from "@testing-library/react-native";

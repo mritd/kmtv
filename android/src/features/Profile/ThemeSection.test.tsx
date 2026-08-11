@@ -1,4 +1,5 @@
 // ThemeSection tests.
+//
 // ThemeSection 测试.
 
 import { fireEvent, render } from "@testing-library/react-native";

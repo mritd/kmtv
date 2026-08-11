@@ -10,6 +10,7 @@ import (
 )
 
 // CreateSubscription inserts a new subscription.
+//
 // CreateSubscription 插入一个新订阅.
 func (s *Store) CreateSubscription(url string, autoUpdate bool, interval int) (int64, error) {
 	result, err := s.db.Exec(
@@ -23,6 +24,7 @@ func (s *Store) CreateSubscription(url string, autoUpdate bool, interval int) (i
 }
 
 // GetSubscriptionByID retrieves a subscription by ID.
+//
 // GetSubscriptionByID 根据 ID 获取订阅.
 func (s *Store) GetSubscriptionByID(id int64) (*model.Subscription, error) {
 	var sub model.Subscription
@@ -43,6 +45,7 @@ func (s *Store) GetSubscriptionByID(id int64) (*model.Subscription, error) {
 }
 
 // ListSubscriptions retrieves all subscriptions ordered by ID.
+//
 // ListSubscriptions 按 ID 顺序获取所有订阅.
 func (s *Store) ListSubscriptions() ([]model.Subscription, error) {
 	rows, err := s.db.Query(
@@ -54,6 +57,7 @@ func (s *Store) ListSubscriptions() ([]model.Subscription, error) {
 	defer func() { _ = rows.Close() }()
 
 	// Non-nil slice so an empty result marshals to JSON [] rather than null.
+	//
 	// 使用非 nil 切片, 让空结果序列化为 JSON [] 而非 null.
 	subs := []model.Subscription{}
 	for rows.Next() {
@@ -74,6 +78,7 @@ func (s *Store) ListSubscriptions() ([]model.Subscription, error) {
 }
 
 // UpdateSubscription updates a subscription's mutable fields.
+//
 // UpdateSubscription 更新订阅的可变字段.
 func (s *Store) UpdateSubscription(id int64, url string, autoUpdate bool, interval int) error {
 	result, err := s.db.Exec(
@@ -87,6 +92,7 @@ func (s *Store) UpdateSubscription(id int64, url string, autoUpdate bool, interv
 }
 
 // UpdateSubscriptionLastSync updates the last_sync timestamp to now.
+//
 // UpdateSubscriptionLastSync 将 last_sync 更新时间设置为当前时间.
 func (s *Store) UpdateSubscriptionLastSync(id int64) error {
 	_, err := s.db.Exec(
@@ -100,6 +106,7 @@ func (s *Store) UpdateSubscriptionLastSync(id int64) error {
 }
 
 // DeleteSubscription deletes a subscription by ID.
+//
 // DeleteSubscription 根据 ID 删除订阅.
 func (s *Store) DeleteSubscription(id int64) error {
 	result, err := s.db.Exec(`DELETE FROM subscriptions WHERE id = ?`, id)

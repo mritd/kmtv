@@ -1,5 +1,6 @@
 /**
  * AppShell — root composition component that wires every provider together.
+ *
  * AppShell — 根组合组件, 将所有 Provider 串联成完整的应用上下文树.
  *
  * Responsibilities / 职责:
@@ -39,6 +40,7 @@ import { ScrollToTop } from "./ScrollToTop";
 // listener exactly once per page lifetime. Defining it at module scope prevents the
 // window "storage" event handler from being attached on every React render when the
 // prop defaults are evaluated (which happens with function default arguments).
+//
 // defaultTokenStore 是模块级单例, 每个页面生命周期只注册一次跨标签存储监听.
 // 在模块作用域定义可避免将其写在函数默认参数中时每次 React 渲染都执行 createLocalTokenStore
 // 进而重复注册 window "storage" 事件处理器.
@@ -47,6 +49,7 @@ const defaultTokenStore: TokenStore = createLocalTokenStore();
 // SessionExpiredBridge bridges AuthContext's lastClearReason into the Toast system.
 // It must be mounted inside AuthProvider (to call useAuth) but outside QueryClientProvider
 // is fine — it has no data-fetching concern of its own.
+//
 // SessionExpiredBridge 将 AuthContext 的 lastClearReason 桥接到 Toast 系统.
 // 必须挂载在 AuthProvider 内部 (以调用 useAuth), 无需在 QueryClientProvider 内.
 function SessionExpiredBridge() {
@@ -59,11 +62,13 @@ function SessionExpiredBridge() {
 /**
  * AppShell is the root component rendered by App.tsx. It accepts optional overrides for
  * testing — pass a `tokenStore` and `apiClient` in tests to control auth state and network.
+ *
  * AppShell 是 App.tsx 渲染的根组件. 接受可选的测试覆盖参数 —
  * 在测试中传入 tokenStore 和 apiClient 以控制认证状态和网络行为.
  *
  * The stable `[]` dependency on `queryClient` is intentional: the QueryClient must be
  * created once per AppShell mount and never replaced (replacing invalidates all caches).
+ *
  * queryClient 的稳定 `[]` 依赖是有意为之: QueryClient 必须在 AppShell 挂载时创建一次,
  * 不可替换 (替换会使所有缓存失效).
  */
@@ -75,6 +80,7 @@ export function AppShell({
   apiClient?: APIClient;
 }) {
   // api is memoised on apiClient+tokenStore; in production both are stable across renders.
+  //
   // api 对 apiClient+tokenStore 进行 memo 化; 生产环境中二者在渲染间均保持稳定.
   const api = useMemo(() => apiClient ?? createAPIClient({ tokenStore }), [apiClient, tokenStore]);
   const queryClient = useMemo(
@@ -82,8 +88,11 @@ export function AppShell({
       new QueryClient({
         defaultOptions: {
           queries: {
-            // 30 s stale window reduces refetch noise on tab focus without staling data.
-            // 30 秒 stale 窗口在减少 tab 聚焦时重新请求的同时不会使数据过于陈旧.
+            // Keep query data fresh for 30 seconds so refocusing the tab does not immediately
+            // refetch it. Mutation hooks can still refresh affected data through explicit invalidation.
+            //
+            // 将 query 数据视为新鲜数据 30 秒, 避免 tab 重新聚焦时立即发起请求.
+            // mutation hook 仍可通过显式缓存失效刷新受影响的数据.
             staleTime: 30_000,
             refetchOnWindowFocus: false,
           },

@@ -8,6 +8,7 @@ struct EpisodeGrid: View {
     private var minItemWidth: CGFloat {
         let longest = episodes.map(\.name).max(by: { $0.count < $1.count }) ?? ""
         // Estimate width: CJK chars ~11pt, ASCII ~7pt at caption2 size, plus 16pt horizontal padding.
+        //
         // 估算集数按钮宽度: caption2 下中文约 11pt, ASCII 约 7pt, 另加 16pt 横向内边距.
         let width = longest.reduce(CGFloat(0)) { sum, char in
             sum + (char.isASCII ? 7 : 11)

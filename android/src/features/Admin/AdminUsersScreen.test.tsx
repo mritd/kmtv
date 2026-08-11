@@ -1,4 +1,5 @@
 // AdminUsersScreen tests — list / create with confirm / self-delete guard / confirm-then-delete.
+//
 // AdminUsersScreen 测试 — 列表、含密码二次确认的创建、禁止自删、二次确认删除.
 
 import { fireEvent, render, waitFor } from "@testing-library/react-native";
@@ -61,6 +62,7 @@ function wrap(admin: AdminAPI) {
 
 beforeEach(() => {
   // Tests rely on useAuthStore.user.id for self-delete guard.
+  //
   // 测试通过 useAuthStore.user.id 触发自删保护.
   useAuthStore.setState({ user: { id: 1, username: "me", role: "admin" }, token: "t", status: "authenticated" } as never);
 });

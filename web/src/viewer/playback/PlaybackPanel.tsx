@@ -1,22 +1,31 @@
 /**
  * PlaybackPanel — ArtPlayer host + playback state UI for the detail page.
+ *
  * PlaybackPanel — 详情页的 ArtPlayer 宿主 + 播放状态 UI.
  *
  * Responsibilities / 职责:
- *   - Mount and destroy ArtPlayer dynamically (see ADR-013) — 动态挂载和销毁 ArtPlayer (见 ADR-013)
+ *   - Mount and destroy ArtPlayer dynamically (see ADR-012) — 动态挂载和销毁 ArtPlayer (见 ADR-012)
  *   - Delegate HLS demuxing to hls.js when native HLS is unavailable — 原生 HLS 不可用时委托 hls.js 解码
- *   - Seek to persisted resume position after "video:loadedmetadata" — 元数据加载后 seek 到持久化恢复点
- *   - Throttle position saves (every 30 s) + flush on tab-hide / component teardown — 节流位置保存 (每 30 秒) + tab 隐藏/组件卸载时 flush
+ *   - Apply one persisted resume seek after "video:loadedmetadata" without saving that programmatic seek as new progress
+ *
+ *     — 元数据加载后执行一次持久化恢复 seek, 且不把该程序化 seek 再保存为新进度
+ *
+ *   - Checkpoint every 30 s and flush after manual seek, tab hide, or teardown
+ *
+ *     — 每 30 秒保存检查点, 并在手动 seek, tab 隐藏或组件卸载后立即补写
+ *
  *   - Surface HLS bundle-load / hls.js unsupported / fatal-error banners — 展示 HLS bundle 加载 / hls.js 不支持 / 致命错误横幅
  *   - Show placeholder when no URL is ready; resolving/idle copy differs — 无 URL 时显示占位符; resolving/idle 文案不同
  *   - Show state pills (source name + mode chip) — 显示状态 pill (源名称 + 模式 chip)
  *
- * ADR-013 LOCK — ArtPlayer is the required player; do NOT replace with a native <video> or other lib.
- * ADR-013 锁定 — ArtPlayer 是必需的播放器; 不得替换为原生 <video> 或其他库.
+ * ADR-012 LOCK — ArtPlayer is the required player; do NOT replace with a native <video> or other lib.
+ *
+ * ADR-012 锁定 — ArtPlayer 是必需的播放器; 不得替换为原生 <video> 或其他库.
  *
  * Boundary note / 边界说明:
  *   VideoPlayer.tsx is the native <video> + hls.js adapter (no ArtPlayer).
  *   This file (PlaybackPanel.tsx) is the ArtPlayer boundary — the two are NOT interchangeable.
+ *
  *   VideoPlayer.tsx 是原生 <video> + hls.js 适配器 (无 ArtPlayer).
  *   本文件 (PlaybackPanel.tsx) 是 ArtPlayer 边界 — 两者不可互换.
  *
@@ -26,6 +35,7 @@
  * Testing note / 测试说明:
  *   ArtPlayer is mocked via vi.mock("artplayer") in PlaybackPanel.test.tsx.
  *   hls.js is exercised only through the m3u8 customType callback, not mounted at unit-test level.
+ *
  *   ArtPlayer 在 PlaybackPanel.test.tsx 中通过 vi.mock("artplayer") 模拟.
  *   hls.js 仅通过 m3u8 customType 回调测试, 不在单元测试层面挂载.
  */
@@ -41,34 +51,40 @@ import type { PlaybackState } from "./playbackState";
 
 /**
  * POSITION_SAVE_INTERVAL_MS — throttle interval for persisting playback position.
+ *
  * POSITION_SAVE_INTERVAL_MS — 持久化播放进度的节流间隔.
  *
- * timeupdate fires ~4 Hz but we only need a coarse resume point;
- * 30 seconds limits remote checkpoint traffic while teardown still flushes the latest position.
- * timeupdate 约 4 Hz 触发, 但只需粗粒度恢复点;
- * 30 秒间隔限制远端检查点流量, 同时卸载时仍会补写最新位置.
+ * The player can report progress several times per second, but resume only needs a coarse checkpoint.
+ * A 30-second interval bounds storage or API traffic; explicit lifecycle flushes capture newer progress.
+ *
+ * 播放器每秒可多次报告进度, 但恢复播放只需要粗粒度检查点.
+ * 30 秒间隔限制存储或 API 流量, 显式生命周期补写负责捕获更新的进度.
  */
 const POSITION_SAVE_INTERVAL_MS = 30_000;
 
 /**
  * RESUME_MIN_SEC — minimum persisted position required to apply an initial seek.
+ *
  * RESUME_MIN_SEC — 应用初始 seek 所需的最小持久化位置.
  *
- * Positions below this threshold are ignored to avoid jumping the user back
- * from a tiny earlier replay (e.g. the last 2 seconds of a cold-start).
- * 小于此阈值的位置被忽略, 避免用户从微小的早期重放被跳回
- * (例如冷启动的最后 2 秒).
+ * Positions below this threshold are treated as the beginning. The same threshold also prevents
+ * resuming within the final seconds, where restarting the episode is less surprising.
+ *
+ * 小于此阈值的位置视为片头. 同一阈值也用于避免从最后几秒恢复,
+ * 此时从头播放比跳到片尾更符合预期.
  */
 const RESUME_MIN_SEC = 3;
 
 /**
- * stripEmoji — remove leading emoji/symbol pictographs from a source name.
- * stripEmoji — 去掉源名称前的 emoji/符号象形文字.
+ * stripEmoji — remove emoji and symbol pictographs from a source name.
  *
- * Source names from upstream providers often include decorative emoji prefixes
+ * stripEmoji — 去掉源名称中的 emoji 和符号象形文字.
+ *
+ * Source names from upstream providers often include decorative emoji
  * (e.g. "🎬iKun资源"). The chip in the player state bar is compact; stripping
  * them keeps the label readable without truncation.
- * 上游提供商的源名称通常包含装饰性 emoji 前缀 (如 "🎬iKun资源").
+ *
+ * 上游提供商的源名称通常包含装饰性 emoji (如 "🎬iKun资源").
  * 播放器状态栏中的 chip 空间有限; 去除后标签无需截断即可完整显示.
  *
  * @param value — raw source name or undefined — 原始源名称或 undefined
@@ -81,14 +97,15 @@ function stripEmoji(value: string | undefined): string {
 
 /**
  * PlaybackPanel — renders the ArtPlayer host container + all playback-state UI overlays.
+ *
  * PlaybackPanel — 渲染 ArtPlayer 宿主容器 + 所有播放状态 UI 覆盖层.
  *
  * @param state              — current PlaybackState from DetailPage's useReducer — DetailPage useReducer 的当前 PlaybackState
  * @param sourceName         — raw source name used for the state pill chip — 用于状态 pill chip 的原始源名称
  * @param onPlaying          — called when ArtPlayer fires "video:play" — ArtPlayer 触发 "video:play" 时调用
  * @param onRetry            — called when the user clicks any retry button — 用户点击任意重试按钮时调用
- * @param initialPositionSec — persisted resume position in seconds (optional) — 持久化恢复位置（秒, 可选）
- * @param onPositionChange   — called with (currentTime, duration) on throttled interval + teardown — 节流间隔 + 卸载时调用，参数为 (currentTime, duration)
+ * @param initialPositionSec — optional persisted resume position in seconds — 可选的持久化恢复位置, 单位为秒
+ * @param onPositionChange   — receives (currentTime, duration) for each checkpoint flush — 每次检查点补写时接收 (currentTime, duration)
  */
 export function PlaybackPanel({
   state,
@@ -107,15 +124,20 @@ export function PlaybackPanel({
 }) {
   const { t } = useTranslation("viewer");
   const playerRef = useRef<HTMLDivElement | null>(null);
-  // Ref-pattern for callbacks that change frequently — avoids re-creating ArtPlayer on every render.
-  // 回调频繁变化时使用 ref 模式 — 避免每次渲染都重建 ArtPlayer.
+  // Keep changing callbacks in refs so the player effect can call the latest versions without
+  // adding them to its dependency list and rebuilding ArtPlayer on every render.
+  //
+  // 用 ref 保存频繁变化的回调, 使播放器副作用无需增加依赖或在每次渲染时重建 ArtPlayer,
+  // 仍能调用最新版本.
   const onPlayingRef = useRef(onPlaying);
   const onPositionChangeRef = useRef(onPositionChange);
   // initialPositionRef holds the latest requested resume point without triggering a player rebuild.
+  //
   // initialPositionRef 持有最新请求的恢复点, 不触发播放器重建.
   const initialPositionRef = useRef(initialPositionSec);
   const [playerError, setPlayerError] = useState<string | null>(null);
   // playerAttempt increments on retry to force the ArtPlayer useEffect to re-run.
+  //
   // playerAttempt 在重试时递增, 强制 ArtPlayer useEffect 重新运行.
   const [playerAttempt, setPlayerAttempt] = useState(0);
   const selectedName = state.selectedEpisode?.name ?? t("player.currentEpisodeFallback");
@@ -127,6 +149,7 @@ export function PlaybackPanel({
     onPositionChangeRef.current = onPositionChange;
   }, [onPositionChange]);
   // Keep the latest requested initial position available without re-creating the player.
+  //
   // 不重建播放器, 只是记录最新的恢复点.
   useEffect(() => {
     initialPositionRef.current = initialPositionSec;
@@ -136,6 +159,7 @@ export function PlaybackPanel({
     const container = playerRef.current;
     if (!container || !state.url) {
       // No-op when the URL is not yet resolved; ArtPlayer will be mounted once state.url is set.
+      //
       // URL 尚未解析时无操作; state.url 设置后将挂载 ArtPlayer.
       return;
     }
@@ -144,17 +168,30 @@ export function PlaybackPanel({
     let cleanupArtPlayer: (() => void) | undefined;
     let cleanupHLS: (() => void) | undefined;
     let saveTimer: ReturnType<typeof setInterval> | undefined;
-    // appliedInitialSeek guards a one-shot seek on "video:loadedmetadata".
-    // appliedInitialSeek 在 "video:loadedmetadata" 时保护单次 seek.
+    // Prevent duplicate metadata events from applying the persisted resume position more than once.
+    //
+    // 防止重复元数据事件多次应用持久化恢复位置.
     let appliedInitialSeek = false;
+    // Identifies the next seek event as a possible resume restoration. The first seek event clears
+    // the target; it is suppressed only when currentTime is still within one second of that target.
+    // A mismatched event is treated as a later manual seek and saved normally.
+    //
+    // 把下一个 seek 事件标记为可能由恢复播放触发. 首个 seek 事件会清除目标;
+    // 仅当 currentTime 与该目标相差不足 1 秒时才跳过保存. 不匹配的事件视为后续手动 seek 并正常保存.
+    let pendingResumeSeekTarget: number | null = null;
     setPlayerError(null);
 
-    // Slot pattern: the artPlayer reference is assigned asynchronously after dynamic import.
-    // Slot 模式: artPlayer 引用在动态 import 后异步赋值, 同时保留 effect 内同步访问.
+    // The player is created after a dynamic import. Store it in an effect-local object so lifecycle
+    // handlers registered before the import can read the eventual instance without a React render.
+    //
+    // 播放器在动态 import 后才创建. 将它保存在副作用内的对象中,
+    // 使 import 完成前注册的生命周期 handler 无需触发 React 渲染即可读取最终实例.
     const artSlot: { player: import("artplayer").default | null } = { player: null };
 
-    // Final-save handlers fire on tab hide / page unload so we don't lose progress when the user closes the tab.
-    // pagehide / visibilitychange 在关闭 tab 时触发, 避免 30 秒间隔尚未到时丢进度.
+    // Flush the latest readable position when the page becomes hidden or leaves the session.
+    // The parent callback chooses anonymous local storage or authenticated remote storage.
+    //
+    // 页面隐藏或离开会补写最后可读进度. 父级回调决定写入匿名本地存储还是已认证远端存储.
     function flushNow() {
       const cb = onPositionChangeRef.current;
       const art = artSlot.player;
@@ -172,6 +209,7 @@ export function PlaybackPanel({
     void import("artplayer").then(({ default: ArtPlayer }) => {
       if (disposed) {
         // Cleanup beat the import — discard the instance to prevent a dangling ArtPlayer.
+        //
         // cleanup 先于 import 完成 — 丢弃实例以防悬挂的 ArtPlayer.
         return;
       }
@@ -193,20 +231,15 @@ export function PlaybackPanel({
         aspectRatio: true,
         customType: {
           m3u8: async (video, url) => {
-            // ArtPlayer awaits a macrotask before invoking this callback (urlMix in
-            // artplayer.mjs), so teardown can already have run: switching episodes or
-            // leaving the page destroys the player while this call is still queued.
-            // Without this guard the native branch below assigns video.src on a
-            // destroyed player, which starts a media load nothing will ever release.
-            // The guard also existed nowhere useful before, because the native branch
-            // was only reachable on browsers with no MediaSource at all — iPhone WebKit
-            // reaches it now.
-            // ArtPlayer 在调用此回调前会等待一个宏任务 (artplayer.mjs 的 urlMix),
-            // 因此拆卸可能已经执行: 切换剧集或离开页面会在此调用仍排队时销毁播放器.
-            // 缺少该守卫时, 下方的 native 分支会对已销毁的播放器赋值 video.src,
-            // 从而发起一个永远无人释放的媒体加载.
-            // 此前该守卫也谈不上有用, 因为 native 分支只在完全没有 MediaSource 的
-            // 浏览器上才可达 — 而 iPhone WebKit 现在会走到它.
+            // ArtPlayer's urlMix waits one macrotask before invoking customType. Episode changes or
+            // navigation can therefore destroy the player while this callback is still queued.
+            // Guard before every playback branch so native HLS cannot assign video.src after teardown
+            // and start an orphaned media load. This matters on iPhone WebKit, which selects native HLS.
+            //
+            // ArtPlayer 的 urlMix 会等待一个宏任务后再调用 customType. 切换剧集或离开页面时,
+            // 播放器可能已销毁, 但该回调仍在队列中. 因此必须在所有播放分支前检查拆卸状态,
+            // 避免原生 HLS 在拆卸后赋值 video.src 并启动无人清理的媒体加载.
+            // iPhone WebKit 会选择原生 HLS, 因而必须覆盖此分支.
             if (disposed) {
               return;
             }
@@ -215,6 +248,7 @@ export function PlaybackPanel({
 
             // Delegate the choice to choosePlaybackEngine so this panel and VideoPlayer
             // cannot drift apart; the rationale for the ordering lives there.
+            //
             // 把选择委托给 choosePlaybackEngine, 使本面板与 VideoPlayer 不会各自漂移;
             // 排序理由见该函数.
             const engine = choosePlaybackEngine({
@@ -240,6 +274,7 @@ export function PlaybackPanel({
               ({ default: Hls } = await import("hls.js"));
             } catch {
               // hls.js bundle failed to load (offline / CDN outage); surface a friendly error.
+              //
               // hls.js bundle 加载失败 (离线/CDN 中断); 展示友好错误.
               if (!disposed) {
                 setPlayerError(t("player.errors.bundleLoadFailed"));
@@ -252,6 +287,7 @@ export function PlaybackPanel({
             if (!Hls.isSupported()) {
               // MediaSource exists but hls.js rejected it (e.g. required codecs missing).
               // Fall back to native HLS before surfacing an error.
+              //
               // MediaSource 存在但 hls.js 判定不可用 (例如缺少所需编解码器).
               // 报错之前先回退到原生 HLS.
               if (canPlayNativeHLS()) {
@@ -263,12 +299,14 @@ export function PlaybackPanel({
             }
 
             // Shared tuning; see player/hlsConfig.ts for the sizing rationale.
+            //
             // 共享调优参数; 取值依据见 player/hlsConfig.ts.
             const hls = new Hls(HLS_BUFFER_CONFIG);
             hls.loadSource(url);
             hls.attachMedia(video);
             hls.on(Hls.Events.ERROR, (_, data) => {
               // Only fatal errors require user intervention; recoverable errors are retried internally by hls.js.
+              //
               // 仅致命错误需要用户介入; 可恢复错误由 hls.js 内部重试.
               if (data.fatal) {
                 setPlayerError(t("player.errors.playbackFatal"));
@@ -280,20 +318,41 @@ export function PlaybackPanel({
       });
       artSlot.player = art;
       art.on("video:play", () => onPlayingRef.current());
-      // Seek to the persisted position once metadata is available; happens before play starts.
-      // 等元数据加载完后再 seek, 避免被覆盖.
+      // Save completed manual seeks immediately instead of waiting for the 30-second timer.
+      // Ignore the one seek generated by resume restoration, then queue the callback after the
+      // current player event finishes so storage work is not performed inside ArtPlayer's handler.
+      //
+      // 手动 seek 完成后立即保存, 无需等待 30 秒定时器. 由恢复播放生成的首次 seek 会被忽略,
+      // 其余保存回调排到当前播放器事件之后执行, 避免在 ArtPlayer handler 内直接处理存储工作.
+      art.on("video:seeked", () => {
+        if (pendingResumeSeekTarget !== null) {
+          const resumeTarget = pendingResumeSeekTarget;
+          pendingResumeSeekTarget = null;
+          if (Number.isFinite(art.currentTime) && Math.abs(art.currentTime - resumeTarget) < 1) {
+            return;
+          }
+        }
+        queueMicrotask(flushNow);
+      });
+      // Duration is reliable only after metadata loads. Apply the resume target once, before normal playback.
+      //
+      // duration 仅在元数据加载后可靠. 此时只应用一次恢复位置, 再进入正常播放.
       art.on("video:loadedmetadata", () => {
         if (appliedInitialSeek) return;
         appliedInitialSeek = true;
         const target = initialPositionRef.current;
         const duration = typeof art.duration === "number" && Number.isFinite(art.duration) ? art.duration : 0;
         // Only seek when target is meaningful and not within RESUME_MIN_SEC of the end.
+        //
         // 仅在 target 有意义且距结尾大于 RESUME_MIN_SEC 时 seek.
         if (typeof target === "number" && target >= RESUME_MIN_SEC && (duration === 0 || target < duration - RESUME_MIN_SEC)) {
+          pendingResumeSeekTarget = target;
           try {
             art.currentTime = target;
           } catch {
+            pendingResumeSeekTarget = null;
             // Some HLS streams disallow seeking until the first segment is buffered; fall back silently.
+            //
             // 某些 HLS 流首段缓冲完成前不允许 seek, 静默忽略.
           }
         }
@@ -310,8 +369,9 @@ export function PlaybackPanel({
       cleanupArtPlayer = () => {
         cleanupHLS?.();
         if (saveTimer) clearInterval(saveTimer);
-        // Final save on teardown so route nav / refresh captures the latest position.
-        // 卸载时再写一次, 确保跳走/刷新前的进度被保留.
+        // Teardown is the last chance to capture progress during episode changes, navigation, or refresh.
+        //
+        // 切换集数, 导航或刷新时, 拆卸阶段是捕获最新进度的最后机会.
         const cb = onPositionChangeRef.current;
         if (cb) {
           const currentTime = typeof art.currentTime === "number" ? art.currentTime : 0;
@@ -320,6 +380,7 @@ export function PlaybackPanel({
         }
         // destroy(false) tears down ArtPlayer internals without removing the host DOM element,
         // since React owns the <div> and will handle its removal.
+        //
         // destroy(false) 卸载 ArtPlayer 内部但不移除宿主 DOM 元素,
         // 因为 React 拥有该 <div> 并会处理其移除.
         art.destroy(false);
@@ -327,6 +388,7 @@ export function PlaybackPanel({
       };
     }).catch(() => {
       // ArtPlayer dynamic import itself failed (extremely rare; usually a network issue).
+      //
       // ArtPlayer 动态 import 本身失败 (极少见; 通常是网络问题).
       if (!disposed) {
         setPlayerError(t("player.errors.playerInitFailed"));
@@ -344,10 +406,10 @@ export function PlaybackPanel({
 
   function retryPlayer() {
     setPlayerError(null);
-    // Incrementing playerAttempt is the only way to force the ArtPlayer useEffect to re-run
-    // for the same URL (React skips re-running an effect with identical deps).
-    // 递增 playerAttempt 是强制 ArtPlayer useEffect 对相同 URL 重新运行的唯一方式
-    // (相同 deps 时 React 会跳过).
+    // Include a retry counter in the player effect dependencies so retrying the same URL rebuilds
+    // ArtPlayer even though the URL itself has not changed.
+    //
+    // 将重试计数器纳入播放器副作用依赖, 即使 URL 未变化, 重试同一地址也会重建 ArtPlayer.
     setPlayerAttempt((attempt) => attempt + 1);
     onRetry();
   }
