@@ -20,8 +20,21 @@ final class PlayerViewModelTests: XCTestCase {
             detailResponse
         }
 
+        /// When set, replies carry a file URL named after the request, so a test can tell which item attached.
+        ///
+        /// 设置后, 响应携带以请求命名的文件地址, 测试据此判断挂载的是哪个 item.
+        var echoPlaybackURL = false
+        /// Holds the reply for a request URL until its gate opens.
+        ///
+        /// 让某个请求地址的响应等待, 直到其 gate 放行.
+        var playbackGates: [String: SyncTestGate] = [:]
+
         func playbackURL(url: String, source: String) async throws -> PlaybackURLResponse {
             playbackRequests.append((url: url, source: source))
+            if let gate = playbackGates[url] { await gate.wait() }
+            if echoPlaybackURL {
+                return PlaybackURLResponse(mode: "direct", url: "file:///tmp/" + (url.split(separator: "/").last.map(String.init) ?? url))
+            }
             return playbackResponse
         }
     }
@@ -344,6 +357,131 @@ final class PlayerViewModelTests: XCTestCase {
 
         XCTAssertEqual(sync.watch(title: "Video")?.episodeIndex, 0)
         XCTAssertEqual(sync.watch(title: "Video")?.progressSec, 100)
+    }
+
+    @MainActor
+    private func makeSwitchFixture(episodes: Int = 3, skipOutroSeconds: Int = 0) async throws -> (PlayerViewModel, FakePlayerAPI, SyncStore) {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        let api = FakePlayerAPI()
+        api.echoPlaybackURL = true
+        api.detailResponse.episodes = [(1...episodes).map { Episode(name: "EP\($0)", url: "https://cdn.example/\($0).m3u8") }]
+        let vm = PlayerViewModel(
+            apiClient: api, modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: nil,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Video"
+        )
+        vm.skipOutroSeconds = skipOutroSeconds
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+        return (vm, api, sync)
+    }
+
+    @MainActor
+    func testTheOutgoingItemEnteringTheOutroDoesNotMoveThePick() async throws {
+        let (vm, _, _) = try await makeSwitchFixture(skipOutroSeconds: 30)
+
+        // No suspension point follows, so the new item has not been attached yet.
+        //
+        // 之后没有挂起点, 因此新 item 尚未挂载.
+        vm.switchEpisode(1)
+        vm.onTimeUpdate(current: 2680, total: 2700)
+
+        XCTAssertEqual(vm.currentEpisodeIndex, 1)
+    }
+
+    @MainActor
+    func testTheOutgoingItemEndingDoesNotMoveThePick() async throws {
+        let (vm, _, _) = try await makeSwitchFixture()
+
+        vm.switchEpisode(1)
+        vm.handleItemEnded()
+
+        XCTAssertEqual(vm.currentEpisodeIndex, 1)
+    }
+
+    @MainActor
+    func testTheOutgoingItemFailingDoesNotDropThePickedSource() async throws {
+        let (vm, _, _) = try await makeSwitchFixture(episodes: 2)
+
+        vm.switchEpisode(1)
+        await vm.handleItemError("outgoing item failed")
+
+        XCTAssertEqual(vm.currentEpisodeIndex, 1)
+        XCTAssertEqual(vm.currentLineIndex, 0)
+        XCTAssertEqual(vm.sources.map(\.sourceKey), ["s1"])
+        XCTAssertNil(vm.error)
+    }
+
+    @MainActor
+    func testAnItemErrorWithoutASwitchStillFallsBack() async throws {
+        let (vm, _, _) = try await makeSwitchFixture(episodes: 2)
+
+        await vm.handleItemError("load failed")
+
+        XCTAssertEqual(vm.error, "All sources failed")
+        XCTAssertTrue(vm.sources.isEmpty)
+    }
+
+    @MainActor
+    func testAStalePlaybackReplyNeverAttaches() async throws {
+        let (vm, api, _) = try await makeSwitchFixture()
+        let gate = SyncTestGate()
+        api.playbackGates["https://cdn.example/2.m3u8"] = gate
+
+        vm.switchEpisode(1)
+        await waitUntil { gate.waiting == 1 }
+        vm.switchEpisode(2)
+        await waitUntil { vm.player != nil }
+        let attached = (vm.player?.currentItem?.asset as? AVURLAsset)?.url.lastPathComponent
+        XCTAssertEqual(attached, "3.m3u8")
+
+        // The first pick's reply arrives last.
+        //
+        // 第一次选择的响应最后才到达.
+        gate.open()
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(vm.currentEpisodeIndex, 2)
+        XCTAssertEqual((vm.player?.currentItem?.asset as? AVURLAsset)?.url.lastPathComponent, "3.m3u8")
+    }
+
+    @MainActor
+    func testTheFirstTickOfANewItemDoesNotWriteACheckpoint() async throws {
+        let (vm, _, sync) = try await makeSwitchFixture()
+        vm.onTimeUpdate(current: 100, total: 2700)
+
+        vm.switchEpisode(1)
+        await waitUntil { vm.player != nil }
+        vm.onTimeUpdate(current: 1, total: 2700)
+
+        XCTAssertEqual(sync.watch(title: "Video")?.episodeIndex, 0)
+        XCTAssertEqual(sync.watch(title: "Video")?.progressSec, 100)
+    }
+
+    @MainActor
+    func testResumeLooksUpTheRecordByTheDetailTitle() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        sync.upsert(.watch(WatchPayload(title: "Detail Title", sourceKey: "s1", videoId: "video-1", groupIndex: 0,
+                                        episodeIndex: 1, progressSec: 45, durationSec: 120)))
+        let api = FakePlayerAPI()
+        api.detailResponse = VideoDetail(
+            id: "video-1", title: "Detail Title", type: "movie", year: "2026", cover: "", desc: "", director: "",
+            actor: "", area: "",
+            episodes: [[Episode(name: "EP1", url: "https://cdn.example/1.m3u8"),
+                        Episode(name: "EP2", url: "https://cdn.example/2.m3u8")]]
+        )
+        let vm = PlayerViewModel(
+            apiClient: api, modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: nil,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Navigation Title", initialEpisodeIndex: 1
+        )
+
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+
+        XCTAssertEqual(vm.startTimeForCurrentSelection(), 45)
     }
 
     @MainActor

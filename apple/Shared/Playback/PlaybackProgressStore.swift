@@ -31,8 +31,14 @@ struct PlaybackProgressStore {
     /// line, and episode and is not finished; otherwise intro skip applies.
     ///
     /// 解析起播位置: 若观看记录对应完全相同的来源, 线路和分集且未看完, 则使用其进度; 否则使用跳过片头秒数.
-    func startTime(sourceKey: String, videoId: String, groupIndex: Int = 0, episodeIndex: Int, skipIntroSeconds: Int) -> TimeInterval {
-        if let saved = syncStore?.watch(title: title), !saved.completed,
+    ///
+    /// `lookupTitle` overrides the store's title for the lookup; the player passes the loaded detail's
+    /// title, which is the one the write path saves under.
+    ///
+    /// `lookupTitle` 覆盖存储的标题用于查找; 播放器传入已加载详情的标题, 即写入路径使用的标题.
+    func startTime(sourceKey: String, videoId: String, groupIndex: Int = 0, episodeIndex: Int, skipIntroSeconds: Int,
+                   title lookupTitle: String? = nil) -> TimeInterval {
+        if let saved = syncStore?.watch(title: lookupTitle ?? title), !saved.completed,
            saved.sourceKey == sourceKey, saved.videoId == videoId,
            saved.groupIndex == groupIndex, saved.episodeIndex == episodeIndex, saved.progressSec > 0 {
             return saved.progressSec

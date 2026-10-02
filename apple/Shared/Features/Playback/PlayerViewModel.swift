@@ -107,6 +107,11 @@ final class PlayerViewModel {
     // 从选择开始变化到 `startPlayer` 挂载新 item 之间置位. 这段时间旧的 AVPlayer item 仍在上报,
     // 其时间不能被保存到新的来源, 线路或分集下.
     private var detachedFromItem = false
+    // Bumped for every playback request; a URL reply that is not for the latest one is stale and
+    // never attaches an item.
+    //
+    // 每次播放请求都会递增; 不属于最新请求的地址响应已过期, 不会挂载 item.
+    private var playbackRequest = 0
 
     private let apiClient: any PlaybackDetailAPIProtocol
     private let modelContext: ModelContext
@@ -232,7 +237,13 @@ final class PlayerViewModel {
             logger.info(
                 "startPlaybackAsync source=\(self.currentSourceKey, privacy: .public) line=\(self.currentLineIndex, privacy: .public) episode=\(self.currentEpisodeIndex, privacy: .public)"
             )
+            playbackRequest += 1
+            let id = playbackRequest
             let url = try await preparePlaybackURL()
+            // A newer switch took over while this reply was in flight.
+            //
+            // 等待响应期间已有更新的切换接管.
+            guard id == playbackRequest else { return }
             startPlayer(with: url)
         } catch {
             logger.error("startPlaybackAsync failed error=\(error.localizedDescription, privacy: .public)")
@@ -272,13 +283,12 @@ final class PlayerViewModel {
         isPlaying = false
         isBuffering = true
         resetPlaybackUIState()
-        let startTime = progressStore.startTime(
-            sourceKey: currentSourceKey,
-            videoId: selection.sourceVideoID(),
-			groupIndex: currentLineIndex,
-            episodeIndex: currentEpisodeIndex,
-            skipIntroSeconds: skipIntroSeconds
-        )
+        let startTime = startTimeForCurrentSelection()
+        // The new item reports from its own start; the outgoing item's last save time must not make
+        // its first tick write at once.
+        //
+        // 新 item 从自己的起点开始上报; 旧 item 的最近保存时间不能让它的第一次时间更新立刻写入.
+        lastSaveTime = startTime
         logger.info(
             "startPlayer url=\(url.absoluteString, privacy: .public) startTime=\(startTime, privacy: .public) rate=\(self.playbackRate, privacy: .public) hadPlayer=\(self.player != nil, privacy: .public)"
         )
@@ -293,20 +303,51 @@ final class PlayerViewModel {
                 self?.onBufferUpdate(sample)
             },
             onEnd: { [weak self] in
-                self?.handlePlaybackEnded()
+                self?.handleItemEnded()
             },
             onError: { [weak self] message in
-                if let message {
-                    self?.error = message
-                }
-                self?.isBuffering = false
-                Task { await self?.handlePlaybackError() }
+                Task { await self?.handleItemError(message) }
             }
         )
         player = coordinator.player
         logger.info(
             "startPlayer ready hasPlayer=\(self.player != nil, privacy: .public) hasCurrentItem=\(self.player?.currentItem != nil, privacy: .public) timeControlStatus=\(PlaybackCoordinator.describeTimeControlStatus(self.player?.timeControlStatus), privacy: .public)"
         )
+    }
+
+    /// Where the new item starts. The watch record is read by the detail title, like the write path
+    /// and Web, once the detail has loaded; before that the navigation title stands in.
+    ///
+    /// 新 item 的起播位置. 详情加载后按详情标题读取观看记录, 与写入路径和 Web 一致; 在此之前使用导航标题.
+    func startTimeForCurrentSelection() -> TimeInterval {
+        progressStore.startTime(
+            sourceKey: currentSourceKey,
+            videoId: selection.sourceVideoID(),
+            groupIndex: currentLineIndex,
+            episodeIndex: currentEpisodeIndex,
+            skipIntroSeconds: skipIntroSeconds,
+            title: detail?.title
+        )
+    }
+
+    /// The player item reported its end. An outgoing item that ends while the selection is changing
+    /// must not move the new selection on.
+    ///
+    /// 播放器 item 报告结束. 选择正在变化时, 旧 item 的结束不能让新的选择继续往下走.
+    func handleItemEnded() {
+        guard !detachedFromItem else { return }
+        handlePlaybackEnded()
+    }
+
+    /// The player item reported a failure. Ignored while the selection is changing, because the
+    /// outgoing item's failure says nothing about the item that is about to attach.
+    ///
+    /// 播放器 item 报告失败. 选择正在变化时忽略, 因为旧 item 的失败与即将挂载的 item 无关.
+    func handleItemError(_ message: String?) async {
+        guard !detachedFromItem else { return }
+        if let message { error = message }
+        isBuffering = false
+        await handlePlaybackError()
     }
 
     // MARK: - Time Updates
@@ -431,7 +472,7 @@ final class PlayerViewModel {
             saveProgress(current: current, duration: total)
         }
 
-        if !skipOutroTriggered && skipOutroSeconds > 0 && total > 0 {
+        if !skipOutroTriggered && !detachedFromItem && skipOutroSeconds > 0 && total > 0 {
             let remaining = total - current
             if remaining <= TimeInterval(skipOutroSeconds) && remaining > 0 {
                 skipOutroTriggered = true
