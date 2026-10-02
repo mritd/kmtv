@@ -159,12 +159,19 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
 					: 0,
 				currentEpisodeIndex: clampEpisodeIndex(state, action.detail),
 			};
+    // A new selection starts with no position: until the new item's first progress event, a
+    // checkpoint must not write the outgoing item's time under the new episode.
+    //
+    // 新的选择从无播放位置开始: 在新条目的第一个进度事件之前, 进度保存不能把上一个条目的时间
+    // 写到新剧集下.
     case "switchEpisode":
-      return { ...state, currentEpisodeIndex: Math.max(0, action.index), pendingSeekTime: null };
+      return { ...state, currentEpisodeIndex: Math.max(0, action.index), currentTime: 0, duration: 0, pendingSeekTime: null };
     case "switchLine":
-      return { ...state, currentLineIndex: Math.max(0, action.index), currentEpisodeIndex: 0, pendingSeekTime: null };
+      return {
+        ...state, currentLineIndex: Math.max(0, action.index), currentEpisodeIndex: 0, currentTime: 0, duration: 0, pendingSeekTime: null,
+      };
     case "switchSource":
-      return { ...state, currentSourceKey: action.sourceKey, currentLineIndex: 0, pendingSeekTime: null };
+      return { ...state, currentSourceKey: action.sourceKey, currentLineIndex: 0, currentTime: 0, duration: 0, pendingSeekTime: null };
     case "removeSource":
       return { ...state, sources: state.sources.filter((s) => s.source_key !== action.sourceKey) };
     case "timeUpdate":

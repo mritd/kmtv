@@ -439,3 +439,57 @@ test("a startup line fallback does not seek to the record's position for another
   expect(result.current.state.currentEpisodeIndex).toBe(0);
   expect(result.current.resumeStartSeconds).toBe(7);
 });
+
+test("a checkpoint after an auto-advance and before the next episode loads writes nothing for it", async () => {
+  const saveWatch = jest.fn();
+  const apis = mkAPIs();
+  const { result } = renderHook(() => usePlayer({
+    serverURL: "http://srv-advance-stale",
+    destination: dest,
+    detailAPI: apis.detail,
+    playbackAPI: apis.playback,
+    saveWatch,
+    flushWatch: jest.fn(),
+  }));
+  await waitFor(() => expect(result.current.state.detail).not.toBeNull());
+  await act(async () => { await result.current.actions.startPlayback(); });
+
+  await act(async () => { result.current.actions.timeUpdate(2699.5, 2700); });
+  await waitFor(() => expect(result.current.state.currentEpisodeIndex).toBe(1));
+  // Pause, background, or unmount before the new episode's onLoad.
+  //
+  // 新剧集 onLoad 之前暂停, 退到后台或卸载.
+  act(() => { result.current.actions.persistProgressNow(); });
+
+  expect(saveWatch.mock.calls.map(([payload]) => payload.episode_index)).not.toContain(1);
+  expect(result.current.state).toMatchObject({ currentTime: 0, duration: 0 });
+});
+
+test("a checkpoint after an onError line fallback and before the new line loads writes nothing for it", async () => {
+  const saveWatch = jest.fn();
+  const apis = mkAPIs();
+  apis.detail.detail = jest.fn().mockResolvedValue({
+    ...detail,
+    episodes: [[{ name: "L1E1", url: "raw://l1e1" }], [{ name: "L2E1", url: "raw://l2e1" }]],
+  });
+  apis.playback.playbackURL = jest.fn()
+    .mockResolvedValueOnce({ mode: "direct", url: "https://line1/m3u8" })
+    .mockRejectedValueOnce(new Error("line 1 down"))
+    .mockResolvedValueOnce({ mode: "direct", url: "https://line2/m3u8" });
+  const { result } = renderHook(() => usePlayer({
+    serverURL: "http://srv-onerror-stale",
+    destination: dest,
+    detailAPI: apis.detail,
+    playbackAPI: apis.playback,
+    saveWatch,
+  }));
+  await waitFor(() => expect(result.current.state.detail).not.toBeNull());
+  await act(async () => { await result.current.actions.startPlayback(); });
+  act(() => { result.current.actions.timeUpdate(40, 100); });
+
+  await act(async () => { await result.current.actions.onError("stream died"); });
+  expect(result.current.state.currentLineIndex).toBe(1);
+  act(() => { result.current.actions.persistProgressNow(); });
+
+  expect(saveWatch.mock.calls.map(([payload]) => payload.group_index)).not.toContain(1);
+});

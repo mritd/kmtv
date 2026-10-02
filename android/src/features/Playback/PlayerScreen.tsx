@@ -145,6 +145,9 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
   const flushWatch = useCallback(() => {
     void engine?.flushNow();
   }, [engine]);
+  const watchRecordFor = useCallback((title: string): WatchPayload | null => {
+    return sync.status === "ready" ? sync.store.get("watch", title)?.payload ?? null : null;
+  }, [sync]);
   const { state, historyReady, resumeStartSeconds, actions, stateRef } = usePlayer({
     serverURL: ctx.serverURL,
     destination,
@@ -153,6 +156,7 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
     resume,
     saveWatch,
     flushWatch,
+    watchRecordFor,
   });
   const playbackURL = state.playbackURL;
 

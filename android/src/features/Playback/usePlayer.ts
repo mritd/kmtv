@@ -10,6 +10,7 @@ import type { DetailAPI } from "@/api/detail";
 import type { PlaybackAPI } from "@/api/playback";
 import type { PlayDestination, VideoDetail } from "@/api/types";
 import { loadPlaybackSettings, savePlaybackSettings } from "@/storage/playbackSettings";
+import { normalizeSyncKey } from "@/sync/normalizeKey";
 import type { WatchPayload } from "@/sync/types";
 import type { WatchResume } from "@/sync/useWatchResume";
 
@@ -57,10 +58,13 @@ const NO_RESUME: WatchResume = { pending: false, item: null };
  * Inputs to usePlayer — everything wires through props so unit tests can substitute fakes.
  * `resume` comes from useWatchResume; `saveWatch` writes checkpoints into the sync store, and
  * `flushWatch` pushes them after the outgoing episode is saved on a source, line, or episode switch.
+ * `watchRecordFor` reads the local record of a title; checkpoints go under the detail title, so the
+ * resume position uses it once the detail title differs from the navigation title.
  *
  * usePlayer 的入参 — 一律通过 props 注入, 单测可替换为 fake.
  * resume 来自 useWatchResume; saveWatch 将播放进度写入同步存储; 切换来源, 线路或剧集时保存
- * 即将离开的剧集后, 由 flushWatch 推送.
+ * 即将离开的剧集后, 由 flushWatch 推送. watchRecordFor 读取某个标题的本地记录; 进度保存在详情
+ * 标题下, 因此详情标题与导航标题不同时, 续播位置改用该记录.
  */
 export interface UsePlayerOptions {
   serverURL: string;
@@ -70,6 +74,7 @@ export interface UsePlayerOptions {
   resume?: WatchResume;
   saveWatch?: (payload: WatchPayload) => void;
   flushWatch?: () => void;
+  watchRecordFor?: (title: string) => WatchPayload | null;
 }
 
 /**
@@ -119,7 +124,9 @@ export interface UsePlayerResult {
  * usePlayer — 播放 hook. 挂载即加载详情, 维护 reducer + fallback, 暴露 PlayerScreen UI 与
  * imperative <Video /> 回调共用的 action.
  */
-export function usePlayer({ serverURL, destination, detailAPI, playbackAPI, resume = NO_RESUME, saveWatch, flushWatch }: UsePlayerOptions): UsePlayerResult {
+export function usePlayer({
+  serverURL, destination, detailAPI, playbackAPI, resume = NO_RESUME, saveWatch, flushWatch, watchRecordFor,
+}: UsePlayerOptions): UsePlayerResult {
   const [state, dispatch] = useReducer(
     playerReducer,
     initialPlayerState(
@@ -154,13 +161,28 @@ export function usePlayer({ serverURL, destination, detailAPI, playbackAPI, resu
   const resumeAppliedRef = useRef(false);
   const watchItemRef = useRef(resume.item);
   watchItemRef.current = resume.item;
+  const watchRecordForRef = useRef(watchRecordFor);
+  watchRecordForRef.current = watchRecordFor;
+  const destinationTitleRef = useRef(destination.title);
+  destinationTitleRef.current = destination.title;
 
   // The watch record holds one position per title; it applies only to the exact source, line,
-  // and episode it was saved for.
+  // and episode it was saved for. Checkpoints are saved under the detail title, so once the detail
+  // is loaded and its title is a different key, the record under the detail title holds the
+  // position (as on Apple); without one, the record under the navigation title still applies. The
+  // line and episode were already chosen from the gated record.
   //
-  // 观看记录每个标题只保存一个位置; 只有来源, 线路和剧集完全一致时才使用.
+  // 观看记录每个标题只保存一个位置; 只有来源, 线路和剧集完全一致时才使用. 进度保存在详情标题下,
+  // 因此详情加载后若其标题是另一个 key, 位置以详情标题下的记录为准 (与 Apple 一致); 没有该记录时
+  // 仍使用导航标题下的记录. 线路和剧集此前已按等待同步后的记录选定.
   const resumeStartFor = useCallback((input: PlayerState, episodeIndex = input.currentEpisodeIndex): number => {
-    const item = watchItemRef.current;
+    const detailTitle = input.detail?.title ?? "";
+    const detailKey = normalizeSyncKey(detailTitle);
+    const lookup = watchRecordForRef.current;
+    const byDetailTitle = lookup && detailKey !== "" && detailKey !== normalizeSyncKey(destinationTitleRef.current)
+      ? lookup(detailTitle)
+      : null;
+    const item = byDetailTitle ?? watchItemRef.current;
     const matches = item !== null
       && !item.completed
       && item.source_key === input.currentSourceKey

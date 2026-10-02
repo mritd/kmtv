@@ -235,6 +235,22 @@ test("Video onLoad clamps an over-duration resume position before seeking", asyn
   expect(seek).toHaveBeenCalledWith(600);
 });
 
+test("Video onLoad resumes from the record under the detail title when it differs from the navigation title", async () => {
+  const destination: PlayDestination = { ...dest, title: "Search Name" };
+  const store = memorySyncStore();
+  store.upsert("watch", {
+    title: "Detail Name", cover: "", source_key: "a", video_id: "v-a", episode: "E1",
+    group_index: 0, episode_index: 0, progress_sec: 45, duration_sec: 600, completed: false,
+  });
+  const detailAPI: DetailAPI = { detail: jest.fn().mockResolvedValue({ ...detail, title: "Detail Name" }) };
+  const playbackAPI: PlaybackAPI = { playbackURL: jest.fn().mockResolvedValue({ mode: "proxy", url: "https://p/m3u8" }) };
+  const { findByTestId } = wrap(detailAPI, playbackAPI, jest.fn(), destination, "http://srv-player-detail-title", store);
+  const video = await findByTestId("video");
+  const seek = (globalThis as { __lastMockVideoSeek?: jest.Mock }).__lastMockVideoSeek;
+  await act(async () => { fireEvent(video, "onLoad", { duration: 600 }); });
+  expect(seek).toHaveBeenCalledWith(45);
+});
+
 test("full-screen remount keeps controls visible and resumes from the current time", async () => {
   const orientation = NativeModules.KmtvOrientation as { setOrientation: jest.Mock };
   orientation.setOrientation.mockClear();
