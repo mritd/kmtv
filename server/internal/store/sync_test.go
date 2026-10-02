@@ -373,8 +373,120 @@ func TestPushSyncConcurrentWritersOnFileDB(t *testing.T) {
 	for err := range errCh {
 		t.Fatalf("concurrent push: %v", err)
 	}
-	if _, err := s.PurgeSyncTombstones(syncTestNow.Add(time.Hour)); err != nil {
+
+	// Each user received 200 distinct searches, so exactly the cap stays live and the rest are
+	// tombstones. Every record and clear must carry a unique, strictly increasing rev.
+	tombstones := 0
+	for _, user := range users {
+		var revs []int64
+		live := 0
+		since := int64(0)
+		for {
+			page, err := s.PullSyncChanges(user, since, 30)
+			if err != nil {
+				t.Fatalf("PullSyncChanges: %v", err)
+			}
+			for _, r := range page.Records {
+				revs = append(revs, r.Rev)
+				if r.Deleted {
+					tombstones++
+				} else {
+					live++
+				}
+			}
+			for _, c := range page.Clears {
+				revs = append(revs, c.Rev)
+			}
+			since = page.Rev
+			if !page.HasMore {
+				break
+			}
+		}
+		if len(revs) != 200 {
+			t.Fatalf("user %d: expected 200 rows, got %d", user, len(revs))
+		}
+		for i := 1; i < len(revs); i++ {
+			if revs[i] <= revs[i-1] {
+				t.Fatalf("user %d: revs must be unique and strictly increasing, got %d after %d", user, revs[i], revs[i-1])
+			}
+		}
+		if live != SyncMaxSearchRecords {
+			t.Fatalf("user %d: live rows = %d, want %d", user, live, SyncMaxSearchRecords)
+		}
+	}
+	if tombstones != 2*(200-SyncMaxSearchRecords) {
+		t.Fatalf("tombstones = %d, want %d", tombstones, 2*(200-SyncMaxSearchRecords))
+	}
+	purged, err := s.PurgeSyncTombstones(syncTestNow.Add(time.Hour))
+	if err != nil {
 		t.Fatalf("PurgeSyncTombstones: %v", err)
+	}
+	if purged != int64(tombstones) {
+		t.Fatalf("purged = %d, want %d", purged, tombstones)
+	}
+}
+
+func TestPushSyncTrimmedTombstoneGetsNewRev(t *testing.T) {
+	s := newTestStore(t)
+	user := newSyncTestUser(t, s, "sync_trim_rev")
+	changes := make([]model.SyncChange, 0, SyncMaxSearchRecords)
+	for i := range SyncMaxSearchRecords {
+		changes = append(changes, syncSearch(fmt.Sprintf("q%03d", i), int64(1000+i)))
+	}
+	if _, _, err := s.PushSyncChanges(user, changes, syncTestNow); err != nil {
+		t.Fatalf("PushSyncChanges: %v", err)
+	}
+	page, err := s.PullSyncChanges(user, 0, 1000)
+	if err != nil {
+		t.Fatalf("PullSyncChanges: %v", err)
+	}
+	cursor := page.Rev
+	for _, r := range page.Records {
+		if r.Deleted {
+			t.Fatalf("nothing may be trimmed at the cap: %+v", r)
+		}
+	}
+
+	pushOne(t, s, user, syncSearch("newest", 5000))
+	page, err = s.PullSyncChanges(user, cursor, 1000)
+	if err != nil {
+		t.Fatalf("PullSyncChanges: %v", err)
+	}
+	var oldest *model.SyncRecord
+	for i := range page.Records {
+		if page.Records[i].Key == "q000" {
+			oldest = &page.Records[i]
+		}
+	}
+	if oldest == nil || !oldest.Deleted || oldest.Rev <= cursor {
+		t.Fatalf("trimmed oldest key must arrive as a tombstone with rev > %d: %+v", cursor, page.Records)
+	}
+}
+
+func TestPushSyncClearEqualityBoundary(t *testing.T) {
+	s := newTestStore(t)
+	user := newSyncTestUser(t, s, "sync_clear_eq")
+	pushOne(t, s, user, syncSearch("Edge", 2000))
+	pushOne(t, s, user, syncSearch("After", 2001))
+
+	res := pushOne(t, s, user, syncClear(model.SyncKindSearch, 2000))
+	if res.Status != model.SyncStatusApplied || res.Clear == nil || res.Clear.ClearedAtMS != 2000 {
+		t.Fatalf("clear: %+v", res)
+	}
+	res = pushOne(t, s, user, syncSearch("Edge", 2000))
+	if res.Status != model.SyncStatusStale || res.Record != nil {
+		t.Fatalf("upsert at exactly cleared_at_ms must be stale with no row: %+v", res)
+	}
+
+	page, err := s.PullSyncChanges(user, 0, 100)
+	if err != nil {
+		t.Fatalf("PullSyncChanges: %v", err)
+	}
+	if len(page.Records) != 1 || page.Records[0].Key != "after" {
+		t.Fatalf("a row at exactly cleared_at_ms must be removed by the clear: %+v", page.Records)
+	}
+	if len(page.Clears) != 1 || page.Clears[0].Kind != model.SyncKindSearch || page.Clears[0].ClearedAtMS != 2000 {
+		t.Fatalf("pull page must carry the clear: %+v", page.Clears)
 	}
 }
 
