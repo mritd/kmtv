@@ -4,14 +4,14 @@
     {"input": "Demo Show", "key": "demo show"},
     {"input": "  Demo   Show  ", "key": "demo show"},
     {"input": "\tDemo\nShow\r\n", "key": "demo show"},
-    {"input": "Demo Show", "key": "demo show"},
-    {"input": "　三体　第一季　", "key": "三体 第一季"},
+    {"input": "Demo\u00a0Show", "key": "demo show"},
+    {"input": "\u3000三体\u3000第一季\u3000", "key": "三体 第一季"},
     {"input": "三体", "key": "三体"},
     {"input": "ÉCOLE Été", "key": "école été"},
     {"input": "ＡＢＣ", "key": "ａｂｃ"},
     {"input": "Movie 2", "key": "movie 2"},
-    {"input": "A B C", "key": "a b c"},
-    {"input": "İSTANBUL", "key": "istanbul"},
+    {"input": "A\u2003B\u205fC", "key": "a b c"},
+    {"input": "\u0130STANBUL", "key": "istanbul"},
     {"input": "ΟΔΟΣ", "key": "οδοσ"},
     {"input": "   ", "key": ""}
   ]
