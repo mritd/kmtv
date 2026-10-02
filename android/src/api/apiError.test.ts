@@ -31,13 +31,13 @@ describe("APIError", () => {
   it("APIError.fromResponse converts 500 with body.error to server(message)", async () => {
     const res = { status: 500, json: async () => ({ error: "db down" }) } as unknown as Response;
     const err = await APIError.fromResponse(res);
-    expect(err).toEqual({ kind: "server", message: "db down" });
+    expect(err).toEqual({ kind: "server", message: "db down", status: 500 });
   });
 
   it("APIError.fromResponse uses body.message when body.error missing", async () => {
-    const res = { status: 500, json: async () => ({ message: "alt msg" }) } as unknown as Response;
+    const res = { status: 500, json: async () => ({ message: "alt msg", status: 500 }) } as unknown as Response;
     const err = await APIError.fromResponse(res);
-    expect(err).toEqual({ kind: "server", message: "alt msg" });
+    expect(err).toEqual({ kind: "server", message: "alt msg", status: 500 });
   });
 
   it("APIError.fromResponse falls back to HTTP status when body is not JSON", async () => {
