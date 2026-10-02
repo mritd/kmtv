@@ -646,4 +646,35 @@ describe("APIClient", () => {
       "/api/v1/admin/settings",
     ]);
   });
+
+  it("builds sync push and pull requests that require a token", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} });
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    const tokenStore = createMemoryTokenStore({
+      accessToken: "SyncToken",
+      expiresAt: "2099-01-01T00:00:00Z",
+      user: { id: 1, username: "admin", role: "admin" },
+    });
+    const client = createAPIClient({ tokenStore, fetcher: fetcher as typeof fetch });
+
+    await client.syncPush({ epoch: "e1", cursor: 4, changes: [] }, { keepalive: true });
+    await client.syncPull({ since: 4, epoch: "e1" });
+    await client.syncPull({ since: 0, epoch: "", limit: 20 });
+
+    expect(calls[0]!.url).toBe("/api/v1/sync/push");
+    expect(calls[0]!.init.method).toBe("POST");
+    expect(calls[0]!.init.keepalive).toBe(true);
+    expect(calls[0]!.init.signal).toBeDefined();
+    expect(calls[1]!.init.signal).toBeDefined();
+    expect(calls[0]!.init.body).toBe(JSON.stringify({ epoch: "e1", cursor: 4, changes: [] }));
+    expect(calls[1]!.url).toBe("/api/v1/sync/pull?since=4&limit=500&epoch=e1");
+    expect(calls[2]!.url).toBe("/api/v1/sync/pull?since=0&limit=20");
+
+    const anonymous = createAPIClient({ tokenStore: createMemoryTokenStore(), fetcher: fetcher as typeof fetch });
+    await expect(anonymous.syncPull({ since: 0, epoch: "" })).rejects.toMatchObject({ status: 401 });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
 });

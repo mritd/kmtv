@@ -48,6 +48,21 @@ export function createTestAPI(overrides: Partial<APIClient> = {}): APIClient {
     }),
     deleteWatchHistory: async () => undefined,
     clearWatchHistory: async () => undefined,
+    syncPush: async (body) => ({
+      epoch: "test-epoch",
+      rev: body.changes.length,
+      server_time_ms: Date.now(),
+      results: body.changes.map((_change, index) => ({ index, status: "applied" as const, record: null })),
+    }),
+    syncPull: async () => ({
+      epoch: "test-epoch",
+      server_time_ms: Date.now(),
+      rev: 0,
+      reset: false,
+      has_more: false,
+      clears: [],
+      records: [],
+    }),
     listSources: async () => ({ sources: [] }),
     createSource: async (source) => ({
       id: 1,
