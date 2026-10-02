@@ -106,6 +106,7 @@ const viewer = {
     title: "收藏",
     empty: "暂无收藏内容.",
     emptyTitle: "还没有收藏",
+    full: "收藏已满, 请先删除一些再添加.",
     emptyDescription: "从搜索结果中收藏影片后会出现在这里.",
     emptyAction: "去搜索",
     summary: "{{count}} 个保存内容",

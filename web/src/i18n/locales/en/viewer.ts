@@ -106,6 +106,7 @@ const viewer = {
     title: "Favorites",
     empty: "No favorites yet.",
     emptyTitle: "No favorites yet",
+    full: "Favorites are full. Remove some before adding more.",
     emptyDescription: "Favorites from search results show up here.",
     emptyAction: "Search",
     summary: "{{count}} saved",
