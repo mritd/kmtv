@@ -4,7 +4,7 @@
 
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import type { AuthAPI } from "@/api/auth";
 import type { User } from "@/api/types";
@@ -72,7 +72,11 @@ export function useProfile({ auth, user, onUserChanged }: UseProfileArgs): UsePr
   const [passwordNext, setPasswordNext] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const sync = useSync();
-  const watchHistoryCount = useSyncList("watch").length;
+  const watchRecords = useSyncList("watch");
+  // The count matches continue watching: finished titles are not counted.
+  //
+  // 计数与继续观看一致: 不统计已看完的标题.
+  const watchHistoryCount = useMemo(() => watchRecords.filter((r) => !r.payload.completed).length, [watchRecords]);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 

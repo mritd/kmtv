@@ -200,6 +200,16 @@ describe("useProfile", () => {
     expect(result.current.successMessage).toBe("profile.danger.historyCleared");
   });
 
+  it("watchHistoryCount excludes completed watch records", () => {
+    const store = memorySyncStore(1, "u");
+    const base = { cover: "", source_key: "s", video_id: "v", episode: "", group_index: 0, episode_index: 0, progress_sec: 1, duration_sec: 10 };
+    store.upsert("watch", { ...base, title: "Done", completed: true });
+    store.upsert("watch", { ...base, title: "Open", completed: false });
+    const wrapper = ({ children }: { children: React.ReactNode }) => <SyncTestProvider store={store}>{children}</SyncTestProvider>;
+    const { result } = renderHook(() => useProfile({ auth: makeAuth(), user, onUserChanged: jest.fn() }), { wrapper });
+    expect(result.current.watchHistoryCount).toBe(1);
+  });
+
   it("error / success message dismissers reset the strings", async () => {
     const auth = makeAuth({
       changePassword: jest.fn(async () => { throw new Error("network"); }),
