@@ -82,7 +82,6 @@ const viewer = {
       clearConfirm: "清空",
       clearPending: "正在清空",
       clearCancel: "取消",
-      clearErrorTitle: "无法清空观看记录",
     },
     rails: {
       "热门电影": "热门电影",

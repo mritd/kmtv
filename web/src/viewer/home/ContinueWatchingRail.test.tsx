@@ -85,7 +85,7 @@ describe("ContinueWatchingRail", () => {
     expect(onSelect).toHaveBeenCalledWith(item);
   });
 
-  it("accepts anonymous local history cards with stable string IDs", async () => {
+  it("accepts cards keyed by record keys", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     const item: ContinueWatchingItem = {

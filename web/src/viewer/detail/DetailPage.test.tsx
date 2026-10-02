@@ -1,8 +1,8 @@
 /**
- * DetailPage integration tests cover identity-scoped history, playback recovery, source switching,
+ * DetailPage integration tests cover synced watch records, playback recovery, source switching,
  * shared-link recovery, and stale asynchronous result isolation.
  *
- * DetailPage 集成测试覆盖按身份隔离的观看历史, 播放恢复, 来源切换, 共享链接恢复和过期异步结果隔离.
+ * DetailPage 集成测试覆盖同步观看记录, 播放恢复, 来源切换, 共享链接恢复和过期异步结果隔离.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -11,16 +11,11 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SearchResult, WatchHistoryItem } from "@/api/types";
+import type { SearchResult } from "@/api/types";
 import { APIProvider } from "@/api/context";
 import { createMemoryTokenStore } from "@/api/tokenStore";
 import type { TokenStore } from "@/api/tokenStore";
 import { AuthProvider } from "@/auth/AuthContext";
-import {
-  getAnonymousWatchHistory,
-  upsertAnonymousWatchHistory,
-} from "@/storage/anonymousWatchHistory";
-import { nextWatchHistoryEventTime } from "@/storage/watchHistoryClock";
 import { detailRoutePath } from "@/storage/detailRoute";
 import {
   bundleFromSearchResult,
@@ -29,6 +24,9 @@ import {
   sourceBundleStorageKey,
   upsertSourceBundleDetail,
 } from "@/storage/sourceBundles";
+import { SyncProvider } from "@/sync/SyncContext";
+import type { SyncPullResponse } from "@/sync/types";
+import { emptyPullResponse, openSyncStore, seedSyncStore } from "@/test/syncFixtures";
 import { createTestAPI } from "@/test/testAPI";
 
 import { DetailPage } from "./DetailPage";
@@ -124,12 +122,14 @@ function renderDetail(
     <APIProvider value={api}>
       <AuthProvider api={api} tokenStore={tokenStore} queryClient={client}>
         <QueryClientProvider client={client}>
+<SyncProvider>
           <MemoryRouter initialEntries={[initialEntry]}>
             <Routes>
               <Route path="/detail/:token" element={<DetailPage />} />
             </Routes>
           </MemoryRouter>
-        </QueryClientProvider>
+        </SyncProvider>
+</QueryClientProvider>
       </AuthProvider>
     </APIProvider>,
   );
@@ -191,353 +191,233 @@ function upsertReadySourceA(bundle: ReturnType<typeof bundleFromSearchResult>) {
 describe("DetailPage", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    window.sessionStorage.clear();
   });
 
   afterEach(() => {
     window.localStorage.clear();
+    window.sessionStorage.clear();
     artplayerMock.instances.length = 0;
     vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
-  it("waits for remote history before selecting the initial episode", async () => {
-    const history = deferred<WatchHistoryItem>();
-    const getWatchHistory = vi.fn(() => history.promise);
-    const playbackURL = vi.fn(async (url: string) => ({
-      mode: "proxy" as const,
-      url,
-    }));
-    const api = createTestAPI({
-      detail: async () => ({
-        id: "video-a",
-        title: "Demo Show",
-        episodes: [
-          [
-            { name: "01", url: "https://cdn.example/1.m3u8" },
-            { name: "02", url: "https://cdn.example/2.m3u8" },
-          ],
-        ],
-      }),
-      getWatchHistory,
-      playbackURL,
-    });
-    renderDetail(api);
+  const twoEpisodes = async () => ({
+    id: "video-a",
+    title: "Demo Show",
+    cover: "https://img.example/cover.jpg",
+    episodes: [
+      [
+        { name: "01", url: "https://cdn.example/1.m3u8" },
+        { name: "02", url: "https://cdn.example/2.m3u8" },
+      ],
+    ],
+  });
 
-    await waitFor(() =>
-      expect(getWatchHistory).toHaveBeenCalledWith("Demo Show"),
-    );
+  const episodeTwo = {
+    title: "Demo Show",
+    cover: "",
+    source_key: "source-a",
+    video_id: "video-a",
+    episode: "02",
+    group_index: 0,
+    episode_index: 1,
+    progress_sec: 45,
+    duration_sec: 120,
+    completed: false,
+  };
+
+  it("waits for the player sync before selecting the initial episode", async () => {
+    const pull = deferred<SyncPullResponse>();
+    const syncPull = vi.fn().mockReturnValueOnce(pull.promise).mockResolvedValue(emptyPullResponse());
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    renderDetail(createTestAPI({ detail: twoEpisodes, syncPull, playbackURL }));
+
+    await waitFor(() => expect(syncPull).toHaveBeenCalled());
     expect(playbackURL).not.toHaveBeenCalled();
     await act(async () => {
-      history.resolve({
-        id: 1,
-        source_key: "source-a",
-        video_id: "video-a",
-        title: "Demo Show",
-        cover: "",
-        episode: "02",
-        group_index: 0,
-        episode_index: 1,
-        progress_sec: 45,
-        duration_sec: 120,
-        completed: false,
-        event_time_ms: 1,
-        created_at: "",
-        updated_at: "",
-      });
+      pull.resolve(
+        emptyPullResponse({
+          rev: 1,
+          records: [{ kind: "watch", key: "demo show", payload: episodeTwo, event_time_ms: 1, deleted: false, rev: 1 }],
+        }),
+      );
     });
 
-    await waitFor(() =>
-      expect(playbackURL).toHaveBeenCalledWith(
-        "https://cdn.example/2.m3u8",
-        "source-a",
-      ),
-    );
+    await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/2.m3u8", "source-a"));
   });
 
-  it("refetches history when the authenticated user changes on the same title", async () => {
-    const firstUserHistory = deferred<WatchHistoryItem>();
-    const getWatchHistory = vi
-      .fn()
-      .mockImplementationOnce(() => firstUserHistory.promise)
-      .mockResolvedValueOnce({
-        id: 2,
-        source_key: "source-a",
-        video_id: "video-a",
-        title: "Demo Show",
-        cover: "",
-        episode: "02",
-        group_index: 0,
-        episode_index: 1,
-        progress_sec: 45,
-        duration_sec: 120,
-        completed: false,
-        event_time_ms: 2,
-        created_at: "",
-        updated_at: "",
-      });
-    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
-    const tokenStore = authenticatedTokenStore();
-    const api = createTestAPI({
-      detail: async () => ({
-        id: "video-a",
-        title: "Demo Show",
-        episodes: [
-          [
-            { name: "01", url: "https://cdn.example/1.m3u8" },
-            { name: "02", url: "https://cdn.example/2.m3u8" },
-          ],
-        ],
-      }),
-      getWatchHistory,
-      playbackURL,
-    });
-
-    renderDetail(api, DETAIL_A, tokenStore);
-    await waitFor(() => expect(getWatchHistory).toHaveBeenCalledTimes(1));
-    act(() => {
-      tokenStore.set({
-        accessToken: "SecondUserToken",
-        expiresAt: "2099-01-01T00:00:00Z",
-        user: { id: 2, username: "viewer-two", role: "user" },
-      });
-    });
-
-    await waitFor(() => expect(getWatchHistory).toHaveBeenCalledTimes(2));
-    await waitFor(() =>
-      expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/2.m3u8", "source-a"),
-    );
-    await act(async () => {
-      firstUserHistory.resolve({
-        id: 1,
-        source_key: "source-a",
-        video_id: "video-a",
-        title: "Demo Show",
-        cover: "",
-        episode: "01",
-        group_index: 0,
-        episode_index: 0,
-        progress_sec: 30,
-        duration_sec: 120,
-        completed: false,
-        event_time_ms: 1,
-        created_at: "",
-        updated_at: "",
-      });
-    });
-    expect(playbackURL).not.toHaveBeenCalledWith("https://cdn.example/1.m3u8", "source-a");
-  });
-
-  it("does not call remote history endpoints for anonymous viewers", async () => {
-    const getWatchHistory = vi.fn();
-    const saveWatchHistory = vi.fn();
-    const playbackURL = vi.fn(async (url: string) => ({
-      mode: "proxy" as const,
-      url,
-    }));
-    const api = createTestAPI({
-      me: vi.fn(async () => ({
-        id: 0,
-        username: "anonymous",
-        role: "user" as const,
-      })),
-      detail: async () => ({
-        id: "video-a",
-        title: "Demo Show",
-        episodes: [[{ name: "01", url: "https://cdn.example/1.m3u8" }]],
-      }),
-      getWatchHistory,
-      saveWatchHistory,
-      playbackURL,
-    });
-
-    renderDetail(api, DETAIL_A, createMemoryTokenStore());
-
-    await waitFor(() =>
-      expect(playbackURL).toHaveBeenCalledWith(
-        "https://cdn.example/1.m3u8",
-        "source-a",
-      ),
-    );
-    expect(getWatchHistory).not.toHaveBeenCalled();
-    expect(saveWatchHistory).not.toHaveBeenCalled();
-  });
-
-  it("writes anonymous playback checkpoints locally without protected history requests", async () => {
+  it("starts from the local watch record when the player sync is slow", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    const getWatchHistory = vi.fn();
-    const saveWatchHistory = vi.fn();
-    const playbackURL = vi.fn(async (url: string) => ({
-      mode: "proxy" as const,
-      url,
-    }));
+    seedSyncStore(1, "admin", (store) => store.upsert("watch", episodeTwo));
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    renderDetail(createTestAPI({ detail: twoEpisodes, syncPull: () => new Promise<never>(() => undefined), playbackURL }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+    await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/2.m3u8", "source-a"));
+  });
+
+  it("uses the anonymous local watch record without sync requests", async () => {
+    seedSyncStore(0, "", (store) => store.upsert("watch", episodeTwo));
+    const syncPull = vi.fn();
+    const syncPush = vi.fn();
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
     const api = createTestAPI({
-      me: vi.fn(async () => ({
-        id: 0,
-        username: "anonymous",
-        role: "user" as const,
-      })),
-      detail: async () => ({
-        id: "video-a",
-        title: "Demo Show",
-        cover: "https://img.example/cover.jpg",
-        episodes: [[{ name: "01", url: "https://cdn.example/1.m3u8" }]],
-      }),
-      getWatchHistory,
-      saveWatchHistory,
+      me: vi.fn(async () => ({ id: 0, username: "anonymous", role: "user" as const })),
+      detail: twoEpisodes,
+      syncPull,
+      syncPush,
       playbackURL,
     });
-
     renderDetail(api, DETAIL_A, createMemoryTokenStore());
 
-    await waitFor(() =>
-      expect(playbackURL).toHaveBeenCalledWith(
-        "https://cdn.example/1.m3u8",
-        "source-a",
-      ),
+    await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/2.m3u8", "source-a"));
+    expect(syncPull).not.toHaveBeenCalled();
+    expect(syncPush).not.toHaveBeenCalled();
+  });
+
+  async function loadMetadata(): Promise<(typeof artplayerMock.instances)[number]> {
+    await waitFor(() => expect(artplayerMock.instances[0]).toBeDefined());
+    const player = artplayerMock.instances[0]!;
+    player.duration = 120;
+    const loaded = player.on.mock.calls.find(([event]) => event === "video:loadedmetadata")?.[1] as (() => void) | undefined;
+    loaded?.();
+    return player;
+  }
+
+  it("seeks to the recorded position when source, video, and episode match", async () => {
+    seedSyncStore(1, "admin", (store) => store.upsert("watch", episodeTwo));
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    renderDetail(createTestAPI({ detail: twoEpisodes, playbackURL }));
+
+    await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/2.m3u8", "source-a"));
+    expect((await loadMetadata()).currentTime).toBe(45);
+  });
+
+  it("opens the recorded episode from another source but does not seek", async () => {
+    seedSyncStore(1, "admin", (store) => store.upsert("watch", { ...episodeTwo, source_key: "source-b", video_id: "video-b" }));
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    renderDetail(createTestAPI({ detail: twoEpisodes, playbackURL }));
+
+    await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/2.m3u8", "source-a"));
+    expect((await loadMetadata()).currentTime).toBe(0);
+  });
+
+  it("clamps a recorded episode the open source does not have", async () => {
+    seedSyncStore(1, "admin", (store) => store.upsert("watch", { ...episodeTwo, episode_index: 7 }));
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    renderDetail(createTestAPI({ detail: twoEpisodes, playbackURL }));
+
+    await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/2.m3u8", "source-a"));
+  });
+
+  it("keeps watch records isolated per user", async () => {
+    seedSyncStore(1, "admin", (store) => store.upsert("watch", episodeTwo));
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    const otherUser = createMemoryTokenStore({
+      accessToken: "OtherToken",
+      expiresAt: "2099-01-01T00:00:00Z",
+      user: { id: 2, username: "bob", role: "user" },
+    });
+    renderDetail(
+      createTestAPI({ me: async () => ({ id: 2, username: "bob", role: "user" as const }), detail: twoEpisodes, playbackURL }),
+      DETAIL_A,
+      otherUser,
     );
+
+    await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/1.m3u8", "source-a"));
+  });
+
+  it("writes playback checkpoints into the sync store", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    renderDetail(createTestAPI({ detail: twoEpisodes, playbackURL }));
+
+    await waitFor(() => expect(playbackURL).toHaveBeenCalled());
     await waitFor(() => expect(artplayerMock.instances[0]).toBeDefined());
     const player = artplayerMock.instances[0]!;
     player.currentTime = 42;
     player.duration = 120;
     act(() => {
-      vi.advanceTimersByTime(30_000);
+      vi.advanceTimersByTime(5_000);
     });
 
     await waitFor(() =>
-      expect(getAnonymousWatchHistory("Demo Show")).toMatchObject({
+      expect(openSyncStore(1, "admin").get("watch", "Demo Show")?.payload).toMatchObject({
         source_key: "source-a",
         video_id: "video-a",
+        episode: "01",
         progress_sec: 42,
         duration_sec: 120,
         cover: "https://img.example/cover.jpg",
-        episode: "01",
+        completed: false,
       }),
     );
-    expect(getWatchHistory).not.toHaveBeenCalled();
-    expect(saveWatchHistory).not.toHaveBeenCalled();
   });
 
-  it("ignores authenticated history saves that resolve after logout", async () => {
-    const history = deferred<WatchHistoryItem>();
-    const save = deferred<WatchHistoryItem>();
-    const tokenStore = authenticatedTokenStore();
-    const api = createTestAPI({
-      me: vi.fn(() => new Promise<never>(() => undefined)),
-      detail: async () => ({
-        id: "video-a",
-        title: "Demo Show",
-        episodes: [[{ name: "01", url: "https://cdn.example/1.m3u8" }]],
-      }),
-      getWatchHistory: vi.fn(() => history.promise),
-      saveWatchHistory: vi.fn(() => save.promise),
-      playbackURL: vi.fn(async (url: string) => ({
-        mode: "proxy" as const,
-        url,
-      })),
-    });
+  it("does not rewrite the watch record while the player stays at one position", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    renderDetail(createTestAPI({ detail: twoEpisodes, playbackURL }));
 
-    renderDetail(api, DETAIL_A, tokenStore);
-    await waitFor(() =>
-      expect(api.getWatchHistory).toHaveBeenCalledWith("Demo Show"),
-    );
-    await act(async () => {
-      history.resolve({
-        id: 1,
-        source_key: "source-a",
-        video_id: "video-a",
-        title: "Demo Show",
-        cover: "",
-        episode: "01",
-        group_index: 0,
-        episode_index: 0,
-        progress_sec: 10,
-        duration_sec: 120,
-        completed: false,
-        event_time_ms: 1,
-        created_at: "",
-        updated_at: "",
-      });
-    });
+    await waitFor(() => expect(playbackURL).toHaveBeenCalled());
     await waitFor(() => expect(artplayerMock.instances[0]).toBeDefined());
     const player = artplayerMock.instances[0]!;
-    player.currentTime = 10;
+    player.currentTime = 42;
     player.duration = 120;
     act(() => {
-      window.dispatchEvent(new Event("pagehide"));
+      vi.advanceTimersByTime(5_000);
     });
-    await waitFor(() => expect(api.saveWatchHistory).toHaveBeenCalled());
+    await waitFor(() => expect(openSyncStore(1, "admin").get("watch", "Demo Show")).not.toBeNull());
+    const written = openSyncStore(1, "admin").get("watch", "Demo Show")!.eventTimeMs;
 
     act(() => {
-      tokenStore.clear("logout");
-    });
-    await act(async () => {
-      save.resolve({
-        id: 1,
-        source_key: "source-a",
-        video_id: "video-a",
-        title: "Demo Show",
-        cover: "",
-        episode: "01",
-        group_index: 0,
-        episode_index: 0,
-        progress_sec: 88,
-        duration_sec: 120,
-        completed: false,
-        event_time_ms: 1,
-        created_at: "",
-        updated_at: "",
-      });
+      vi.advanceTimersByTime(20_000);
+      window.dispatchEvent(new Event("pagehide"));
     });
 
-    const loadedMetadata = player.on.mock.calls.find(
-      ([event]) => event === "video:loadedmetadata",
-    )?.[1] as (() => void) | undefined;
-    loadedMetadata?.();
-
-    expect(player.currentTime).toBe(10);
+    expect(openSyncStore(1, "admin").get("watch", "Demo Show")!.eventTimeMs).toBe(written);
   });
 
-  it("restores anonymous history after identity-scoped playbackProgress has been reset", async () => {
-    upsertAnonymousWatchHistory({
-      source_key: "source-a",
-      video_id: "video-a",
-      title: "Demo Show",
-      cover: "",
-      episode: "02",
-      group_index: 0,
-      episode_index: 1,
-      progress_sec: 45,
-      duration_sec: 120,
-      completed: false,
-      event_time_ms: nextWatchHistoryEventTime(),
-    });
-    const playbackURL = vi.fn(async (url: string) => ({
-      mode: "proxy" as const,
-      url,
-    }));
-    const api = createTestAPI({
-      me: async () => ({ id: 0, username: "anonymous", role: "user" }),
-      detail: async () => ({
-        id: "video-a",
-        title: "Demo Show",
-        episodes: [
-          [
-            { name: "01", url: "https://cdn.example/1.m3u8" },
-            { name: "02", url: "https://cdn.example/2.m3u8" },
-          ],
-        ],
-      }),
-      playbackURL,
-    });
+  it("remembers the picked episode of the route for a reload", async () => {
+    const user = userEvent.setup();
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    renderDetail(createTestAPI({ detail: twoEpisodes, playbackURL }));
+    await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/1.m3u8", "source-a"));
 
-    renderDetail(api, DETAIL_A, createMemoryTokenStore());
+    await user.click(await screen.findByRole("button", { name: "播放 02" }));
 
-    await waitFor(() =>
-      expect(playbackURL).toHaveBeenCalledWith(
-        "https://cdn.example/2.m3u8",
-        "source-a",
-      ),
+    expect(JSON.parse(window.sessionStorage.getItem("kmtv.detail.episode.v1:source-a:video-a") ?? "null")).toMatchObject({
+      groupIndex: 0,
+      episodeIndex: 1,
+    });
+  });
+
+  it("restores a remembered episode picked after the watch record was written", async () => {
+    seedSyncStore(1, "admin", (store) => store.upsert("watch", { ...episodeTwo, episode_index: 0, episode: "01" }));
+    window.sessionStorage.setItem(
+      "kmtv.detail.episode.v1:source-a:video-a",
+      JSON.stringify({ groupIndex: 0, episodeIndex: 1, at: Date.now() + 60_000 }),
     );
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    renderDetail(createTestAPI({ detail: twoEpisodes, playbackURL }));
+
+    await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/2.m3u8", "source-a"));
+    expect(playbackURL).not.toHaveBeenCalledWith("https://cdn.example/1.m3u8", "source-a");
+  });
+
+  it("prefers a watch record written after the remembered pick", async () => {
+    window.sessionStorage.setItem(
+      "kmtv.detail.episode.v1:source-a:video-a",
+      JSON.stringify({ groupIndex: 0, episodeIndex: 0, at: 1 }),
+    );
+    seedSyncStore(1, "admin", (store) => store.upsert("watch", episodeTwo));
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    renderDetail(createTestAPI({ detail: twoEpisodes, playbackURL }));
+
+    await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/2.m3u8", "source-a"));
   });
 
   it("renders the invalid-token status when the route token cannot be decoded", () => {
@@ -1048,12 +928,14 @@ describe("DetailPage", () => {
           queryClient={client}
         >
           <QueryClientProvider client={client}>
+<SyncProvider>
             <MemoryRouter initialEntries={[DETAIL_A]}>
               <SameRouteStateHarness
                 sourceBundle={bundleFromSearchResult(stateResult)}
               />
             </MemoryRouter>
-          </QueryClientProvider>
+          </SyncProvider>
+</QueryClientProvider>
         </AuthProvider>
       </APIProvider>,
     );
@@ -1363,6 +1245,7 @@ describe("DetailPage", () => {
           queryClient={client}
         >
           <QueryClientProvider client={client}>
+<SyncProvider>
             <MemoryRouter
               initialEntries={[
                 {
@@ -1375,7 +1258,8 @@ describe("DetailPage", () => {
             >
               <RouteChangeHarness />
             </MemoryRouter>
-          </QueryClientProvider>
+          </SyncProvider>
+</QueryClientProvider>
         </AuthProvider>
       </APIProvider>,
     );
@@ -1455,6 +1339,7 @@ describe("DetailPage", () => {
           queryClient={client}
         >
           <QueryClientProvider client={client}>
+<SyncProvider>
             <MemoryRouter
               initialEntries={[
                 {
@@ -1467,7 +1352,8 @@ describe("DetailPage", () => {
             >
               <SameRouteStateHarness sourceBundle={nextBundle} />
             </MemoryRouter>
-          </QueryClientProvider>
+          </SyncProvider>
+</QueryClientProvider>
         </AuthProvider>
       </APIProvider>,
     );
@@ -1531,6 +1417,7 @@ describe("DetailPage", () => {
           queryClient={client}
         >
           <QueryClientProvider client={client}>
+<SyncProvider>
             <MemoryRouter
               initialEntries={[
                 {
@@ -1545,7 +1432,8 @@ describe("DetailPage", () => {
                 sourceBundle={bundleFromSearchResult(multiSourceResult)}
               />
             </MemoryRouter>
-          </QueryClientProvider>
+          </SyncProvider>
+</QueryClientProvider>
         </AuthProvider>
       </APIProvider>,
     );
@@ -1952,6 +1840,7 @@ describe("DetailPage", () => {
           queryClient={client}
         >
           <QueryClientProvider client={client}>
+<SyncProvider>
             <MemoryRouter
               initialEntries={[
                 {
@@ -1964,7 +1853,8 @@ describe("DetailPage", () => {
             >
               <RouteChangeHarness />
             </MemoryRouter>
-          </QueryClientProvider>
+          </SyncProvider>
+</QueryClientProvider>
         </AuthProvider>
       </APIProvider>,
     );
@@ -2184,10 +2074,12 @@ describe("DetailPage", () => {
           queryClient={client}
         >
           <QueryClientProvider client={client}>
+<SyncProvider>
             <MemoryRouter initialEntries={[DETAIL_A]}>
               <NavHarness />
             </MemoryRouter>
-          </QueryClientProvider>
+          </SyncProvider>
+</QueryClientProvider>
         </AuthProvider>
       </APIProvider>,
     );

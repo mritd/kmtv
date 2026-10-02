@@ -133,6 +133,7 @@ function formatRailRating(rate?: string) {
  *   useDoubanHomeQuery → sections → selectHeroCandidates → HomeHero
  *
  *                                  → 海报 rail (stagger motion.div 列表)
+ *
  *   useSyncList("watch") → ContinueWatchingRail
  *
  * 加载状态: 渲染 aria-busy="true" main + HomeSkeleton.

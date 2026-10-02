@@ -14,9 +14,9 @@
  *
  *     — 将播放状态同步到 detailStore, 使离开后返回仍可恢复 URL
  *
- *   - Auto-select the first playable episode; restore the last-watched episode from playbackProgress
+ *   - Auto-select the first playable episode; restore the episode of the synced watch record
  *
- *     — 自动选择首个可播放集数; 从 playbackProgress 恢复上次观看集数
+ *     — 自动选择首个可播放集数; 恢复同步观看记录中的集数
  *   - Preserve the user's episode index when switching sources — 切换来源时保持用户的集数索引
  *   - Persist bundle updates to localStorage (saveSourceBundle) after every detail mutation
  *
@@ -49,7 +49,6 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useReducer,
   useRef,
   useState,
@@ -62,19 +61,11 @@ import type {
   Episode,
   SearchResult,
   SourceResult,
-  WatchHistoryItem,
 } from "@/api/types";
 import { useAPI } from "@/api/context";
-import { useDetailQuery, useSaveWatchHistoryMutation } from "@/api/viewerHooks";
-import { useAuth } from "@/auth/AuthContext";
+import { useDetailQuery } from "@/api/viewerHooks";
 import { StatusState } from "@/shared/ui/StatusState";
 import { decodeDetailToken } from "@/storage/detailRoute";
-import {
-  type AnonymousWatchHistoryItem,
-  getAnonymousWatchHistory,
-  upsertAnonymousWatchHistory,
-} from "@/storage/anonymousWatchHistory";
-import { nextWatchHistoryEventTime } from "@/storage/watchHistoryClock";
 import {
   type SourceBundle,
   bundleFromSearchResult,
@@ -86,13 +77,10 @@ import {
   sourceKeyID,
   upsertSourceBundleDetail,
 } from "@/storage/sourceBundles";
-import {
-  type PlaybackProgressEntry,
-  getPlaybackProgress,
-  setPlaybackPosition,
-  setPlaybackSelection,
-} from "@/storage/playbackProgress";
 import { detailEntryKey, detailStore } from "@/store/detailStore";
+import { useSync, useSyncRecord } from "@/sync/SyncContext";
+import type { WatchPayload } from "@/sync/types";
+import { useWatchResume } from "@/sync/useWatchResume";
 
 import { DetailSkeleton } from "@/viewer/skeletons/DetailSkeleton";
 
@@ -106,7 +94,7 @@ import { EpisodePicker } from "./EpisodePicker";
 import type { SourcePickerItem } from "./SourcePicker";
 import { SourcePicker } from "./SourcePicker";
 
-type DetailHistoryItem = WatchHistoryItem | AnonymousWatchHistoryItem;
+type DetailHistoryItem = WatchPayload;
 
 /**
  * DetailPage is the primary video detail + playback page.
@@ -180,7 +168,6 @@ function DetailPageContent({
 }: DetailPageContentProps) {
   const location = useLocation();
   const api = useAPI();
-  const auth = useAuth();
   const { t } = useTranslation("viewer");
   const currentRouteID = sourceKeyID(source, id);
   const [bundleState, setBundleState] = useState(() =>
@@ -197,20 +184,6 @@ function DetailPageContent({
     videoID: string;
     episodeIndex: number;
   } | null>(null);
-  const [remoteHistoryState, setRemoteHistoryState] = useState<{
-    title: string;
-    identityKey: string;
-    item: DetailHistoryItem | null;
-  } | null>(null);
-  const historyScope = useMemo(
-    () => ({
-      serverOrigin: window.location.origin,
-      userID: auth.user?.id ?? 0,
-      isAuthenticated: auth.isAuthenticated,
-    }),
-    [auth.isAuthenticated, auth.user?.id],
-  );
-  const saveWatchHistoryMutation = useSaveWatchHistoryMutation(historyScope);
   const currentRouteIDRef = useRef(currentRouteID);
   currentRouteIDRef.current = currentRouteID;
   const bundle = bundleState.bundle;
@@ -255,15 +228,6 @@ function DetailPageContent({
   const currentDetail =
     bundle.details[sourceKeyID(currentSourceKey, currentVideoID)]?.detail ??
     detail.data;
-  const historyIdentityKey =
-    auth.status.kind === "authenticated"
-      ? `authenticated:${auth.status.user.id}`
-      : auth.status.kind;
-  // Keep history state partitioned by authentication identity. Anonymous checkpoints remain in
-  // local storage and are hidden while signed in; they are never merged into a user's remote history.
-  //
-  // 按认证身份隔离观看历史状态. 匿名检查点保留在本地存储中, 登录后隐藏,
-  // 且绝不会合并到用户的远端观看历史.
   const groups =
     currentDetail?.episodes ??
     (currentSource.episodes?.length ? [currentSource.episodes] : []);
@@ -317,7 +281,6 @@ function DetailPageContent({
     recoveryGeneration.current += 1;
     recoveryAttemptedRoute.current = null;
     pendingEpisodeSelection.current = null;
-    setRemoteHistoryState(null);
     backgroundLoadingIDs.current.clear();
     dispatch({ type: "reset" });
   }, [source, id, location.state, dispatch]);
@@ -338,75 +301,19 @@ function DetailPageContent({
     });
   }, [currentSourceKey, currentVideoID, detail.data]);
 
-  useEffect(() => {
-    const title = currentDetail?.title?.trim();
-    if (!title) {
-      setRemoteHistoryState({ title: "", identityKey: historyIdentityKey, item: null });
-      return;
-    }
-    if (auth.status.kind === "anonymous") {
-      // Anonymous playback reads only the local title-keyed history partition.
-      //
-      // 匿名播放仅从本地按标题索引的历史分区读取.
-      setRemoteHistoryState({ title, identityKey: historyIdentityKey, item: getAnonymousWatchHistory(title) });
-      return;
-    }
-    if (!auth.isAuthenticated) {
-      setRemoteHistoryState({ title, identityKey: historyIdentityKey, item: null });
-      return;
-    }
-    setRemoteHistoryState(null);
-    let cancelled = false;
-    void api
-      .getWatchHistory(title)
-      .then((item) => {
-        if (!cancelled) {
-          setRemoteHistoryState({ title, identityKey: historyIdentityKey, item });
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRemoteHistoryState({ title, identityKey: historyIdentityKey, item: null });
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [api, auth.isAuthenticated, auth.status.kind, auth.user?.id, currentDetail?.title, historyIdentityKey]);
   const currentHistoryTitle = currentDetail?.title?.trim() ?? "";
-  const historyIdentityRef = useRef({
-    title: currentHistoryTitle,
-    isAuthenticated: auth.isAuthenticated,
-    userID: auth.user?.id ?? 0,
-    sourceKey: currentSourceKey,
-    videoID: currentVideoID,
-  });
-  historyIdentityRef.current = {
-    title: currentHistoryTitle,
-    isAuthenticated: auth.isAuthenticated,
-    userID: auth.user?.id ?? 0,
-    sourceKey: currentSourceKey,
-    videoID: currentVideoID,
-  };
-  const remoteHistoryPending =
-    currentHistoryTitle !== "" &&
-    (auth.status.kind === "probing" ||
-      (auth.status.kind === "anonymous" &&
-        (remoteHistoryState?.title !== currentHistoryTitle ||
-          remoteHistoryState.identityKey !== historyIdentityKey)) ||
-      (auth.isAuthenticated &&
-        (remoteHistoryState?.title !== currentHistoryTitle ||
-          remoteHistoryState.identityKey !== historyIdentityKey)));
-  // A cached history item is usable only when both title and identity match the current page.
-  // This prevents a login, logout, or account switch from briefly restoring another scope's episode.
+  const sync = useSync();
+  // The player waits briefly for a sync so another device's newer progress wins; see useWatchResume.
   //
-  // 仅当标题和身份都匹配当前页面时才能使用缓存历史.
-  // 这可避免登录, 退出或切换账号时短暂恢复其他作用域的集数.
-  const remoteHistory =
-    remoteHistoryState?.title === currentHistoryTitle &&
-    remoteHistoryState.identityKey === historyIdentityKey
-      ? remoteHistoryState.item
-      : null;
+  // 播放器会短暂等待一次同步, 让其他设备上更新的进度生效; 见 useWatchResume.
+  const { pending: remoteHistoryPending, item: remoteHistory } = useWatchResume(currentHistoryTitle);
+  const watchRecordTime = useSyncRecord("watch", currentHistoryTitle)?.eventTimeMs ?? 0;
+  // The last checkpoint this page wrote. A paused or idle player reports the same position again;
+  // rewriting it would give old progress a new event time and override what another device saved since.
+  //
+  // 本页最后写入的进度. 暂停或空闲的播放器会重复报告同一位置; 重写会给旧进度新的事件时间,
+  // 覆盖其他设备之后保存的进度.
+  const lastCheckpoint = useRef("");
 
   useEffect(() => {
     if (!detail.isError) {
@@ -627,27 +534,17 @@ function DetailPageContent({
     if (state.status !== "idle" || state.selectedEpisode) {
       return;
     }
-    // Restore the last-watched episode for this title when one is recorded;
-    // fall back to the first playable episode.
+    // Restore the episode this tab picked on this route if that pick is newer than the watch record
+    // (a reload before playback wrote a checkpoint). Otherwise restore the episode of this title's
+    // watch record, whatever source it was watched on; fall back to the first playable episode.
     //
-    // 优先恢复该影片上次观看的集数; 没有记录时回退到首集.
-    const saved = progressEntryFor(
-      currentSourceKey,
-      currentVideoID,
-      remoteHistory,
-    );
+    // 若本标签页在该路由上选择集数的时间晚于观看记录 (播放写入进度前就刷新了), 恢复该选择.
+    // 否则恢复该影片观看记录中的集数, 不论在哪个来源观看; 没有时回退到首个可播放集.
+    const picked = rememberedEpisodeFor(currentSourceKey, currentVideoID, groups, watchRecordTime);
+    const saved = picked ?? resumeEpisodeFor(remoteHistory, groups);
     if (saved) {
-      const savedGroup = groups[saved.groupIndex];
-      const savedEpisode = savedGroup?.[saved.episodeIndex];
-      if (savedEpisode) {
-        resolvePlaybackEpisode(
-          saved.groupIndex,
-          saved.episodeIndex,
-          savedEpisode,
-          currentSourceKey,
-        );
-        return;
-      }
+      resolvePlaybackEpisode(saved.groupIndex, saved.episodeIndex, saved.episode, currentSourceKey);
+      return;
     }
     const groupIndex = groups.findIndex((group) => group.length > 0);
     const episode = groups[groupIndex]?.[0];
@@ -662,6 +559,7 @@ function DetailPageContent({
     groups,
     remoteHistory,
     remoteHistoryPending,
+    watchRecordTime,
     state.selectedEpisode,
     state.status,
   ]);
@@ -675,14 +573,12 @@ function DetailPageContent({
     const sequence = playbackSequence.current + 1;
     playbackSequence.current = sequence;
     dispatch({ type: "selectEpisode", groupIndex, episodeIndex, episode });
-    // Persist the active episode selection per route so refresh resumes it.
-    //
-    // 按路由持久化当前集数, 刷新可恢复.
-    setPlaybackSelection(
+    rememberEpisode(
       currentSourceKey,
       currentVideoID,
       groupIndex,
       episodeIndex,
+      sync.status === "ready" ? sync.store.clock.next() : Date.now(),
     );
     try {
       const result = await api.playbackURL(episode.url, playbackSourceKey);
@@ -810,9 +706,9 @@ function DetailPageContent({
             sourceName={currentSource.source_name}
             onPlaying={() => dispatch({ type: "playing" })}
             onRetry={retry}
-            // Resume only when the persisted entry matches the episode currently loaded.
+            // Resume only when the synced watch record matches the episode currently loaded.
             //
-            // 仅当持久化条目与当前播放集匹配时才恢复.
+            // 仅当同步观看记录与当前播放集匹配时才恢复.
             initialPositionSec={resumePositionFor(
               currentSourceKey,
               currentVideoID,
@@ -820,67 +716,43 @@ function DetailPageContent({
               state.episodeIndex,
               remoteHistory,
             )}
-            onPositionChange={(positionSec, durationSec) => {
-              // Always update route-local playback state first. Persist anonymous checkpoints locally,
-              // authenticated checkpoints remotely, and write nothing while authentication is probing.
-              // Changing identity selects a different partition; no anonymous-to-user merge occurs.
+            onPositionChange={(positionSec, durationSec, reason) => {
+              // Checkpoints go to the active identity's local store; the engine pushes them later.
+              // Probing auth writes nothing, and anonymous data never merges into an account.
               //
-              // 始终先更新路由本地播放状态. 匿名检查点写入本地, 已认证检查点写入远端,
-              // 认证探测期间不写入. 身份变化只会切换分区, 不会把匿名历史合并到用户历史.
-              setPlaybackPosition(
+              // 进度写入当前身份的本地存储, 由同步引擎稍后推送.
+              // 认证探测期间不写入, 匿名数据也不会合并到账号.
+              const title = displayDetail?.title?.trim();
+              if (!title || sync.status !== "ready") return;
+              const checkpoint = [
+                sync.store.scopeKey,
+                title,
                 currentSourceKey,
                 currentVideoID,
                 state.groupIndex,
                 state.episodeIndex,
-                positionSec,
-                durationSec,
-              );
-              const title = displayDetail?.title?.trim();
-              if (!title) return;
-              const payload = {
-                source_key: currentSourceKey,
-                video_id: currentVideoID,
-                title,
-                cover: displayDetail?.cover ?? "",
-                episode: state.selectedEpisode?.name ?? "",
-                group_index: state.groupIndex,
-                episode_index: state.episodeIndex,
-                progress_sec: positionSec,
-                duration_sec: durationSec,
-                completed:
-                  state.episodeIndex ===
-                    (groups[state.groupIndex]?.length ?? 0) - 1 &&
-                  playbackCompleted(positionSec, durationSec),
-                event_time_ms: nextWatchHistoryEventTime(),
-              };
-              if (auth.status.kind === "anonymous") {
-                const item = upsertAnonymousWatchHistory(payload);
-                if (item) {
-                  setRemoteHistoryState({ title, identityKey: historyIdentityKey, item });
-                }
-                return;
+                Math.floor(positionSec),
+              ].join("\u0000");
+              if (checkpoint !== lastCheckpoint.current) {
+                lastCheckpoint.current = checkpoint;
+                sync.store.upsert("watch", {
+                  title,
+                  cover: displayDetail?.cover ?? "",
+                  source_key: currentSourceKey,
+                  video_id: currentVideoID,
+                  episode: state.selectedEpisode?.name ?? "",
+                  group_index: state.groupIndex,
+                  episode_index: state.episodeIndex,
+                  progress_sec: positionSec,
+                  duration_sec: durationSec,
+                  completed:
+                    state.episodeIndex === (groups[state.groupIndex]?.length ?? 0) - 1 &&
+                    playbackCompleted(positionSec, durationSec),
+                });
               }
-              if (!auth.isAuthenticated) return;
-              // Capture the request identity. A save may finish after logout, account switch,
-              // source switch, or navigation; only a still-matching identity may update resume state.
-              //
-              // 捕获请求发起时的身份. 保存可能在退出, 切换账号, 切换来源或导航后才完成;
-              // 只有仍匹配的身份才能更新恢复状态.
-              const saveIdentity = historyIdentityRef.current;
-              saveWatchHistoryMutation.mutate(payload, {
-                onSuccess: (item) => {
-                  const latestIdentity = historyIdentityRef.current;
-                  if (
-                    latestIdentity.isAuthenticated &&
-                    latestIdentity.userID === saveIdentity.userID &&
-                    latestIdentity.title === title &&
-                    latestIdentity.sourceKey === saveIdentity.sourceKey &&
-                    latestIdentity.videoID === saveIdentity.videoID
-                  ) {
-                    setRemoteHistoryState({ title, identityKey: historyIdentityKey, item });
-                  }
-                },
-              });
+              if (reason === "flush") {
+                void sync.engine?.flushNow({ keepalive: document.visibilityState === "hidden" });
+              }
             }}
           />
           <section className="detail-copy">
@@ -1215,44 +1087,81 @@ function isEpisode(value: unknown): value is Episode {
   );
 }
 
+// EPISODE_SELECTION_KEY prefixes the per-tab memory of the episode picked on a detail route.
+//
+// EPISODE_SELECTION_KEY 是详情路由上所选集数 (按标签页保存) 的存储 key 前缀.
+const EPISODE_SELECTION_KEY = "kmtv.detail.episode.v1";
+
+function episodeSelectionKey(sourceKey: string, videoID: string): string {
+  return `${EPISODE_SELECTION_KEY}:${sourceKey}:${videoID}`;
+}
+
 /**
- * progressEntryFor selects the history checkpoint for one provider-specific media identity.
+ * rememberEpisode stores the picked episode of a route in sessionStorage, with the sync clock time
+ * of the pick, so a reload keeps a choice that has not produced a watch checkpoint yet.
  *
- * progressEntryFor 为指定来源和媒体标识选择观看历史检查点.
- *
- * A supplied identity-scoped history item wins only when it is incomplete and belongs to the
- * current source. When no scoped item exists, route-local playback progress is used as a fallback.
- * A completed or different-source scoped item returns null instead of reviving stale local progress.
- *
- * 仅当身份作用域内的历史条目未完成且属于当前来源时才采用它. 没有作用域条目时,
- * 回退到路由本地播放进度. 已完成或属于其他来源的作用域条目返回 null,
- * 避免重新启用过期本地进度.
+ * rememberEpisode 把路由上所选的集数连同选择时的同步时钟时间存入 sessionStorage, 让刷新能保留
+ * 尚未产生观看进度的选择.
  */
-function progressEntryFor(
+function rememberEpisode(sourceKey: string, videoID: string, groupIndex: number, episodeIndex: number, at: number): void {
+  if (!sourceKey || !videoID) return;
+  try {
+    sessionStorage.setItem(episodeSelectionKey(sourceKey, videoID), JSON.stringify({ groupIndex, episodeIndex, at }));
+  } catch {
+    // Storage can be unavailable; the watch record still drives the selection.
+    //
+    // 存储可能不可用; 选集仍由观看记录决定.
+  }
+}
+
+/**
+ * rememberedEpisodeFor returns the episode remembered for a route when it was picked after the
+ * watch record was written and still exists in the loaded groups.
+ *
+ * rememberedEpisodeFor 在路由记住的集数选择晚于观看记录写入, 且在已加载的线路中仍然存在时返回它.
+ */
+function rememberedEpisodeFor(
   sourceKey: string,
   videoID: string,
-  remoteHistory: DetailHistoryItem | null,
-): PlaybackProgressEntry | null {
-  if (remoteHistory) {
-    if (
-      remoteHistory.completed ||
-      remoteHistory.source_key !== sourceKey ||
-      remoteHistory.video_id !== videoID
-    ) {
-      return null;
-    }
-    return {
-      groupIndex: remoteHistory.group_index,
-      episodeIndex: remoteHistory.episode_index,
-      positionSec: remoteHistory.progress_sec,
-      durationSec: remoteHistory.duration_sec,
-      updatedAt:
-        "updated_at" in remoteHistory
-          ? Date.parse(remoteHistory.updated_at) || Date.now()
-          : remoteHistory.event_time_ms,
-    };
+  groups: Episode[][],
+  watchRecordTime: number,
+): { groupIndex: number; episodeIndex: number; episode: Episode } | null {
+  if (!sourceKey || !videoID) return null;
+  let parsed: { groupIndex?: unknown; episodeIndex?: unknown; at?: unknown } | null = null;
+  try {
+    parsed = JSON.parse(sessionStorage.getItem(episodeSelectionKey(sourceKey, videoID)) ?? "null");
+  } catch {
+    return null;
   }
-  return getPlaybackProgress(sourceKey, videoID);
+  if (!parsed || typeof parsed.at !== "number" || parsed.at <= watchRecordTime) return null;
+  const { groupIndex, episodeIndex } = parsed;
+  if (typeof groupIndex !== "number" || typeof episodeIndex !== "number") return null;
+  const episode = groups[groupIndex]?.[episodeIndex];
+  return episode ? { groupIndex, episodeIndex, episode } : null;
+}
+
+/**
+ * resumeEpisodeFor returns the episode a watch record points at in the open source, whatever
+ * source the record was written on. A completed record gives no episode. A line the open source
+ * lacks falls back to its first playable line, and the episode is clamped to that line's length.
+ *
+ * resumeEpisodeFor 返回观看记录在当前来源中对应的集数, 不论记录来自哪个来源. 已完成的记录
+ * 不返回集数. 当前来源缺少该线路时回退到首个可播放线路, 集数限制在该线路的长度内.
+ */
+function resumeEpisodeFor(
+  remoteHistory: DetailHistoryItem | null,
+  groups: Episode[][],
+): { groupIndex: number; episodeIndex: number; episode: Episode } | null {
+  if (!remoteHistory || remoteHistory.completed) return null;
+  const groupIndex =
+    (groups[remoteHistory.group_index]?.length ?? 0) > 0
+      ? remoteHistory.group_index
+      : groups.findIndex((group) => group.length > 0);
+  const group = groups[groupIndex];
+  if (!group || group.length === 0) return null;
+  const episodeIndex = Math.min(remoteHistory.episode_index, group.length - 1);
+  const episode = group[episodeIndex];
+  return episode ? { groupIndex, episodeIndex, episode } : null;
 }
 
 // playbackCompleted treats the final 30 seconds or final 5 percent as complete. The time threshold
@@ -1287,10 +1196,14 @@ function resumePositionFor(
   // Guard: synthetic bundles have empty sourceKey/videoID — no stored progress to restore.
   //
   // 防护: 合成 bundle 的 sourceKey/videoID 为空 — 没有存储的进度可恢复.
-  if (!sourceKey || !videoID) return undefined;
-  const saved = progressEntryFor(sourceKey, videoID, remoteHistory);
-  if (!saved) return undefined;
-  if (saved.groupIndex !== groupIndex || saved.episodeIndex !== episodeIndex)
+  if (!sourceKey || !videoID || !remoteHistory || remoteHistory.completed) return undefined;
+  if (
+    remoteHistory.source_key !== sourceKey ||
+    remoteHistory.video_id !== videoID ||
+    remoteHistory.group_index !== groupIndex ||
+    remoteHistory.episode_index !== episodeIndex
+  ) {
     return undefined;
-  return saved.positionSec > 0 ? saved.positionSec : undefined;
+  }
+  return remoteHistory.progress_sec > 0 ? remoteHistory.progress_sec : undefined;
 }

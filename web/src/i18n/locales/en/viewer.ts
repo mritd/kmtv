@@ -82,7 +82,6 @@ const viewer = {
       clearConfirm: "Clear",
       clearPending: "Clearing",
       clearCancel: "Cancel",
-      clearErrorTitle: "Watch history could not be cleared",
     },
     rails: {
       "热门电影": "Popular Movies",

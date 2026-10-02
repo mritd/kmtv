@@ -42,9 +42,6 @@ import type {
   SubscriptionsResponse,
   UpdateUserPayload,
   User,
-  WatchHistoryItem,
-  WatchHistoryPayload,
-  WatchHistoryResponse,
   UsersResponse,
 } from "./types";
 import {
@@ -147,11 +144,6 @@ export interface APIClient {
     filter: DoubanRecommendFilter,
   ): Promise<DoubanListResponse>;
   playbackURL(url: string, source: string): Promise<PlaybackURLResponse>;
-  listWatchHistory(limit?: number): Promise<WatchHistoryResponse>;
-  getWatchHistory(title: string): Promise<WatchHistoryItem>;
-  saveWatchHistory(payload: WatchHistoryPayload): Promise<WatchHistoryItem>;
-  deleteWatchHistory(title: string): Promise<void>;
-  clearWatchHistory(eventTimeMS: number): Promise<void>;
   // syncPush sends local changes to POST /sync/push; keepalive lets a page-hide flush finish.
   // syncPush
   //
@@ -423,43 +415,6 @@ export function createAPIClient(options: APIClientOptions): APIClient {
         method: "POST",
         bodyJSON: { url, source },
       }),
-    listWatchHistory: (limit = 10) => {
-      const params = new URLSearchParams({
-        limit: String(limit),
-        completed: "false",
-      });
-      return request<WatchHistoryResponse>(`/history?${params.toString()}`, {
-        requiresAuth: true,
-      });
-    },
-    getWatchHistory: (title) => {
-      const params = new URLSearchParams({ title });
-      return request<WatchHistoryItem>(`/history/item?${params.toString()}`, {
-        requiresAuth: true,
-      });
-    },
-    saveWatchHistory: (payload) =>
-      request<WatchHistoryItem>("/history", {
-        method: "PUT",
-        bodyJSON: payload,
-        requiresAuth: true,
-      }),
-    async deleteWatchHistory(title) {
-      const params = new URLSearchParams({ title });
-      await request<MessageResponse>(`/history/item?${params.toString()}`, {
-        method: "DELETE",
-        requiresAuth: true,
-      });
-    },
-    async clearWatchHistory(eventTimeMS) {
-      const params = new URLSearchParams({
-        event_time_ms: String(eventTimeMS),
-      });
-      await request<MessageResponse>(`/history?${params.toString()}`, {
-        method: "DELETE",
-        requiresAuth: true,
-      });
-    },
     syncPush: (body, pushOptions = {}) =>
       request<SyncPushResponse>("/sync/push", {
         method: "POST",
