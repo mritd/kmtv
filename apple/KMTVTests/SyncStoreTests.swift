@@ -22,6 +22,41 @@ final class SyncStoreTests: XCTestCase {
         XCTAssertEqual(reopened.scopeKey, "kmtv.sync.v1:https://kmtv.example:1")
     }
 
+    func testScopeKeyNormalizesTheServerURL() {
+        let expected = "kmtv.sync.v1:https://x:3"
+        XCTAssertEqual(syncScopeKey(serverURL: "https://X/", userID: 3), expected)
+        XCTAssertEqual(syncScopeKey(serverURL: "https://x", userID: 3), expected)
+        XCTAssertEqual(syncScopeKey(serverURL: "  https://X//  ", userID: 3), expected)
+    }
+
+    /// Reopens through a fresh context, so only what was saved to the container can come back.
+    ///
+    /// 通过全新的 context 重新打开, 因此只有真正保存到容器的数据才能读回.
+    func testRecordsAndScopeStateSurviveAFreshContext() throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let store = makeSyncStore(container)
+        store.upsert(.favorite(FavoritePayload(title: "Show X", sourceKey: "s")))
+        store.clear(.search)
+        store.update { state in
+            var next = state
+            next.epoch = "e7"
+            next.cursor = 42
+            next.clockOffsetMs = -250
+            return next
+        }
+        let pending = store.state.pendingClears[.search]
+        XCTAssertNotNil(pending)
+
+        let reopened = SyncStore(context: ModelContext(container), serverURL: "https://kmtv.example", userID: 1,
+                                 username: "admin")
+
+        XCTAssertTrue(reopened.isFavorite(title: "Show X"))
+        XCTAssertEqual(reopened.state.epoch, "e7")
+        XCTAssertEqual(reopened.state.cursor, 42)
+        XCTAssertEqual(reopened.state.clockOffsetMs, -250)
+        XCTAssertEqual(reopened.state.pendingClears[.search], pending)
+    }
+
     func testBlankKeyIsIgnoredAndSyncedFlagSurvivesEdits() throws {
         let store = makeSyncStore(try ModelContainerFactory.makeInMemory())
         XCTAssertNil(store.upsert(.search(SearchPayload(query: "   "))))

@@ -3,11 +3,17 @@ import Observation
 import os
 import SwiftData
 
-/// Storage scope of one server and user; anonymous is user 0.
+/// Storage scope of one server and user; anonymous is user 0. The server URL is normalized like
+/// Android's `syncServerKey` (trimmed, trailing slashes dropped, lowercased), so "https://X/" and
+/// "https://x" share one scope instead of stranding dirty records in the other.
 ///
-/// 某个服务器与用户的存储作用域; 匿名用户为 0.
+/// 某个服务器与用户的存储作用域; 匿名用户为 0. 服务器 URL 按 Android 的 `syncServerKey` 规范化
+/// (去首尾空白, 去掉末尾斜杠, 转小写), 使 "https://X/" 与 "https://x" 共用一个作用域,
+/// 避免未推送的记录滞留在另一个作用域中.
 func syncScopeKey(serverURL: String, userID: Int64) -> String {
-    "kmtv.sync.v1:\(serverURL):\(max(0, userID))"
+    var server = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    while server.hasSuffix("/") { server.removeLast() }
+    return "kmtv.sync.v1:\(server.lowercased()):\(max(0, userID))"
 }
 
 /// The only place screens read and write synchronized data. State lives in memory and every
