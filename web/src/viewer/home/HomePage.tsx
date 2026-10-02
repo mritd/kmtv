@@ -8,9 +8,9 @@
  *
  *     — 通过 useDoubanHomeQuery 获取豆瓣首页分区 (react-query key ["douban-home"])
  *
- *   - Select authenticated remote history or anonymous local history without merging identity partitions
+ *   - Read the active identity's continue-watching records from the sync store
  *
- *     — 根据身份选择已认证远端历史或匿名本地历史, 不合并不同身份分区
+ *     — 从同步存储读取当前身份的继续观看记录
  *
  *   - Show HomeSkeleton while loading, StatusState on error, EmptyState when sections are empty
  *
@@ -46,9 +46,6 @@
  *   ["douban-home"] — consumed by useDoubanHomeQuery; do not change.
  *
  *   ["douban-home"] — 由 useDoubanHomeQuery 消费; 不得更改.
- *   ["watch-history", serverOrigin, userID, 10] — consumed by useWatchHistoryQuery; do not change.
- *
- *   ["watch-history", serverOrigin, userID, 10] — 由 useWatchHistoryQuery 消费; 不得更改.
  *
  * STAGGER_CAP bounds the staggered list-entrance animation so arbitrarily long rails
  * do not produce proportionally long delays for items beyond the cap.
@@ -56,24 +53,19 @@
  * STAGGER_CAP 为列表入场动画设置上限, 使长列表中超出 cap 的条目不产生额外延迟.
  */
 
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
-import { useClearWatchHistoryMutation, useDoubanHomeQuery, useWatchHistoryQuery } from "@/api/viewerHooks";
+import { useDoubanHomeQuery } from "@/api/viewerHooks";
 import { Button } from "@/shared/ui/Button";
 import { EmptyState } from "@/shared/ui/EmptyState";
 import { PosterImage } from "@/shared/ui/PosterImage";
 import { StatusState } from "@/shared/ui/StatusState";
-import { toast } from "@/shared/ui/Toast";
 import { staggerChild, staggerParent } from "@/animation/motionPresets";
-import { useAuth } from "@/auth/AuthContext";
-import {
-  clearAnonymousWatchHistory,
-  getAnonymousWatchHistorySnapshot,
-  subscribeAnonymousWatchHistory,
-} from "@/storage/anonymousWatchHistory";
+import { useSync, useSyncList } from "@/sync/SyncContext";
+import type { LocalRecord } from "@/sync/types";
 
 import { HomeSkeleton } from "@/viewer/skeletons/HomeSkeleton";
 
@@ -87,6 +79,24 @@ import { translateRailName } from "./railLabel";
 //
 // 为列表入场动画设上限, 避免长列表导致动画过长.
 const STAGGER_CAP = 8;
+
+/**
+ * CONTINUE_WATCHING_LIMIT is the number of unfinished titles shown on the home rail.
+ *
+ * CONTINUE_WATCHING_LIMIT 是首页继续观看栏显示的未看完标题数量.
+ */
+export const CONTINUE_WATCHING_LIMIT = 10;
+
+function toContinueWatchingItem(record: LocalRecord<"watch">): ContinueWatchingItem {
+  return {
+    id: record.key,
+    title: record.payload.title,
+    cover: record.payload.cover,
+    episode: record.payload.episode,
+    progress_sec: record.payload.progress_sec,
+    duration_sec: record.payload.duration_sec,
+  };
+}
 
 /**
  * formatRailRating formats a raw Douban rate string for display on a poster tile badge.
@@ -111,7 +121,7 @@ function formatRailRating(rate?: string) {
  * Data flow:
  *   useDoubanHomeQuery → sections → selectHeroCandidates → HomeHero
  *                                  → poster rails (staggered motion.div list)
- *   useAuth → scoped useWatchHistoryQuery → ContinueWatchingRail
+ *   useSyncList("watch") → ContinueWatchingRail
  *
  * Loading state: renders aria-busy="true" main + HomeSkeleton (Suspense-compatible shape).
  * Error state: renders HomeHero (empty candidates) + StatusState in the content area.
@@ -123,7 +133,7 @@ function formatRailRating(rate?: string) {
  *   useDoubanHomeQuery → sections → selectHeroCandidates → HomeHero
  *
  *                                  → 海报 rail (stagger motion.div 列表)
- *   useAuth → 作用域化 useWatchHistoryQuery → ContinueWatchingRail
+ *   useSyncList("watch") → ContinueWatchingRail
  *
  * 加载状态: 渲染 aria-busy="true" main + HomeSkeleton.
  * 错误状态: 渲染空 candidates 的 HomeHero + 内容区 StatusState.
@@ -133,28 +143,18 @@ function formatRailRating(rate?: string) {
 export function HomePage() {
   const navigate = useNavigate();
   const { t } = useTranslation("viewer");
-  const auth = useAuth();
   const query = useDoubanHomeQuery();
-  const historyScope = {
-    serverOrigin: window.location.origin,
-    userID: auth.user?.id ?? 0,
-    isAuthenticated: auth.isAuthenticated,
-  };
-  const historyQuery = useWatchHistoryQuery(historyScope);
-  const clearHistoryMutation = useClearWatchHistoryMutation(historyScope);
-  const anonymousHistoryItems = useSyncExternalStore(
-    subscribeAnonymousWatchHistory,
-    getAnonymousWatchHistorySnapshot,
-    getAnonymousWatchHistorySnapshot,
-  );
+  const sync = useSync();
+  const engine = sync.status === "ready" ? sync.engine : null;
+  const watchRecords = useSyncList("watch");
   const sections = useMemo(() => query.data?.sections ?? [], [query.data?.sections]);
-  const historyItems = auth.isAuthenticated
-    ? historyQuery.isSuccess
-      ? historyQuery.data.items
-      : []
-    : auth.status.kind === "anonymous"
-      ? anonymousHistoryItems
-      : [];
+  const historyItems = useMemo(
+    () => watchRecords.filter((record) => !record.payload.completed).slice(0, CONTINUE_WATCHING_LIMIT).map(toContinueWatchingItem),
+    [watchRecords],
+  );
+  useEffect(() => {
+    void engine?.requestSync("page");
+  }, [engine]);
   const heroCandidates = useMemo(() => selectHeroCandidates(sections), [sections]);
   // When the user prefers reduced motion, stagger variants resolve to instant.
   //
@@ -188,27 +188,10 @@ export function HomePage() {
   }
 
   function clearHistory() {
-    // Clear only the active identity partition. Anonymous clear is local; authenticated clear is
-    // remote. Switching identity never clears or merges the inactive partition.
+    // Clear only the active identity's store; the engine pushes the clear when signed in.
     //
-    // 仅清空当前身份分区. 匿名清空作用于本地, 已认证清空作用于远端.
-    // 切换身份不会清空或合并未激活的分区.
-    if (auth.status.kind === "anonymous") {
-      if (!clearAnonymousWatchHistory()) {
-        toast.error({
-          title: t("home.continueWatching.clearErrorTitle"),
-        });
-      }
-      return;
-    }
-    clearHistoryMutation.mutate(undefined, {
-      onError: (error) => {
-        toast.error({
-          title: t("home.continueWatching.clearErrorTitle"),
-          description: error instanceof Error ? error.message : undefined,
-        });
-      },
-    });
+    // 只清空当前身份的存储; 已登录时由同步引擎推送清空操作.
+    if (sync.status === "ready") sync.store.clear("watch");
   }
 
   if (query.isLoading) {
@@ -228,7 +211,7 @@ export function HomePage() {
           items={historyItems}
           onSelect={searchHistoryItem}
           onClear={clearHistory}
-          isClearing={clearHistoryMutation.isPending}
+          isClearing={false}
         />
 
         {query.isError ? (

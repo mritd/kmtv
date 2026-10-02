@@ -44,9 +44,9 @@ const maxRailItems = 10;
  *
  * ContinueWatchingItem 是 ContinueWatchingRail 消费的窄展示形态.
  *
- * Server WatchHistoryItem and local anonymous history entries remain structurally compatible.
+ * HomePage maps synced watch records into this shape.
  *
- * 服务端 WatchHistoryItem 和本地匿名历史条目都保持结构兼容.
+ * HomePage 将同步的观看记录映射为此结构.
  */
 export interface ContinueWatchingItem {
   id: number | string;

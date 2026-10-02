@@ -23,16 +23,14 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { APIClient } from "@/api/client";
-import type { AuthSnapshot, DoubanHomeSection, WatchHistoryItem } from "@/api/types";
+import type { AuthSnapshot, DoubanHomeSection } from "@/api/types";
 import { APIProvider } from "@/api/context";
 import { createMemoryTokenStore } from "@/api/tokenStore";
 import { AuthProvider } from "@/auth/AuthContext";
-import {
-  anonymousWatchHistoryKey,
-  upsertAnonymousWatchHistory,
-} from "@/storage/anonymousWatchHistory";
-import { nextWatchHistoryEventTime } from "@/storage/watchHistoryClock";
 import { useToastStore } from "@/shared/ui/Toast";
+import { SyncProvider } from "@/sync/SyncContext";
+import type { WatchPayload } from "@/sync/types";
+import { openSyncStore, seedSyncStore } from "@/test/syncFixtures";
 import { createTestAPI } from "@/test/testAPI";
 
 import { HomePage } from "./HomePage";
@@ -53,27 +51,6 @@ function makeItems(prefix: string, itemCount: number) {
     cover: "",
     desc: `${prefix} ${index + 1} description`,
   }));
-}
-
-function makeHistoryItem(overrides: Partial<WatchHistoryItem> = {}): WatchHistoryItem {
-  const index = overrides.id ?? 1;
-  return {
-    id: index,
-    source_key: `source-${index}`,
-    video_id: `video-${index}`,
-    title: `History Show ${index}`,
-    cover: "",
-    episode: `Episode ${index}`,
-    group_index: 0,
-    episode_index: index - 1,
-    progress_sec: 180,
-    duration_sec: 600,
-    completed: false,
-    event_time_ms: 1_808_000_000_000 + index,
-    created_at: "2026-08-09T00:00:00Z",
-    updated_at: "2026-08-09T00:00:00Z",
-    ...overrides,
-  };
 }
 
 function makeAuthSnapshot(userID = 42): AuthSnapshot {
@@ -99,10 +76,12 @@ function renderHome(
     <APIProvider value={api}>
       <QueryClientProvider client={queryClient}>
         <AuthProvider api={api} tokenStore={tokenStore} queryClient={queryClient}>
-          <MemoryRouter initialEntries={["/"]}>
-            <LocationDisplay />
-            <HomePage />
-          </MemoryRouter>
+          <SyncProvider>
+            <MemoryRouter initialEntries={["/"]}>
+              <LocationDisplay />
+              <HomePage />
+            </MemoryRouter>
+          </SyncProvider>
         </AuthProvider>
       </QueryClientProvider>
     </APIProvider>,
@@ -129,10 +108,12 @@ function renderHomeError() {
     <APIProvider value={api}>
       <QueryClientProvider client={queryClient}>
         <AuthProvider api={api} tokenStore={tokenStore} queryClient={queryClient}>
-          <MemoryRouter initialEntries={["/"]}>
-            <LocationDisplay />
-            <HomePage />
-          </MemoryRouter>
+          <SyncProvider>
+            <MemoryRouter initialEntries={["/"]}>
+              <LocationDisplay />
+              <HomePage />
+            </MemoryRouter>
+          </SyncProvider>
         </AuthProvider>
       </QueryClientProvider>
     </APIProvider>,
@@ -140,11 +121,11 @@ function renderHomeError() {
 }
 
 async function waitForHome() {
-  await waitForElementToBeRemoved(() => document.querySelector(".home-skeleton"));
+  await waitFor(() => expect(document.querySelector(".home-skeleton")).toBeNull());
 }
 
 afterEach(() => {
-  window.localStorage.removeItem(anonymousWatchHistoryKey);
+  window.localStorage.clear();
   vi.restoreAllMocks();
   vi.useRealTimers();
   useToastStore.setState({ items: [] });
@@ -601,193 +582,60 @@ describe("HomePage", () => {
     expect(screen.getByTestId("location").textContent).toBe("/search?q=Test%20Movie");
   });
 
-  it("renders authenticated continue-watching items before recommendation rails", async () => {
-    renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }], {
-      apiOverrides: {
-        listWatchHistory: async () => ({ items: [makeHistoryItem({ title: "Resume Me", episode: "第 2 集" })] }),
-      },
+  function watchPayload(title: string, overrides: Partial<WatchPayload> = {}): WatchPayload {
+    return { title, cover: "", source_key: "s", video_id: "v", episode: "EP 1", group_index: 0, episode_index: 0, progress_sec: 60, duration_sec: 600, completed: false, ...overrides };
+  }
+
+  it("lists at most ten unfinished watch records, newest first, before recommendation rails", async () => {
+    // Event times are monotonic per record only, so give each seeded title its own wall time.
+    //
+    // 事件时间只按记录单调递增, 因此为每个预置标题提供不同的时间.
+    let now = 1_790_000_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => (now += 1_000));
+    seedSyncStore(42, "viewer", (store) => {
+      for (let i = 1; i <= 11; i += 1) store.upsert("watch", watchPayload(`History Show ${i}`));
+      store.upsert("watch", watchPayload("Finished Show", { completed: true }));
     });
-
+    renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }]);
     await waitForHome();
-
-    const historySection = await screen.findByRole("region", { name: "继续观看" });
-    expect(within(historySection).getByRole("button", { name: "Resume Me, 第 2 集" })).toBeInTheDocument();
-    const allSections = Array.from(document.querySelectorAll("section.rail-section"));
-    expect(allSections[0]).toBe(historySection);
-    expect(screen.getByRole("list", { name: "热门电影" })).toBeInTheDocument();
+    const rail = await screen.findByRole("region", { name: "继续观看" });
+    const cards = within(rail).getAllByRole("button", { name: /History Show/ });
+    expect(cards).toHaveLength(10);
+    expect(cards[0]).toHaveAccessibleName("History Show 11, EP 1");
+    expect(within(rail).queryByText("Finished Show")).toBeNull();
   });
 
-  it("renders anonymous continue watching locally without requesting remote history", async () => {
-    const listWatchHistory = vi.fn(async () => ({ items: [makeHistoryItem()] }));
-    upsertAnonymousWatchHistory({
-      source_key: "source-a",
-      video_id: "video-a",
-      title: "Anonymous Show",
-      cover: "",
-      episode: "01",
-      group_index: 0,
-      episode_index: 0,
-      progress_sec: 60,
-      duration_sec: 120,
-      completed: false,
-      event_time_ms: nextWatchHistoryEventTime(),
-    });
+  it("shows only the active identity's watch records", async () => {
+    seedSyncStore(0, "", (store) => store.upsert("watch", watchPayload("Anonymous Show")));
+    seedSyncStore(42, "viewer", (store) => store.upsert("watch", watchPayload("Signed In Show")));
     renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }], {
       authenticated: false,
-      apiOverrides: {
-        me: async () => ({ id: 0, username: "anonymous", role: "user" }),
-        listWatchHistory,
-      },
+      apiOverrides: { me: async () => ({ id: 0, username: "anonymous", role: "user" }) },
     });
-
     await waitForHome();
-    await waitFor(() => expect(screen.getByRole("list", { name: "热门电影" })).toBeInTheDocument());
-
-    expect(listWatchHistory).not.toHaveBeenCalled();
-    expect(screen.getByRole("region", { name: "继续观看" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Anonymous Show, 01" })).toBeInTheDocument();
-  });
-
-  it("clears anonymous continue watching locally without a network request", async () => {
-    const user = userEvent.setup();
-    const clearWatchHistory = vi.fn(async () => undefined);
-    upsertAnonymousWatchHistory({
-      source_key: "source-a",
-      video_id: "video-a",
-      title: "Anonymous Clear Me",
-      cover: "",
-      episode: "01",
-      group_index: 0,
-      episode_index: 0,
-      progress_sec: 60,
-      duration_sec: 120,
-      completed: false,
-      event_time_ms: nextWatchHistoryEventTime(),
-    });
-    renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }], {
-      authenticated: false,
-      apiOverrides: {
-        me: async () => ({ id: 0, username: "anonymous", role: "user" }),
-        clearWatchHistory,
-      },
-    });
-
-    await waitForHome();
-    expect(screen.getByRole("region", { name: "继续观看" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "清空观看记录" }));
-    await user.click(screen.getByRole("button", { name: "清空" }));
-
-    await waitFor(() => expect(screen.queryByRole("region", { name: "继续观看" })).toBeNull());
-    expect(clearWatchHistory).not.toHaveBeenCalled();
-  });
-
-  it("hides anonymous history after login and restores it after logout", async () => {
-    upsertAnonymousWatchHistory({
-      source_key: "source-a",
-      video_id: "video-a",
-      title: "Anonymous Restore",
-      cover: "",
-      episode: "01",
-      group_index: 0,
-      episode_index: 0,
-      progress_sec: 60,
-      duration_sec: 120,
-      completed: false,
-      event_time_ms: nextWatchHistoryEventTime(),
-    });
-    const { tokenStore } = renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }], {
-      authenticated: false,
-      apiOverrides: {
-        me: async () => ({ id: 0, username: "anonymous", role: "user" }),
-        listWatchHistory: async () => ({ items: [] }),
-      },
-    });
-
-    await waitForHome();
-    expect(screen.getByRole("button", { name: "Anonymous Restore, 01" })).toBeInTheDocument();
-
-    act(() => {
-      tokenStore.set(makeAuthSnapshot(7));
-    });
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Anonymous Restore, 01" })).toBeNull());
-
-    act(() => {
-      tokenStore.clear("logout");
-    });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Anonymous Restore, 01" })).toBeInTheDocument());
-  });
-
-  it("keeps recommendations usable when history fails", async () => {
-    renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }], {
-      apiOverrides: {
-        listWatchHistory: async () => { throw new Error("history unavailable"); },
-      },
-    });
-
-    await waitForHome();
-
-    expect(await screen.findByRole("list", { name: "热门电影" })).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "继续观看" })).toBeNull();
-    expect(screen.queryByText("推荐暂时不可用")).toBeNull();
+    expect(await screen.findByRole("button", { name: "Anonymous Show, EP 1" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Signed In Show, EP 1" })).toBeNull();
   });
 
   it("navigates continue-watching cards to encoded aggregate search", async () => {
     const user = userEvent.setup();
-    renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }], {
-      apiOverrides: {
-        listWatchHistory: async () => ({ items: [makeHistoryItem({ title: "世界的主人 & Friends", episode: "EP 1" })] }),
-      },
-    });
-
+    seedSyncStore(42, "viewer", (store) => store.upsert("watch", watchPayload("世界的主人 & Friends")));
+    renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }]);
     await waitForHome();
     await user.click(await screen.findByRole("button", { name: "世界的主人 & Friends, EP 1" }));
-
     expect(screen.getByTestId("location").textContent).toBe("/search?q=%E4%B8%96%E7%95%8C%E7%9A%84%E4%B8%BB%E4%BA%BA+%26+Friends");
   });
 
-  it("clears confirmed continue-watching history and removes the rail", async () => {
+  it("clears continue watching through the sync store", async () => {
     const user = userEvent.setup();
-    const clearWatchHistory = vi.fn(async () => undefined);
-    renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }], {
-      apiOverrides: {
-        listWatchHistory: async () => ({
-          items: [makeHistoryItem({ title: "Clear Me", event_time_ms: 1 })],
-        }),
-        clearWatchHistory,
-      },
-    });
-
+    seedSyncStore(42, "viewer", (store) => store.upsert("watch", watchPayload("Clear Me")));
+    renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }]);
     await waitForHome();
     expect(await screen.findByRole("region", { name: "继续观看" })).toBeInTheDocument();
-
     await user.click(screen.getByRole("button", { name: "清空观看记录" }));
     await user.click(screen.getByRole("button", { name: "清空" }));
-
-    await waitFor(() => expect(clearWatchHistory).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByRole("region", { name: "继续观看" })).toBeNull());
-  });
-
-  it("keeps history visible and reports an error when clearing fails", async () => {
-    const user = userEvent.setup();
-    renderHome([{ name: "热门电影", items: makeItems("Movie", 3) }], {
-      apiOverrides: {
-        listWatchHistory: async () => ({ items: [makeHistoryItem({ title: "Keep Me" })] }),
-        clearWatchHistory: async () => { throw new Error("server unavailable"); },
-      },
-    });
-
-    await waitForHome();
-    expect(await screen.findByRole("region", { name: "继续观看" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "清空观看记录" }));
-    await user.click(screen.getByRole("button", { name: "清空" }));
-
-    await waitFor(() => expect(useToastStore.getState().items).toHaveLength(1));
-    expect(useToastStore.getState().items[0]).toMatchObject({
-      tone: "error",
-      title: "无法清空观看记录",
-      description: "server unavailable",
-    });
-    expect(screen.getByRole("region", { name: "继续观看" })).toBeInTheDocument();
+    expect(openSyncStore(42, "viewer").state().pendingClears.watch).toBeGreaterThan(0);
   });
 
   // ---- poster tile without year ----

@@ -6,27 +6,17 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { WatchHistoryItem } from "@/api/types";
-
 import { ContinueWatchingRail, type ContinueWatchingItem } from "./ContinueWatchingRail";
 
-function makeHistoryItem(overrides: Partial<WatchHistoryItem> = {}): WatchHistoryItem {
-  const index = overrides.id ?? 1;
+function makeHistoryItem(overrides: Partial<ContinueWatchingItem> = {}): ContinueWatchingItem {
+  const index = typeof overrides.id === "number" ? overrides.id : 1;
   return {
     id: index,
-    source_key: `source-${index}`,
-    video_id: `video-${index}`,
     title: `Demo Show ${index}`,
     cover: "",
     episode: `Episode ${index}`,
-    group_index: 0,
-    episode_index: index - 1,
     progress_sec: 120,
     duration_sec: 600,
-    completed: false,
-    event_time_ms: 1_808_000_000_000 + index,
-    created_at: "2026-08-09T00:00:00Z",
-    updated_at: "2026-08-09T00:00:00Z",
     ...overrides,
   };
 }

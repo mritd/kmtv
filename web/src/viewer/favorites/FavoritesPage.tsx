@@ -4,7 +4,7 @@
  * viewer/favorites/FavoritesPage.tsx — 已收藏列表页面.
  *
  * Responsibilities / 职责:
- *   - Read and render the user's favorited items from localStorage — 从 localStorage 读取并渲染用户收藏条目
+ *   - Read and render the user's favorited items from the sync store — 从同步存储读取并渲染用户收藏条目
  *   - Augment each item's rating from Douban home data when the item's stored rate is missing — 当条目缺少 rate 时从豆瓣主页数据补充评分
  *   - Allow the user to search by title (navigate to /search?q=…) — 允许用户按标题搜索 (跳转到 /search?q=…)
  *   - Allow the user to remove a favorite without leaving the page — 允许用户在不离开页面的情况下取消收藏
@@ -14,22 +14,20 @@
  *
  * Callers / 调用方:
  *   app/AppRoutes.tsx — mounted at /favorites via React Router
- *
- * localStorage key: delegated to storage/favorites.ts (favoritesKey = "kmtv.favorites")
- * Tier 4 locked — do NOT rename the key or change the FavoriteItem schema.
- *
- * Tier 4 锁定 — 不得重命名 key 或修改 FavoriteItem schema.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
 import type { DoubanHomeSection } from "@/api/types";
 import { useDoubanHomeQuery } from "@/api/viewerHooks";
-import { listFavorites, toggleFavorite, type FavoriteItem } from "@/storage/favorites";
+import { useSync, useSyncList } from "@/sync/SyncContext";
+import type { LocalRecord } from "@/sync/types";
 import { Button } from "@/shared/ui/Button";
 import { EmptyState } from "@/shared/ui/EmptyState";
 import { PosterImage } from "@/shared/ui/PosterImage";
+
+type FavoriteItem = LocalRecord<"favorite">;
 
 // normalizedRating trims and rejects the sentinel "0" value that some sources emit when unrated.
 //
@@ -65,7 +63,7 @@ function homeRatingsByTitle(sections: DoubanHomeSection[]): Map<string, string> 
 // favoriteRatingValue 解析收藏条目的展示评分.
 // 优先级: 条目自身存储的 rate → 豆瓣主页补充 → undefined (渲染为 "N/A").
 function favoriteRatingValue(item: FavoriteItem, homeRatings: Map<string, string>): string | undefined {
-  return normalizedRating(item.rate) ?? homeRatings.get(item.title);
+  return normalizedRating(item.payload.rate) ?? homeRatings.get(item.payload.title);
 }
 
 /**
@@ -73,31 +71,29 @@ function favoriteRatingValue(item: FavoriteItem, homeRatings: Map<string, string
  *
  * FavoritesPage 渲染用户的收藏列表, 包含评分徽标以及搜索/取消收藏操作.
  *
- * Favorites are read from localStorage on mount and kept in local state for instant removal without
- * a round-trip to the store.
+ * Favorites come from the sync store, so removal is instant and synced in the background.
  *
- * 收藏在挂载时从 localStorage 读取并保存到本地状态, 以便即时删除而无需往返 store.
+ * 收藏来自同步存储, 因此删除即时生效并在后台同步.
  */
 export function FavoritesPage() {
   const { t } = useTranslation("viewer");
   const navigate = useNavigate();
-  // Local copy of favorites so removal is instant without re-reading localStorage.
-  //
-  // 本地收藏副本, 使取消收藏即时生效而无需重新读取 localStorage.
-  const [items, setItems] = useState<FavoriteItem[]>(() => listFavorites());
+  const sync = useSync();
+  const items = useSyncList("favorite");
+  const engine = sync.status === "ready" ? sync.engine : null;
+  useEffect(() => {
+    void engine?.requestSync("page");
+  }, [engine]);
   const homeQuery = useDoubanHomeQuery();
   const homeRatings = useMemo(() => homeRatingsByTitle(homeQuery.data?.sections ?? []), [homeQuery.data?.sections]);
 
   function searchFavorite(item: FavoriteItem) {
-    const params = new URLSearchParams({ q: item.title });
+    const params = new URLSearchParams({ q: item.payload.title });
     navigate(`/search?${params.toString()}`);
   }
 
   function removeFavorite(item: FavoriteItem) {
-    // toggleFavorite mutates localStorage and returns the updated list.
-    //
-    // toggleFavorite 修改 localStorage 并返回更新后的列表.
-    setItems(toggleFavorite(item));
+    if (sync.status === "ready") sync.store.remove("favorite", item.key);
   }
 
   return (
@@ -124,10 +120,7 @@ export function FavoritesPage() {
       <div className="result-list">
         {items.map((item) => (
           <FavoriteResultCard
-            // key uses source_key + video_id for stability; title alone is not unique across sources.
-            //
-            // key 使用 source_key + video_id 保持稳定; 仅靠标题在多来源间不唯一.
-            key={`${item.source.source_key}-${item.source.video_id}`}
+            key={item.key}
             item={item}
             ratingValue={favoriteRatingValue(item, homeRatings)}
             onSearch={searchFavorite}
@@ -151,7 +144,7 @@ export function FavoritesPage() {
  * @param item - The favorite item to display — 要显示的收藏条目
  * @param ratingValue - Pre-resolved rating string (undefined → shows "N/A" via i18n) — 预解析的评分字符串 (undefined → 通过 i18n 显示 "N/A")
  * @param onSearch - Navigate to search by title — 按标题导航到搜索页
- * @param onRemove - Toggle-remove the item from favorites — 从收藏中切换删除条目
+ * @param onRemove - Remove the item from favorites — 从收藏中删除条目
  */
 function FavoriteResultCard({
   item,
@@ -165,26 +158,26 @@ function FavoriteResultCard({
   onRemove(item: FavoriteItem): void;
 }) {
   const { t } = useTranslation("viewer");
-  const subtitle = [item.type, item.year].filter(Boolean).join(" | ");
+  const subtitle = [item.payload.type, item.payload.year].filter(Boolean).join(" | ");
   // Fall back to i18n "N/A" label when ratingValue is absent.
   //
   // 当 ratingValue 缺失时回退到 i18n "N/A" 标签.
   const ratingLabel = ratingValue ?? t("favorites.cardRatingMissing");
 
   return (
-    <article className="video-result-card" aria-label={item.title}>
+    <article className="video-result-card" aria-label={item.payload.title}>
       <div className="poster-action">
         <span className="poster-frame">
-          <PosterImage src={item.cover} title={item.title} />
+          <PosterImage src={item.payload.cover} title={item.payload.title} />
           <span className="poster-rating-badge" aria-label={t("favorites.cardRatingAria", { rating: ratingLabel })}>
             {ratingLabel}
           </span>
         </span>
       </div>
       <div className="video-result-copy">
-        <h3>{item.title}</h3>
+        <h3>{item.payload.title}</h3>
         {subtitle ? <p className="muted">{subtitle}</p> : null}
-        {item.desc ? <p className="clamp">{item.desc}</p> : null}
+        {item.payload.desc ? <p className="clamp">{item.payload.desc}</p> : null}
       </div>
       <div className="video-result-actions">
         <Button type="button" variant="primary" onClick={() => onSearch(item)}>
