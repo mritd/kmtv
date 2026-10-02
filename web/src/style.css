@@ -3136,8 +3136,15 @@ select:focus {
 /* Recent searches reuse the category chip look under the search form. */
 .search-history {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
+  min-width: 0;
   margin-top: 18px;
+}
+
+/* Lets long history chips shrink instead of widening the search column. */
+.search-panel {
+  min-width: 0;
 }
 
 .search-history-heading {
@@ -3166,4 +3173,9 @@ select:focus {
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
+}
+
+.search-history-list > li {
+  min-width: 0;
+  max-width: 100%;
 }
