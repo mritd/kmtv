@@ -1,5 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -102,6 +102,33 @@ describe("AuthProvider", () => {
 
     expect(api.login).toHaveBeenCalledWith("admin", "admin");
     expect(screen.getByText("new-admin")).toBeInTheDocument();
+  });
+
+  it("reads the user ID of the live token snapshot", () => {
+    const tokenStore = createMemoryTokenStore({
+      accessToken: "a",
+      expiresAt: "2099",
+      user: { id: 1, username: "x", role: "user" },
+    });
+    const api = { me: vi.fn(async () => ({ id: 0, username: "anonymous", role: "user" })) } as unknown as APIClient;
+    let currentUserID: () => number | null = () => -1;
+    const Probe = () => {
+      currentUserID = useAuth().currentUserID;
+      return null;
+    };
+    render(
+      <AuthProvider api={api} tokenStore={tokenStore} queryClient={makeTestQueryClient()}>
+        <Probe />
+      </AuthProvider>,
+    );
+    const captured = currentUserID;
+
+    expect(captured()).toBe(1);
+    act(() => tokenStore.set({ accessToken: "b", expiresAt: "2099", user: { id: 2, username: "y", role: "user" } }));
+    expect(captured()).toBe(2);
+    expect(currentUserID).toBe(captured);
+    act(() => tokenStore.clear("logout"));
+    expect(captured()).toBeNull();
   });
 
   it("throws when the provider is missing", () => {

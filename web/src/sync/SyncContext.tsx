@@ -61,6 +61,7 @@ export function SyncProvider({ children, storage }: { children: ReactNode; stora
   const kind = auth.status.kind;
   const userID = kind === "authenticated" ? auth.status.user.id : kind === "anonymous" ? 0 : null;
   const username = kind === "authenticated" ? auth.status.user.username : "";
+  const currentUserID = auth.currentUserID;
 
   const value = useMemo<SyncContextValue>(() => {
     if (kind === "probing") return { status: "probing" };
@@ -73,7 +74,7 @@ export function SyncProvider({ children, storage }: { children: ReactNode; stora
     const engine =
       userID > 0
         ? createSyncEngine({
-            transport: createWebSyncTransport(api),
+            transport: createWebSyncTransport(api, { userID, currentUserID }),
             classifyError: classifyWebSyncError,
             store,
             runExclusive: webRunExclusive(store.scopeKey),
@@ -81,7 +82,7 @@ export function SyncProvider({ children, storage }: { children: ReactNode; stora
           })
         : null;
     return { status: "ready", store, engine };
-  }, [api, kind, userID, username, storage]);
+  }, [api, kind, userID, username, storage, currentUserID]);
 
   useEffect(() => {
     if (value.status !== "ready") return;

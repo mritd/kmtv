@@ -9,6 +9,7 @@ import { APIError } from "@/api/client";
 
 import {
   LEGACY_SYNC_STORAGE_KEYS,
+  SyncIdentityChangedError,
   classifyWebSyncError,
   createWebSyncTransport,
   removeLegacySyncStorage,
@@ -32,11 +33,28 @@ describe("webSync", () => {
   it("forwards push and pull to the API client", async () => {
     const syncPush = vi.fn(async () => ({ epoch: "e", rev: 0, server_time_ms: 1, results: [] }));
     const syncPull = vi.fn(async () => ({ epoch: "e", server_time_ms: 1, rev: 0, reset: false, has_more: false, clears: [], records: [] }));
-    const transport = createWebSyncTransport({ syncPush, syncPull });
+    const transport = createWebSyncTransport({ syncPush, syncPull }, { userID: 7, currentUserID: () => 7 });
     await transport.push({ epoch: "e", cursor: 3, changes: [] }, { keepalive: true });
     await transport.pull({ since: 3, epoch: "e", limit: 10 });
     expect(syncPush).toHaveBeenCalledWith({ epoch: "e", cursor: 3, changes: [] }, { keepalive: true });
     expect(syncPull).toHaveBeenCalledWith({ since: 3, epoch: "e", limit: 10 });
+  });
+
+  it("refuses to send once the live token belongs to another user or is gone", async () => {
+    const syncPush = vi.fn();
+    const syncPull = vi.fn();
+    let liveUserID: number | null = 8;
+    const transport = createWebSyncTransport({ syncPush, syncPull }, { userID: 7, currentUserID: () => liveUserID });
+
+    const push = transport.push({ epoch: "e", cursor: 3, changes: [] }, { keepalive: false });
+    await expect(push).rejects.toBeInstanceOf(SyncIdentityChangedError);
+    liveUserID = null;
+    const pull = transport.pull({ since: 3, epoch: "e", limit: 10 });
+    await expect(pull).rejects.toBeInstanceOf(SyncIdentityChangedError);
+
+    expect(syncPush).not.toHaveBeenCalled();
+    expect(syncPull).not.toHaveBeenCalled();
+    expect(classifyWebSyncError(new SyncIdentityChangedError())).toBe("unauthorized");
   });
 
   it("classifies API errors for the engine", () => {
