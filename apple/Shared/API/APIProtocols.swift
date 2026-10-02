@@ -210,6 +210,6 @@ typealias ProfileAPIProtocol = AuthAPIProtocol & WatchHistoryAPIProtocol
 /// Full API surface implemented by APIClient.
 ///
 /// APIClient 实现的完整 API 边界.
-typealias AppAPIProtocol = AuthAPIProtocol & SearchAPIProtocol & DetailAPIProtocol & PlaybackAPIProtocol & WatchHistoryAPIProtocol & DoubanAPIProtocol & AdminAPIProtocol
+typealias AppAPIProtocol = AuthAPIProtocol & SearchAPIProtocol & DetailAPIProtocol & PlaybackAPIProtocol & WatchHistoryAPIProtocol & DoubanAPIProtocol & AdminAPIProtocol & SyncAPIProtocol
 
 extension APIClient: AppAPIProtocol {}

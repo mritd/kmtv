@@ -220,4 +220,27 @@ final class APIClientTests: XCTestCase {
         }
         await fulfillment(of: [exp], timeout: 1)
     }
+
+    func testSyncPullBuildsQuery() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [URLProtocolStub.self]
+        let client = APIClient(
+            baseURL: "https://kmtv.example.com",
+            session: URLSession(configuration: config),
+            tokenProvider: { "AccessToken" }
+        )
+        URLProtocolStub.requestHandler = { request in
+            let url = request.url!
+            XCTAssertEqual(url.path, "/api/v1/sync/pull")
+            let items = Set(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+            XCTAssertEqual(items, [URLQueryItem(name: "since", value: "4"), URLQueryItem(name: "limit", value: "500"),
+                                   URLQueryItem(name: "epoch", value: "e1")])
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            let body = #"{"epoch":"e1","server_time_ms":1,"rev":4,"reset":false,"has_more":false,"clears":[],"records":[]}"#
+            return (response, Data(body.utf8))
+        }
+
+        let page = try await client.syncPull(since: 4, epoch: "e1", limit: 500)
+        XCTAssertEqual(page.rev, 4)
+    }
 }
