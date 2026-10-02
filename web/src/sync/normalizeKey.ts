@@ -17,10 +17,10 @@ const SPACE_RUN = new RegExp(`${SPACE_CLASS}+`, "u");
 const EDGE_SPACE = new RegExp(`^${SPACE_CLASS}+|${SPACE_CLASS}+$`, "gu");
 
 // lowerCodePoint lowercases one code point and keeps only the first code point of the result.
-// Go's unicode.ToLower maps one rune to one rune, so "İ" becomes "i", not "i̇".
+// Go's unicode.ToLower maps one rune to one rune, so "\u0130" becomes "i", not "i\u0307".
 //
 // lowerCodePoint 将单个码点转为小写, 结果只保留第一个码点. Go 的 unicode.ToLower 是逐码点一对一
-// 映射, 所以 "İ" 变为 "i", 而不是 "i̇".
+// 映射, 所以 "\u0130" 变为 "i", 而不是 "i\u0307".
 function lowerCodePoint(char: string): string {
   return String.fromCodePoint(char.toLowerCase().codePointAt(0) ?? 0);
 }
