@@ -3159,3 +3159,11 @@ select:focus {
   padding: 0;
   list-style: none;
 }
+
+.search-history-list .category-chip {
+  max-width: min(100%, 32rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}

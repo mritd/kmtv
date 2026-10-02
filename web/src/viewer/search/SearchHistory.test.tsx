@@ -21,6 +21,8 @@ describe("SearchHistory", () => {
     const onClear = vi.fn();
     render(<SearchHistory items={["Alpha", "Beta"]} onSelect={onSelect} onClear={onClear} />);
     expect(screen.getByRole("region", { name: "最近搜索" })).toBeInTheDocument();
+    expect(screen.getByRole("list")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Beta" })).toHaveAttribute("title", "Beta");
     await user.click(screen.getByRole("button", { name: "Beta" }));
     expect(onSelect).toHaveBeenCalledWith("Beta");
     await user.click(screen.getByRole("button", { name: "清空" }));

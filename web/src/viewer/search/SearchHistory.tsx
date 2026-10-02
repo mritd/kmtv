@@ -7,6 +7,7 @@
  *
  * 纯展示组件: 父组件读取同步存储, 并处理选择与清空.
  */
+import { useId } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/shared/ui/Button";
@@ -29,19 +30,20 @@ export interface SearchHistoryProps {
  */
 export function SearchHistory({ items, onSelect, onClear }: SearchHistoryProps) {
   const { t } = useTranslation("viewer");
+  const headingID = useId();
   if (items.length === 0) return null;
   return (
-    <section className="search-history" aria-label={t("search.history.title")}>
+    <section className="search-history" aria-labelledby={headingID}>
       <div className="search-history-heading">
-        <h2>{t("search.history.title")}</h2>
+        <h2 id={headingID}>{t("search.history.title")}</h2>
         <Button type="button" variant="ghost" onClick={onClear}>
           {t("search.history.clear")}
         </Button>
       </div>
-      <ul className="category-chip-row search-history-list">
+      <ul className="category-chip-row search-history-list" role="list">
         {items.map((query) => (
           <li key={query}>
-            <button type="button" className="category-chip" onClick={() => onSelect(query)}>
+            <button type="button" className="category-chip" title={query} onClick={() => onSelect(query)}>
               {query}
             </button>
           </li>
