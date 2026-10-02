@@ -68,6 +68,27 @@ final class AppViewModelSyncTests: XCTestCase {
         vm.sync?.stop()
     }
 
+    func testSyncStopsReachingTheServerWhenTheSignedInUserChanges() async throws {
+        let log = RequestLog()
+        let vm = try makeViewModel(version: "v1.1.0", log: log)
+        await vm.bootstrap()
+        await waitUntil { log.paths.contains("/api/v1/sync/pull") }
+        let before = log.paths.count
+        XCTAssertGreaterThan(before, 0)
+
+        // The app is now signed in as someone else; the session still belongs to alice.
+        //
+        // 应用现在登录的是别人, 而会话仍属于 alice.
+        vm.currentUser = User(id: 6, username: "bob", role: "user", allowAdultContent: false)
+        vm.sync?.store.upsert(.search(SearchPayload(query: "alice only")))
+        await vm.sync?.engine?.flushNow()
+        await vm.sync?.engine?.requestSync(.foreground)
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(log.paths.count, before, "a session bound to alice must not call the server as bob")
+        vm.sync?.stop()
+    }
+
     func testBootstrapSendsNoSyncRequestToAnOlderServer() async throws {
         let log = RequestLog()
         let vm = try makeViewModel(version: "v1.0.6", log: log)

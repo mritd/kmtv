@@ -77,13 +77,27 @@ final class SyncSessionTests: XCTestCase {
         let session = SyncSession(context: container.mainContext, serverURL: "https://kmtv.example",
                                   user: User(id: 5, username: "alice", role: "user", allowAdultContent: false), api: api,
                                   activeUserID: { activeID })
+        let expired = NotificationCounter()
+        let observer = NotificationCenter.default.addObserver(forName: .authExpired, object: nil, queue: nil) { _ in
+            expired.increment()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
         session.store.upsert(.search(SearchPayload(query: "belongs to alice")))
         session.start()
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(api.pullCount, 0, "a request for another user must never reach the server")
         XCTAssertTrue(api.pushes.isEmpty)
 
+        // Even once the active user is alice again, the engine that was shut off stays shut off.
+        //
+        // 即使当前用户又变回 alice, 已被关闭的引擎也保持关闭.
         activeID = 5
+        await session.engine?.requestSync(.foreground)
+        await session.engine?.flushNow()
+        XCTAssertEqual(api.pullCount, 0)
+        XCTAssertTrue(api.pushes.isEmpty)
+        XCTAssertEqual(expired.count, 0, "a user mismatch must not look like an expired login")
+
         let matching = SyncSession(context: container.mainContext, serverURL: "https://kmtv.example",
                                    user: User(id: 5, username: "alice", role: "user", allowAdultContent: false), api: api,
                                    activeUserID: { activeID })
@@ -92,5 +106,25 @@ final class SyncSessionTests: XCTestCase {
         XCTAssertEqual(api.pullCount, 1)
         matching.stop()
         session.stop()
+    }
+}
+
+/// Counts notifications posted from any thread.
+///
+/// 统计从任意线程发出的通知数量.
+private final class NotificationCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored = 0
+
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
+    }
+
+    func increment() {
+        lock.lock()
+        stored += 1
+        lock.unlock()
     }
 }

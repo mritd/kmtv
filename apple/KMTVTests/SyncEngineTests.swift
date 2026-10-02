@@ -439,6 +439,47 @@ final class SyncEngineTests: XCTestCase {
         engine.stop()
     }
 
+    func testJoinedFlushLeavesItsNewRecordToThePendingRetryAfterAFailure() async throws {
+        let (store, engine, api, scheduler) = try setup()
+        let gate = SyncTestGate()
+        api.pushGate = gate
+        var calls = 0
+        let error = offline
+        api.pushHandler = { request in
+            calls += 1
+            if calls == 1 { throw error }
+            return SyncPushResponse(epoch: "e1", rev: 1, serverTimeMs: 1,
+                                    results: request.changes.indices.map { SyncResultWire(index: $0, status: .applied) })
+        }
+        store.upsert(.search(SearchPayload(query: "first")))
+
+        let first = Task { await engine.flushNow() }
+        await waitUntil { gate.waiting == 1 }
+        store.upsert(.watch(WatchPayload(title: "Movie", progressSec: 5, durationSec: 100)))
+        var joinedStarted = false
+        let joined = Task {
+            joinedStarted = true
+            await engine.flushNow()
+        }
+        await waitUntil { joinedStarted }
+        gate.open()
+        await first.value
+        await joined.value
+
+        // The failed flush armed a retry, so the joined flush must not push again behind its back.
+        //
+        // 失败的补写已设置重试, 加入的补写不能绕过它再推送一次.
+        XCTAssertEqual(api.pushes.count, 1)
+        XCTAssertEqual(scheduler.armedDelays, [2_000])
+
+        scheduler.fireNext()
+        await waitUntil { store.state.records["watch|movie"]?.dirty == false }
+
+        XCTAssertEqual(api.pushes.count, 2)
+        XCTAssertEqual(store.state.records["watch|movie"]?.synced, true)
+        engine.stop()
+    }
+
     func testFlushConflictRunsAFullCycle() async throws {
         let q = SyncRecordWire(kind: .search, key: "q", payload: .search(SearchPayload(query: "q")), eventTimeMs: 1_000, rev: 1)
         let (store, engine, api, _) = try setup([page("e2", reset: true), page("e2", rev: 1, records: [q])])
