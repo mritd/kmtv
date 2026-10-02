@@ -7,7 +7,7 @@
  *   - Run one cycle at a time, coalescing requests made while a cycle runs — 同一时间只运行一轮, 合并运行期间的请求
  *   - Debounce local changes; throttle watch pushes and page-entry syncs — 本地修改防抖; 观看记录推送和页面进入同步限频
  *   - Handle epoch resets, restores, full resyncs, retries, and lost sessions — 处理 epoch 重置, 旧副本恢复, 全量重同步, 重试和会话失效
- *   - Never touch the store after stop(), even when a request was in flight — stop() 之后不再修改存储, 即使请求仍在进行
+ *   - Stay idle until start(); never touch the store after stop(), even when a request was in flight — start() 之前保持空闲; stop() 之后不再修改存储, 即使请求仍在进行
  *
  * Shared verbatim with android/src/sync/. Platform code is injected through the options.
  *
@@ -107,9 +107,10 @@ const MAX_PUSH_ROUNDS = 20;
 
 const KEEPALIVE_COLLECT: CollectOptions = { maxBytes: SYNC_KEEPALIVE_MAX_BYTES, newestFirst: true };
 
-// STOPPED aborts a cycle whose engine was stopped while a request was in flight.
+// STOPPED aborts a cycle or flush whose engine was stopped (or stopped and started again) while a
+// request was in flight.
 //
-// STOPPED 用于中止请求进行期间引擎已被停止的同步流程.
+// STOPPED 用于中止请求进行期间引擎已被停止 (或停止后又重新启动) 的同步流程或补写.
 const STOPPED = new Error("sync engine stopped");
 
 /**
@@ -140,17 +141,28 @@ export interface SyncEngineOptions {
 }
 
 /**
- * createSyncEngine builds an engine that is active immediately; stop() pauses it and start() resumes.
+ * createSyncEngine builds an engine that stays idle until start(): it sends nothing and ignores
+ * local changes. start() activates it (a no-op while active) and stop() returns it to idle. Work
+ * begun before a stop() never writes the store, even when start() follows before it completes.
  *
- * createSyncEngine 创建立即可用的引擎; stop() 暂停, start() 恢复.
+ * createSyncEngine 创建的引擎在 start() 之前保持空闲: 不发送请求, 也不响应本地修改. start()
+ * 启用引擎 (已启用时无操作), stop() 使其回到空闲. stop() 之前开始的工作不会再写入存储, 即使
+ * 它完成前又调用了 start().
  */
 export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
   const { transport, store, classifyError } = options;
   const now = options.now ?? (() => Date.now());
   const runExclusive = options.runExclusive ?? ((task: () => Promise<void>) => task());
-  let stopped = false;
+  let stopped = true;
+  // generation counts start() and stop() calls; a cycle or flush captures it when it begins and
+  // abandons its work once it changes, so a late response from an earlier lifetime is ignored.
+  //
+  // generation 统计 start() 和 stop() 的调用次数; 同步流程和补写开始时记录它, 一旦变化就放弃
+  // 后续工作, 因此上一个生命周期的迟到响应会被忽略.
+  let generation = 0;
   let running: Promise<void> | null = null;
   let flushing: Promise<void> | null = null;
+  let flushingGeneration = 0;
   let rerun = false;
   let lastCycleAt = Number.NEGATIVE_INFINITY;
   let lastPushAt = Number.NEGATIVE_INFINITY;
@@ -158,7 +170,8 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
   let pushDeadline = 0;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let retryDelay = SYNC_RETRY_MIN_MS;
-  let unsubscribe: (() => void) | null = store.onLocalChange(schedulePush);
+  let pushCount = 0;
+  let unsubscribe: (() => void) | null = null;
 
   function clearTimers(): void {
     if (pushTimer !== null) clearTimeout(pushTimer);
@@ -188,8 +201,12 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
     }, delay);
   }
 
-  function checkStopped(): void {
-    if (stopped) throw STOPPED;
+  function isStale(started: number): boolean {
+    return stopped || started !== generation;
+  }
+
+  function checkStopped(started: number): void {
+    if (isStale(started)) throw STOPPED;
   }
 
   function reportInvalid(invalid: PushInvalid[]): void {
@@ -198,8 +215,8 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
     }
   }
 
-  function handleError(error: unknown): void {
-    if (stopped) return;
+  function handleError(error: unknown, started: number): void {
+    if (isStale(started)) return;
     if (classifyError(error) === "unauthorized") {
       stop();
       options.onUnauthorized?.();
@@ -219,7 +236,7 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
   //
   // 冲突 (新 epoch, 或游标超前于已恢复的服务端) 时 pushPending 返回 false; 随后的拉取会报告
   // 重置. keepalive 补写只发送一小批, 最新的优先.
-  async function pushPending(keepalive: boolean): Promise<boolean> {
+  async function pushPending(keepalive: boolean, started: number): Promise<boolean> {
     for (let round = 0; round < MAX_PUSH_ROUNDS; round += 1) {
       const state = store.state();
       const batch = collectChanges(state, keepalive ? KEEPALIVE_COLLECT : {});
@@ -232,11 +249,11 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
           { keepalive },
         );
       } catch (error) {
-        checkStopped();
+        checkStopped(started);
         if (classifyError(error) === "conflict") return false;
         throw error;
       }
-      checkStopped();
+      checkStopped(started);
       store.clock.observe(response.server_time_ms, sentAt, now());
       let rejected: LocalRecord[] = [];
       let invalid: PushInvalid[] = [];
@@ -247,6 +264,7 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
         return { ...outcome.state, clockOffsetMs: store.clock.offsetMs() };
       });
       lastPushAt = now();
+      pushCount += 1;
       reportInvalid(invalid);
       if (rejected.length > 0) options.onLimit?.(rejected);
       if (keepalive) return true;
@@ -262,15 +280,25 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
   // 服务端丢失本设备已有数据时 (新 epoch, 或同 epoch 且 rev 低于游标的 reset, 即从旧副本恢复),
   // pullAll 重新标记记录并返回 false, 由本轮流程推送. 其他同 epoch 的 reset 是可以删除未出现记录
   // 的全量重同步; 从游标 0 开始的首次拉取必须保留本设备刚推送的记录.
-  async function pullAll(): Promise<boolean> {
+  //
+  // A full resync keeps its cursor in memory and saves it only together with finishFullResync. If a
+  // later page fails, the saved cursor stays below min_rev, so the next cycle is reset again and
+  // redoes the whole resync; records merged from earlier pages stay, because merging is idempotent.
+  //
+  // 全量重同步的游标只保存在内存中, 与 finishFullResync 一起写入. 如果后续某页失败, 已保存的
+  // 游标仍低于 min_rev, 下一轮会再次收到 reset 并重做整个全量重同步; 之前页面合并的记录保留,
+  // 因为合并是幂等的.
+  async function pullAll(started: number): Promise<boolean> {
     let seen = new Set<string>();
     let full = false;
+    let fullCursor = 0;
     let resets = 0;
     for (;;) {
       const state = store.state();
+      const since = full ? fullCursor : state.cursor;
       const sentAt = now();
-      const page = await transport.pull({ since: state.cursor, epoch: state.epoch, limit: SYNC_PULL_LIMIT });
-      checkStopped();
+      const page = await transport.pull({ since, epoch: state.epoch, limit: SYNC_PULL_LIMIT });
+      checkStopped(started);
       store.clock.observe(page.server_time_ms, sentAt, now());
       if (page.reset) {
         if (state.epoch !== "" && page.epoch !== state.epoch) {
@@ -283,23 +311,33 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
         }
         resets += 1;
         if (resets > 1) throw new Error("sync pull asked for a reset twice");
-        store.update((current) => ({ ...current, cursor: 0 }));
         seen = new Set();
         full = true;
+        fullCursor = 0;
         continue;
       }
-      store.update((current) => ({
-        ...applyPullPage(current, page, seen),
-        username: store.username,
-        clockOffsetMs: store.clock.offsetMs(),
-      }));
+      store.update((current) => {
+        const next = applyPullPage(current, page, seen);
+        return {
+          ...next,
+          cursor: full ? current.cursor : next.cursor,
+          username: store.username,
+          clockOffsetMs: store.clock.offsetMs(),
+        };
+      });
+      if (full) fullCursor = page.rev;
       if (!page.has_more) break;
     }
-    if (full) store.update((current) => finishFullResync(current, seen));
+    if (full) store.update((current) => ({ ...finishFullResync(current, seen), cursor: fullCursor }));
     return true;
   }
 
   async function cycle(): Promise<void> {
+    // A cycle queued on the lock may start after stop().
+    //
+    // 在锁上排队的同步流程可能在 stop() 之后才开始.
+    if (stopped) return;
+    const started = generation;
     if (retryTimer !== null) {
       clearTimeout(retryTimer);
       retryTimer = null;
@@ -309,15 +347,15 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
     // 本轮等待锁期间, 其他写入方 (浏览器的另一个标签页) 可能已经同步过.
     store.reload();
     try {
-      for (let attempt = 0; attempt < 3 && !stopped; attempt += 1) {
-        const pushed = await pushPending(false);
-        const pulled = await pullAll();
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const pushed = await pushPending(false, started);
+        const pulled = await pullAll(started);
         if (pushed && pulled) break;
       }
       lastCycleAt = now();
       retryDelay = SYNC_RETRY_MIN_MS;
     } catch (error) {
-      handleError(error);
+      handleError(error, started);
     }
   }
 
@@ -346,15 +384,31 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
   }
 
   async function flush(keepalive: boolean): Promise<void> {
+    const started = generation;
+    const pushesBefore = pushCount;
     try {
       // A conflict means the server reset or was restored; only a full cycle can resolve it, and
       // the flush waits for it so a caller (logout, a source switch) knows the data left.
       //
       // 冲突说明服务端被重置或从旧副本恢复, 只有完整的一轮同步能处理; 补写会等待这一轮,
       // 让调用方 (退出登录, 切换来源) 知道数据已经发出.
-      if (!(await pushPending(keepalive))) await requestSync("retry");
+      if (!(await pushPending(keepalive, started))) {
+        await requestSync("retry");
+        return;
+      }
+      // A push went through, so the server is reachable again: run the pending retry now instead
+      // of waiting out its backoff. A flush with nothing to push proves nothing and leaves it.
+      //
+      // 推送成功说明服务端已恢复可达: 立即执行等待中的重试, 不再等待退避. 没有内容可推送的
+      // 补写无法说明这一点, 保持重试不变.
+      if (!keepalive && retryTimer !== null && pushCount !== pushesBefore) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+        retryDelay = SYNC_RETRY_MIN_MS;
+        void requestSync("retry");
+      }
     } catch (error) {
-      handleError(error);
+      handleError(error, started);
     }
   }
 
@@ -371,20 +425,29 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
       pushTimer = null;
     }
     if (flushOptions.keepalive) return flush(true);
-    if (flushing) return flushing;
-    flushing = flush(false).finally(() => {
-      flushing = null;
+    // A flush from an earlier lifetime was abandoned; it cannot carry this request.
+    //
+    // 上一个生命周期的补写已被放弃, 不能代替本次请求.
+    if (flushing && flushingGeneration === generation) return flushing;
+    flushingGeneration = generation;
+    const current: Promise<void> = flush(false).finally(() => {
+      if (flushing === current) flushing = null;
     });
-    return flushing;
+    flushing = current;
+    return current;
   }
 
   function start(): void {
+    if (!stopped) return;
     stopped = false;
-    unsubscribe ??= store.onLocalChange(schedulePush);
+    generation += 1;
+    retryDelay = SYNC_RETRY_MIN_MS;
+    unsubscribe = store.onLocalChange(schedulePush);
   }
 
   function stop(): void {
     stopped = true;
+    generation += 1;
     clearTimers();
     unsubscribe?.();
     unsubscribe = null;

@@ -6,7 +6,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createSyncClock } from "./syncClock";
-import { SYNC_KEEPALIVE_MAX_BYTES, createSyncEngine, type SyncErrorKind } from "./syncEngine";
+import {
+  SYNC_CHANGE_DEBOUNCE_MS,
+  SYNC_KEEPALIVE_MAX_BYTES,
+  SYNC_RETRY_MAX_MS,
+  createSyncEngine,
+  type SyncErrorKind,
+} from "./syncEngine";
 import { createSyncStore, syncScopeKey, type SyncStorage } from "./syncStore";
 import type { SyncPullResponse, SyncPushRequest, SyncPushResponse } from "./types";
 
@@ -41,7 +47,7 @@ function memoryStorage(): SyncStorage {
 const watch = { title: "Movie", cover: "", source_key: "", video_id: "", episode: "", group_index: 0, episode_index: 0, progress_sec: 5, duration_sec: 100, completed: false };
 const favorite = { cover: "", type: "", year: "", rate: "", desc: "", source_key: "", video_id: "" };
 
-function setup(pulls: Array<SyncPullResponse | Error> = [], username = "alice") {
+function setup(pulls: Array<SyncPullResponse | Error> = [], username = "alice", { start = true } = {}) {
   const store = createSyncStore({
     storage: memoryStorage(),
     scopeKey: syncScopeKey("http://localhost:3000", 1),
@@ -62,6 +68,7 @@ function setup(pulls: Array<SyncPullResponse | Error> = [], username = "alice") 
   const onLimit = vi.fn();
   const onUnauthorized = vi.fn();
   const engine = createSyncEngine({ transport: { push, pull }, classifyError, store, onLimit, onUnauthorized });
+  if (start) engine.start();
   return { store, engine, push, pull, pushes, onLimit, onUnauthorized };
 }
 
@@ -203,6 +210,7 @@ describe("createSyncEngine", () => {
     const otherTab = createSyncStore({ storage, scopeKey, username: "alice" });
     const push = vi.fn(async (body: SyncPushRequest) => applied(body));
     const engine = createSyncEngine({ transport: { push, pull: vi.fn(async () => pullPage()) }, classifyError, store });
+    engine.start();
     otherTab.upsert("search", { query: "from another tab" });
 
     await engine.requestSync("launch");
@@ -388,6 +396,7 @@ describe("createSyncEngine", () => {
     const pull = vi.fn(async () => pullPage());
     const runExclusive = vi.fn(async (task: () => Promise<void>) => task());
     const engine = createSyncEngine({ transport: { push: vi.fn(), pull }, classifyError, store, runExclusive });
+    engine.start();
     await engine.requestSync("launch");
     expect(runExclusive).toHaveBeenCalledTimes(1);
     engine.stop();
@@ -396,6 +405,140 @@ describe("createSyncEngine", () => {
     engine.start();
     await engine.requestSync("foreground");
     expect(pull).toHaveBeenCalledTimes(2);
+    engine.stop();
+  });
+
+  it("stays idle until start", async () => {
+    const { store, engine, push, pull } = setup([], "alice", { start: false });
+    store.upsert("search", { query: "before start" });
+    await vi.advanceTimersByTimeAsync(SYNC_CHANGE_DEBOUNCE_MS);
+    await engine.requestSync("launch");
+    await engine.flushNow();
+    await engine.flushNow({ keepalive: true });
+    expect(push).not.toHaveBeenCalled();
+    expect(pull).not.toHaveBeenCalled();
+
+    engine.start();
+    engine.start();
+    await engine.requestSync("launch");
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(pull).toHaveBeenCalledTimes(1);
+    store.upsert("search", { query: "after start" });
+    await vi.advanceTimersByTimeAsync(SYNC_CHANGE_DEBOUNCE_MS);
+    expect(push).toHaveBeenCalledTimes(2);
+    engine.stop();
+  });
+
+  it("ignores a flush response that arrives after stop and start", async () => {
+    const { store, engine, push } = setup();
+    let release: () => void = () => undefined;
+    push.mockImplementationOnce((body) => new Promise((resolve) => (release = () => resolve(applied(body)))));
+    store.upsert("search", { query: "late" });
+
+    const flush = engine.flushNow();
+    await vi.advanceTimersByTimeAsync(0);
+    engine.stop();
+    engine.start();
+    release();
+    await flush;
+
+    expect(store.state().records["search|late"]).toMatchObject({ dirty: true, synced: false });
+    expect(store.state().epoch).toBe("");
+    engine.stop();
+  });
+
+  it("ignores a cycle response that arrives after stop and start", async () => {
+    const { store, engine, pull } = setup();
+    let release: () => void = () => undefined;
+    pull.mockImplementationOnce(() => new Promise((resolve) => (release = () => resolve(pullPage({ epoch: "old", rev: 7 })))));
+
+    const cycle = engine.requestSync("launch");
+    await vi.advanceTimersByTimeAsync(0);
+    engine.stop();
+    engine.start();
+    release();
+    await cycle;
+
+    expect(store.state()).toMatchObject({ epoch: "", cursor: 0 });
+    engine.stop();
+  });
+
+  it("runs a pending retry right after a successful flush", async () => {
+    const { store, engine, pull, push } = setup([new Error("offline")]);
+    await engine.requestSync("launch");
+    expect(pull).toHaveBeenCalledTimes(1);
+
+    store.upsert("search", { query: "while offline" });
+    await engine.flushNow();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(pull).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(SYNC_RETRY_MAX_MS);
+    expect(pull).toHaveBeenCalledTimes(2);
+    engine.stop();
+  });
+
+  it("resets the retry backoff on start", async () => {
+    const { engine, pull } = setup([new Error("offline"), new Error("offline"), new Error("offline")]);
+    await engine.requestSync("launch");
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(pull).toHaveBeenCalledTimes(2);
+
+    engine.stop();
+    engine.start();
+    await engine.requestSync("foreground");
+    expect(pull).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(pull).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(pull).toHaveBeenCalledTimes(4);
+    engine.stop();
+  });
+
+  it("redoes an interrupted full resync instead of resuming it as a delta pull", async () => {
+    // The server purged tombstones up to rev 3; page 1 of the full resync reaches rev 3.
+    //
+    // 服务端清理了 rev 3 及之前的墓碑; 全量重同步的第 1 页到达 rev 3.
+    const minRev = 3;
+    let failPage2 = true;
+    const pull = vi.fn(async ({ since }: { since: number }): Promise<SyncPullResponse> => {
+      if (since > 0 && since < minRev) return pullPage({ reset: true, rev: 5 });
+      if (since === 0) {
+        return pullPage({
+          rev: 3,
+          has_more: true,
+          records: [{ kind: "search", key: "kept", payload: { query: "kept" }, event_time_ms: 1, deleted: false, rev: 3 }],
+        });
+      }
+      if (failPage2) {
+        failPage2 = false;
+        throw new Error("offline");
+      }
+      return pullPage({ rev: 5 });
+    });
+    const store = createSyncStore({ storage: memoryStorage(), scopeKey: "k", username: "alice" });
+    store.update((state) => ({
+      ...state,
+      epoch: "e1",
+      cursor: 1,
+      records: {
+        "search|kept": { kind: "search", key: "kept", payload: { query: "kept" }, eventTimeMs: 1, deleted: false, dirty: false, synced: true },
+        "search|gone": { kind: "search", key: "gone", payload: { query: "gone" }, eventTimeMs: 1, deleted: false, dirty: false, synced: true },
+      },
+    }));
+    const engine = createSyncEngine({ transport: { push: vi.fn(), pull }, classifyError, store });
+    engine.start();
+
+    await engine.requestSync("launch");
+    expect(store.state().cursor).toBe(1);
+    expect(store.get("search", "gone")).not.toBeNull();
+
+    await engine.requestSync("foreground");
+    expect(pull.mock.calls.map(([params]) => params.since)).toEqual([1, 0, 3, 1, 0, 3]);
+    expect(store.get("search", "gone")).toBeNull();
+    expect(store.get("search", "kept")).not.toBeNull();
+    expect(store.state().cursor).toBe(5);
     engine.stop();
   });
 });
