@@ -141,6 +141,12 @@ func prepareServer(databasePath string, frontendFS embed.FS) (*store.Store, func
 		cleanup()
 		return nil, nil, nil, fmt.Errorf("start source service: %w", err)
 	}
+	syncSvc := service.NewSyncService(s)
+	if err := syncSvc.Start(); err != nil {
+		sourceSvc.Stop()
+		cleanup()
+		return nil, nil, nil, fmt.Errorf("start sync service: %w", err)
+	}
 	// Seeding runs in the background because it performs a network fetch, but it
 	// holds the store and the source service for the whole time. Joining it here
 	// stops cleanup from closing those out from under an import still in flight,
@@ -152,6 +158,7 @@ func prepareServer(databasePath string, frontendFS embed.FS) (*store.Store, func
 	var seeding sync.WaitGroup
 	cleanup = func() {
 		seeding.Wait()
+		syncSvc.Stop()
 		sourceSvc.Stop()
 		_ = s.Close()
 	}
