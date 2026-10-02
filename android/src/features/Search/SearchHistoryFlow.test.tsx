@@ -31,7 +31,7 @@ describe("SearchHistoryFlow", () => {
   it("renders each entry as a chip and fires onSelect", async () => {
     const onSelect = jest.fn();
     await renderFlow({
-      history: [{ query: "foo", searchedAt: 1 }, { query: "bar", searchedAt: 2 }],
+      history: [{ query: "foo" }, { query: "bar" }],
       onSelect,
       onClear: jest.fn(),
     });
@@ -41,7 +41,7 @@ describe("SearchHistoryFlow", () => {
 
   it("fires onClear when Clear pressed", async () => {
     const onClear = jest.fn();
-    await renderFlow({ history: [{ query: "foo", searchedAt: 1 }], onSelect: jest.fn(), onClear });
+    await renderFlow({ history: [{ query: "foo" }], onSelect: jest.fn(), onClear });
     fireEvent.press(screen.getByText("Clear"));
     expect(onClear).toHaveBeenCalledTimes(1);
   });

@@ -11,6 +11,8 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ViewType } from "react-native-video";
 
 import { ThemeProvider } from "@/designSystem/ThemeProvider";
+import { SyncTestProvider, memorySyncStore } from "@/sync/syncTesting";
+import type { SyncStore } from "@/sync/syncStore";
 import { PlayerScreen, PlayerScreenContext, progressDurationFor, videoSourceForURL } from "./PlayerScreen";
 import type { DetailAPI } from "@/api/detail";
 import type { PlaybackAPI } from "@/api/playback";
@@ -52,14 +54,17 @@ function wrap(
   onClose: () => void = jest.fn(),
   destination: PlayDestination = dest,
   serverURL = "http://srv-player",
+  store: SyncStore = memorySyncStore(),
 ) {
   return render(
     <SafeAreaProvider initialMetrics={safeAreaMetrics}>
       <I18nextProvider i18n={i18next}>
         <ThemeProvider override="light">
-          <PlayerScreenContext.Provider value={{ detailAPI, playbackAPI, serverURL, onClose }}>
-            <PlayerScreen route={{ params: destination }} />
-          </PlayerScreenContext.Provider>
+          <SyncTestProvider store={store}>
+            <PlayerScreenContext.Provider value={{ detailAPI, playbackAPI, serverURL, onClose }}>
+              <PlayerScreen route={{ params: destination }} />
+            </PlayerScreenContext.Provider>
+          </SyncTestProvider>
         </ThemeProvider>
       </I18nextProvider>
     </SafeAreaProvider>,
@@ -302,18 +307,16 @@ test("full-screen back button closes the player route", async () => {
   expect(onClose).toHaveBeenCalledTimes(1);
 });
 
-test("favorite toggle persists with the current source's video_id", async () => {
-  const { _resetForTests } = require("@/storage/mmkv");
-  const { isFavorited } = require("@/storage/favorites");
-  _resetForTests();
+test("favorite toggle stores the title with the current source", async () => {
+  const store = memorySyncStore();
   const detailAPI: DetailAPI = { detail: jest.fn().mockResolvedValue(detail) };
   const playbackAPI: PlaybackAPI = { playbackURL: jest.fn().mockResolvedValue({ mode: "proxy", url: "https://p/m3u8" }) };
-  const { findByTestId } = wrap(detailAPI, playbackAPI);
+  const { findByTestId } = wrap(detailAPI, playbackAPI, jest.fn(), dest, "http://srv-player", store);
   const star = await findByTestId("playerFavorite");
   fireEvent.press(star);
-  expect(isFavorited("http://srv-player", dest.sourceKey, dest.videoId)).toBe(true);
+  expect(store.get("favorite", "T")?.payload).toMatchObject({ source_key: "a", video_id: "v-a" });
   fireEvent.press(star);
-  expect(isFavorited("http://srv-player", dest.sourceKey, dest.videoId)).toBe(false);
+  expect(store.get("favorite", "T")).toBeNull();
 });
 
 test("BackHandler dismisses full-screen before popping", async () => {

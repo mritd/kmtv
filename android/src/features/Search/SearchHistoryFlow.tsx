@@ -8,7 +8,6 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { sizes } from "@/designSystem/theme";
 import { useTheme } from "@/designSystem/useTheme";
-import type { SearchHistoryItem } from "@/storage/searchHistory";
 
 /**
  * Props for the search history block.
@@ -16,7 +15,7 @@ import type { SearchHistoryItem } from "@/storage/searchHistory";
  * 搜索历史区块的 props.
  */
 export interface SearchHistoryFlowProps {
-  history: SearchHistoryItem[];
+  history: ReadonlyArray<{ query: string }>;
   onSelect: (query: string) => void;
   onClear: () => void;
 }

@@ -124,15 +124,14 @@ function DetailInner({ ctx, destination }: { ctx: DetailScreenContextValue; dest
 
   const activeSource = sources.find((s) => s.source_key === currentSourceKey);
   const { favorited, toggle: toggleFavorite } = useFavoriteToggle({
-    serverURL: ctx.serverURL,
-    item: {
-      sourceKey: currentSourceKey,
-      videoId: activeSource?.video_id ?? destination.videoId,
-      title: detail?.title ?? destination.title,
-      cover: detail?.cover ?? destination.coverHint,
-      type: detail?.type ?? "",
-      year: detail?.year ?? "",
-    },
+    title: detail?.title ?? destination.title,
+    cover: detail?.cover ?? destination.coverHint,
+    type: detail?.type ?? "",
+    year: detail?.year ?? "",
+    rate: "",
+    desc: detail?.desc ?? "",
+    source_key: currentSourceKey,
+    video_id: activeSource?.video_id ?? destination.videoId,
   });
 
   const onSwitchSource = async (sourceKey: string) => {

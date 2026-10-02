@@ -10,6 +10,8 @@ import { StyleSheet, useWindowDimensions } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ThemeProvider } from "@/designSystem/ThemeProvider";
+import { SyncTestProvider, memorySyncStore } from "@/sync/syncTesting";
+import type { SyncStore } from "@/sync/syncStore";
 import { DetailScreen, DetailScreenContext, type DetailScreenContextValue } from "./DetailScreen";
 import type { DetailAPI } from "@/api/detail";
 import type { PlayDestination, SourceResult, VideoDetail } from "@/api/types";
@@ -45,14 +47,16 @@ void i18next.init({
   },
 });
 
-function wrap(ctx: DetailScreenContextValue, route: { params: PlayDestination }) {
+function wrap(ctx: DetailScreenContextValue, route: { params: PlayDestination }, store: SyncStore = memorySyncStore()) {
   return render(
     <SafeAreaProvider initialMetrics={safeAreaMetrics}>
       <I18nextProvider i18n={i18next}>
         <ThemeProvider override="light">
-          <DetailScreenContext.Provider value={ctx}>
-            <DetailScreen route={route} />
-          </DetailScreenContext.Provider>
+          <SyncTestProvider store={store}>
+            <DetailScreenContext.Provider value={ctx}>
+              <DetailScreen route={route} />
+            </DetailScreenContext.Provider>
+          </SyncTestProvider>
         </ThemeProvider>
       </I18nextProvider>
     </SafeAreaProvider>,
@@ -122,19 +126,18 @@ test("Play CTA invokes context onPlay with destination", async () => {
 });
 
 test("favorite toggle persists with active source's video_id", async () => {
-  const { _resetForTests } = require("@/storage/mmkv");
-  const { isFavorited } = require("@/storage/favorites");
-  _resetForTests();
+  const store = memorySyncStore();
   const api: DetailAPI = { detail: jest.fn().mockResolvedValue(detail) };
   const { findByText, getByTestId } = wrap(
     { detailAPI: api, serverURL: "http://s", onPlay: jest.fn() },
     { params: dest },
+    store,
   );
   await findByText("Inception");
   fireEvent.press(getByTestId("detailFavorite"));
-  expect(isFavorited("http://s", "a", "v-a")).toBe(true);
+  expect(store.get("favorite", "Inception")?.payload).toMatchObject({ source_key: "a", video_id: "v-a" });
   fireEvent.press(getByTestId("detailFavorite"));
-  expect(isFavorited("http://s", "a", "v-a")).toBe(false);
+  expect(store.get("favorite", "Inception")).toBeNull();
 });
 
 describe("DetailScreen responsive layout", () => {
@@ -167,9 +170,7 @@ describe("DetailScreen responsive layout", () => {
 });
 
 test("switching source then tapping favorite uses the new source's video_id", async () => {
-  const { _resetForTests } = require("@/storage/mmkv");
-  const { isFavorited } = require("@/storage/favorites");
-  _resetForTests();
+  const store = memorySyncStore();
   const srcB: SourceResult = { source_key: "b", source_name: "B", is_adult: false, video_id: "v-b-new",
     duration_ms: 0, episodes: [] };
   const multiDest = { ...dest, sources: [src, srcB] };
@@ -182,12 +183,11 @@ test("switching source then tapping favorite uses the new source's video_id", as
   const { findByText, getByText, getByTestId } = wrap(
     { detailAPI: api, serverURL: "http://s", onPlay: jest.fn() },
     { params: multiDest },
+    store,
   );
   await findByText("Inception");
   fireEvent.press(getByText("B"));
   await waitFor(() => expect(api.detail).toHaveBeenCalledWith("b", "v-b-new"));
   fireEvent.press(getByTestId("detailFavorite"));
-  expect(isFavorited("http://s", "b", "v-b-new")).toBe(true);
-  // Original source's tuple stays untoggled.
-  expect(isFavorited("http://s", "a", "v-a")).toBe(false);
+  expect(store.get("favorite", "Inception")?.payload).toMatchObject({ source_key: "b", video_id: "v-b-new" });
 });

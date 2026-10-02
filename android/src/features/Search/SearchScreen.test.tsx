@@ -24,6 +24,8 @@ import { ThemeProvider } from "@/designSystem/ThemeProvider";
 import { initI18n } from "@/i18n";
 import type { SearchRouteParams } from "@/navigation/types";
 import { _resetForTests as resetMMKV } from "@/storage/mmkv";
+import type { SyncStore } from "@/sync/syncStore";
+import { SyncTestProvider, memorySyncStore } from "@/sync/syncTesting";
 
 import { SearchScreen, SearchScreenContext } from "./SearchScreen";
 
@@ -50,7 +52,7 @@ const safeAreaMetrics = {
   insets: { top: 0, left: 0, right: 0, bottom: 0 },
 };
 
-async function renderScreen(api: SearchAPI, params?: string | SearchRouteParams) {
+async function renderScreen(api: SearchAPI, params?: string | SearchRouteParams, store: SyncStore = memorySyncStore()) {
   resetMMKV();
   const i18n = await initI18n("en");
   const routeParams = typeof params === "string" ? { initialQuery: params } : params;
@@ -59,9 +61,11 @@ async function renderScreen(api: SearchAPI, params?: string | SearchRouteParams)
       <NavigationContainer>
         <I18nextProvider i18n={i18n}>
           <ThemeProvider override="light">
-            <SearchScreenContext.Provider value={{ api, serverURL: "https://api.test" }}>
-              <SearchScreen route={{ key: "k", name: "Search", params: routeParams }} />
-            </SearchScreenContext.Provider>
+            <SyncTestProvider store={store}>
+              <SearchScreenContext.Provider value={{ api, serverURL: "https://api.test" }}>
+                <SearchScreen route={{ key: "k", name: "Search", params: routeParams }} />
+              </SearchScreenContext.Provider>
+            </SyncTestProvider>
           </ThemeProvider>
         </I18nextProvider>
       </NavigationContainer>
@@ -167,6 +171,46 @@ describe("SearchScreen", () => {
     await waitFor(() => expect(screen.getByText("Search history")).toBeTruthy());
     fireEvent.press(screen.getByText("kungfu"));
     expect((api.searchStream as jest.Mock).mock.calls.filter((c) => c[0] === "kungfu").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("records submitted queries in the sync store and shows the newest first", async () => {
+    const store = memorySyncStore();
+    store.upsert("search", { query: "older" });
+    const api = buildAPI({ searchStream: jest.fn(async () => ({ results: [] })) });
+    await renderScreen(api, undefined, store);
+    fireEvent.changeText(screen.getByPlaceholderText("Search videos..."), "  newer  ");
+    fireEvent(screen.getByPlaceholderText("Search videos..."), "submitEditing");
+    await waitFor(() => expect(store.list("search").map((r) => r.payload.query)).toEqual(["newer", "older"]));
+  });
+
+  it("does not record a query that arrives through navigation", async () => {
+    const store = memorySyncStore();
+    const searchStream = jest.fn(async () => ({ results: [] }));
+    await renderScreen(buildAPI({ searchStream }), "From Poster", store);
+    expect(await screen.findByText("No results found")).toBeTruthy();
+    expect(searchStream).toHaveBeenCalled();
+    expect(store.list("search")).toEqual([]);
+  });
+
+  it("records a history chip again as the newest search", async () => {
+    const store = memorySyncStore();
+    store.upsert("search", { query: "chip" });
+    store.upsert("search", { query: "newer" });
+    const searchStream = jest.fn(async () => ({ results: [] }));
+    await renderScreen(buildAPI({ searchStream }), undefined, store);
+    fireEvent.press(screen.getByText("chip"));
+    await waitFor(() => expect(searchStream).toHaveBeenCalled());
+    expect(store.list("search")[0]?.payload.query).toBe("chip");
+  });
+
+  it("clears search history through the sync store", async () => {
+    const store = memorySyncStore();
+    store.upsert("search", { query: "forget me" });
+    await renderScreen(buildAPI(), undefined, store);
+    expect(screen.getByText("forget me")).toBeTruthy();
+    fireEvent.press(screen.getByText("Clear"));
+    await waitFor(() => expect(screen.queryByText("forget me")).toBeNull());
+    expect(store.state().pendingClears.search).toBeGreaterThan(0);
   });
 
   it("respects initialQuery route param: auto-submits on mount", async () => {

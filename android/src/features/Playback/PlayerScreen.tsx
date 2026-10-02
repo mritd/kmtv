@@ -451,7 +451,6 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
         <PlayerTitleRow
           title={state.detail?.title ?? destination.title}
           subtitle={state.detail ? [state.detail.type, state.detail.year].filter(Boolean).join(" · ") : ""}
-          serverURL={ctx.serverURL}
           currentSourceKey={state.currentSourceKey}
           currentVideoID={
             state.sources.find((s) => s.source_key === state.currentSourceKey)?.video_id ?? destination.videoId
@@ -459,6 +458,7 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
           cover={state.detail?.cover ?? destination.coverHint}
           type={state.detail?.type ?? ""}
           year={state.detail?.year ?? ""}
+          desc={state.detail?.desc ?? ""}
         />
         {state.sources.length > 1 ? (
           <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
@@ -531,12 +531,12 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
 interface PlayerTitleRowProps {
   title: string;
   subtitle: string;
-  serverURL: string;
   currentSourceKey: string;
   currentVideoID: string;
   cover: string;
   type: string;
   year: string;
+  desc: string;
 }
 
 /**
@@ -544,11 +544,13 @@ interface PlayerTitleRowProps {
  *
  * PlayerTitleRow — 视频面板下方的标题、副标题与收藏星.
  */
-function PlayerTitleRow({ title, subtitle, serverURL, currentSourceKey, currentVideoID, cover, type, year }: PlayerTitleRowProps) {
+function PlayerTitleRow({ title, subtitle, currentSourceKey, currentVideoID, cover, type, year, desc }: PlayerTitleRowProps) {
   const { colors } = useTheme();
   const { favorited, toggle } = useFavoriteToggle({
-    serverURL,
-    item: { sourceKey: currentSourceKey, videoId: currentVideoID, title, cover, type, year },
+    // Source details carry no rating, so rate stays empty.
+    //
+    // 来源详情没有评分, 因此 rate 留空.
+    title, cover, type, year, rate: "", desc, source_key: currentSourceKey, video_id: currentVideoID,
   });
   return (
     <View style={{ padding: 16, flexDirection: "row", alignItems: "flex-start", gap: 4 }}>
