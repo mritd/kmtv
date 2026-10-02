@@ -163,6 +163,7 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
   let running: Promise<void> | null = null;
   let flushing: Promise<void> | null = null;
   let flushingGeneration = 0;
+  let flushAgain = false;
   let rerun = false;
   let lastCycleAt = Number.NEGATIVE_INFINITY;
   let lastPushAt = Number.NEGATIVE_INFINITY;
@@ -418,6 +419,13 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
   //
   // flushNow 同一时间只运行一次: 运行期间再次请求会共享当前结果. keepalive 补写总是发送自己的
   // 一批: 页面即将离开, 正在进行的补写请求可能随之被取消.
+  //
+  // A joined request may carry a record written after the running flush collected its last batch,
+  // and it cancelled that record's push timer. The shared flush therefore pushes once more before
+  // it settles. After a failure the pending retry pushes the record instead, so the backoff holds.
+  //
+  // 加入的请求可能带有正在进行的补写收集最后一批之后才写入的记录, 且它已取消该记录的推送
+  // 定时器. 因此共享的补写在结束前会再推送一次. 失败后改由等待中的重试推送, 保持退避不变.
   function flushNow(flushOptions: { keepalive?: boolean } = {}): Promise<void> {
     if (stopped) return Promise.resolve();
     if (pushTimer !== null) {
@@ -428,9 +436,19 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
     // A flush from an earlier lifetime was abandoned; it cannot carry this request.
     //
     // 上一个生命周期的补写已被放弃, 不能代替本次请求.
-    if (flushing && flushingGeneration === generation) return flushing;
-    flushingGeneration = generation;
-    const current: Promise<void> = flush(false).finally(() => {
+    if (flushing && flushingGeneration === generation) {
+      flushAgain = true;
+      return flushing;
+    }
+    const started = generation;
+    flushingGeneration = started;
+    const loop = async () => {
+      do {
+        flushAgain = false;
+        await flush(false);
+      } while (flushAgain && !isStale(started) && retryTimer === null);
+    };
+    const current: Promise<void> = loop().finally(() => {
       if (flushing === current) flushing = null;
     });
     flushing = current;
