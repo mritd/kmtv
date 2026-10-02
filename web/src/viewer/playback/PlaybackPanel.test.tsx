@@ -191,6 +191,37 @@ describe("PlaybackPanel", () => {
     expect(onPositionChange).toHaveBeenCalledWith(75, 120, "flush");
   });
 
+  it("reports hidden and pagehide checkpoints from listeners it removes on unmount", async () => {
+    const onPositionChange = vi.fn();
+    const instanceIndex = artplayerMock.instances.length;
+    const addListener = vi.spyOn(document, "addEventListener");
+    const removeListener = vi.spyOn(document, "removeEventListener");
+    const view = render(<PlaybackPanel state={readyState} onPlaying={vi.fn()} onRetry={vi.fn()} onPositionChange={onPositionChange} />);
+    await waitFor(() => expect(artplayerMock.instances[instanceIndex]).toBeDefined());
+    const player = artplayerMock.instances[instanceIndex]!;
+    player.currentTime = 30;
+    player.duration = 100;
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    try {
+      document.dispatchEvent(new Event("visibilitychange"));
+      expect(onPositionChange).toHaveBeenLastCalledWith(30, 100, "hidden");
+      window.dispatchEvent(new Event("pagehide"));
+      expect(onPositionChange).toHaveBeenLastCalledWith(30, 100, "pagehide");
+
+      // Capture keeps it ahead of SyncProvider's bubbling listener; removal must match it.
+      //
+      // 捕获阶段使其先于 SyncProvider 的冒泡监听器执行; 移除时必须使用相同选项.
+      const added = addListener.mock.calls.find(([type]) => type === "visibilitychange");
+      expect(added?.[2]).toEqual({ capture: true });
+      view.unmount();
+      expect(removeListener).toHaveBeenCalledWith("visibilitychange", added?.[1], { capture: true });
+    } finally {
+      visibility.mockRestore();
+      addListener.mockRestore();
+      removeListener.mockRestore();
+    }
+  });
+
   it("flushes playback checkpoints on pause", async () => {
     const onPositionChange = vi.fn();
     const instanceIndex = artplayerMock.instances.length;

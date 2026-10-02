@@ -94,6 +94,13 @@ function stripEmoji(value: string | undefined): string {
 }
 
 /**
+ * PlaybackCheckpointReason says why PlaybackPanel reported a checkpoint.
+ *
+ * PlaybackCheckpointReason 说明 PlaybackPanel 报告检查点的原因.
+ */
+export type PlaybackCheckpointReason = "interval" | "flush" | "hidden" | "pagehide";
+
+/**
  * PlaybackPanel — renders the ArtPlayer host container + all playback-state UI overlays.
  *
  * PlaybackPanel — 渲染 ArtPlayer 宿主容器 + 所有播放状态 UI 覆盖层.
@@ -103,7 +110,7 @@ function stripEmoji(value: string | undefined): string {
  * @param onPlaying          — called when ArtPlayer fires "video:play" — ArtPlayer 触发 "video:play" 时调用
  * @param onRetry            — called when the user clicks any retry button — 用户点击任意重试按钮时调用
  * @param initialPositionSec — optional persisted resume position in seconds — 可选的持久化恢复位置, 单位为秒
- * @param onPositionChange   — receives (currentTime, duration, reason) for each checkpoint; reason is "interval" for timer ticks and "flush" for lifecycle writes — 每次检查点接收 (currentTime, duration, reason); 定时器触发为 "interval", 生命周期补写为 "flush"
+ * @param onPositionChange   — receives (currentTime, duration, reason) for each checkpoint; reason is "interval" for timer ticks, "hidden" when the page becomes hidden, "pagehide" when it unloads, and "flush" for pause, seek, and teardown — 每次检查点接收 (currentTime, duration, reason); 定时器触发为 "interval", 页面隐藏为 "hidden", 页面卸载为 "pagehide", 暂停, 跳转和拆卸为 "flush"
  */
 export function PlaybackPanel({
   state,
@@ -118,7 +125,7 @@ export function PlaybackPanel({
   onPlaying(): void;
   onRetry(): void;
   initialPositionSec?: number;
-  onPositionChange?(positionSec: number, durationSec: number, reason: "interval" | "flush"): void;
+  onPositionChange?(positionSec: number, durationSec: number, reason: PlaybackCheckpointReason): void;
 }) {
   const { t } = useTranslation("viewer");
   const playerRef = useRef<HTMLDivElement | null>(null);
@@ -190,19 +197,27 @@ export function PlaybackPanel({
     // The parent callback writes the active identity's sync store.
     //
     // 页面隐藏或离开会补写最后可读进度. 父级回调写入当前身份的同步存储.
-    function flushNow() {
+    function flushNow(reason: PlaybackCheckpointReason = "flush") {
       const cb = onPositionChangeRef.current;
       const art = artSlot.player;
       if (!cb || !art) return;
       const currentTime = typeof art.currentTime === "number" ? art.currentTime : 0;
       const duration = typeof art.duration === "number" ? art.duration : 0;
-      if (currentTime > 0) cb(currentTime, duration, "flush");
+      if (currentTime > 0) cb(currentTime, duration, reason);
     }
     function onVisibility() {
-      if (document.visibilityState === "hidden") flushNow();
+      if (document.visibilityState === "hidden") flushNow("hidden");
     }
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("pagehide", flushNow);
+    function onPageHide() {
+      flushNow("pagehide");
+    }
+    // A capture listener on document runs before SyncProvider's bubbling one, so the final
+    // checkpoint is in the store when the provider's hidden flush collects dirty records.
+    //
+    // document 上的捕获监听器先于 SyncProvider 的冒泡监听器执行, 因此 SyncProvider 在页面隐藏
+    // 补写收集待推送记录时, 最后的检查点已经写入存储.
+    document.addEventListener("visibilitychange", onVisibility, { capture: true });
+    window.addEventListener("pagehide", onPageHide);
 
     void import("artplayer").then(({ default: ArtPlayer }) => {
       if (disposed) {
@@ -399,8 +414,8 @@ export function PlaybackPanel({
 
     return () => {
       disposed = true;
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("pagehide", flushNow);
+      document.removeEventListener("visibilitychange", onVisibility, { capture: true });
+      window.removeEventListener("pagehide", onPageHide);
       cleanupArtPlayer?.();
       artSlot.player = null;
     };

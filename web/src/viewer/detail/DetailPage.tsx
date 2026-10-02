@@ -527,6 +527,7 @@ function DetailPageContent({
           pendingEpisodeIndex,
           pendingEpisode,
           currentSourceKey,
+          true,
         );
       }
       return;
@@ -543,7 +544,7 @@ function DetailPageContent({
     const picked = rememberedEpisodeFor(currentSourceKey, currentVideoID, groups, watchRecordTime);
     const saved = picked ?? resumeEpisodeFor(remoteHistory, groups);
     if (saved) {
-      resolvePlaybackEpisode(saved.groupIndex, saved.episodeIndex, saved.episode, currentSourceKey);
+      resolvePlaybackEpisode(saved.groupIndex, saved.episodeIndex, saved.episode, currentSourceKey, false);
       return;
     }
     const groupIndex = groups.findIndex((group) => group.length > 0);
@@ -551,7 +552,7 @@ function DetailPageContent({
     if (!episode) {
       return;
     }
-    resolvePlaybackEpisode(groupIndex, 0, episode, currentSourceKey);
+    resolvePlaybackEpisode(groupIndex, 0, episode, currentSourceKey, false);
   }, [
     bundle.details,
     currentSourceKey,
@@ -564,22 +565,31 @@ function DetailPageContent({
     state.status,
   ]);
 
+  // pickedByUser marks an explicit choice (episode picker, source switch). Only those are remembered:
+  // an automatic choice from the watch record or the first playable episode must not outrank a newer
+  // record another device delivers before the next reload.
+  //
+  // pickedByUser 标记用户的明确选择 (选集, 切换来源). 只记住这些选择: 根据观看记录或首个可播放集
+  // 做出的自动选择, 不应压过下次刷新前其他设备同步来的更新记录.
   async function resolvePlaybackEpisode(
     groupIndex: number,
     episodeIndex: number,
     episode: Episode,
-    playbackSourceKey = currentSourceKey,
+    playbackSourceKey: string,
+    pickedByUser: boolean,
   ) {
     const sequence = playbackSequence.current + 1;
     playbackSequence.current = sequence;
     dispatch({ type: "selectEpisode", groupIndex, episodeIndex, episode });
-    rememberEpisode(
-      currentSourceKey,
-      currentVideoID,
-      groupIndex,
-      episodeIndex,
-      sync.status === "ready" ? sync.store.clock.next() : Date.now(),
-    );
+    if (pickedByUser) {
+      rememberEpisode(
+        currentSourceKey,
+        currentVideoID,
+        groupIndex,
+        episodeIndex,
+        sync.status === "ready" ? sync.store.clock.next() : Date.now(),
+      );
+    }
     try {
       const result = await api.playbackURL(episode.url, playbackSourceKey);
       if (sequence !== playbackSequence.current) {
@@ -608,6 +618,7 @@ function DetailPageContent({
       episodeIndex,
       episode,
       currentSourceKey,
+      true,
     );
   }
 
@@ -644,6 +655,7 @@ function DetailPageContent({
         episodeIndex,
         episode,
         nextSource.source_key,
+        true,
       );
     }
   }
@@ -656,6 +668,7 @@ function DetailPageContent({
         state.episodeIndex,
         state.selectedEpisode,
         currentSourceKey,
+        false,
       );
     }
   }
@@ -733,7 +746,8 @@ function DetailPageContent({
                 state.episodeIndex,
                 Math.floor(positionSec),
               ].join("\u0000");
-              if (checkpoint !== lastCheckpoint.current) {
+              const wrote = checkpoint !== lastCheckpoint.current;
+              if (wrote) {
                 lastCheckpoint.current = checkpoint;
                 sync.store.upsert("watch", {
                   title,
@@ -750,8 +764,19 @@ function DetailPageContent({
                     playbackCompleted(positionSec, durationSec),
                 });
               }
-              if (reason === "flush") {
-                void sync.engine?.flushNow({ keepalive: document.visibilityState === "hidden" });
+              // A visible page flushes at once (pause, seek, switch, exit). When the page becomes
+              // hidden, SyncProvider's keepalive flush sends this checkpoint; the player's listener
+              // runs first. A page that is unloading or already hidden sends its own keepalive flush
+              // only for a new checkpoint, because browsers share one small keepalive quota.
+              //
+              // 页面可见时立即补写 (暂停, 跳转, 切换, 离开). 页面隐藏时由 SyncProvider 的 keepalive
+              // 补写发送该进度, 播放器的监听器先执行. 页面卸载或已隐藏时, 只有写入了新进度才自行
+              // 发送 keepalive 补写, 因为浏览器的 keepalive 配额很小且共享.
+              if (reason === "interval" || reason === "hidden") return;
+              if (reason !== "pagehide" && document.visibilityState !== "hidden") {
+                void sync.engine?.flushNow();
+              } else if (wrote) {
+                void sync.engine?.flushNow({ keepalive: true });
               }
             }}
           />

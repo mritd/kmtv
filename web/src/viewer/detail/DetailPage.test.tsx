@@ -25,7 +25,7 @@ import {
   upsertSourceBundleDetail,
 } from "@/storage/sourceBundles";
 import { SyncProvider } from "@/sync/SyncContext";
-import type { SyncPullResponse } from "@/sync/types";
+import type { SyncPullResponse, SyncPushRequest } from "@/sync/types";
 import { emptyPullResponse, openSyncStore, seedSyncStore } from "@/test/syncFixtures";
 import { createTestAPI } from "@/test/testAPI";
 
@@ -122,14 +122,14 @@ function renderDetail(
     <APIProvider value={api}>
       <AuthProvider api={api} tokenStore={tokenStore} queryClient={client}>
         <QueryClientProvider client={client}>
-<SyncProvider>
-          <MemoryRouter initialEntries={[initialEntry]}>
-            <Routes>
-              <Route path="/detail/:token" element={<DetailPage />} />
-            </Routes>
-          </MemoryRouter>
-        </SyncProvider>
-</QueryClientProvider>
+          <SyncProvider>
+            <MemoryRouter initialEntries={[initialEntry]}>
+              <Routes>
+                <Route path="/detail/:token" element={<DetailPage />} />
+              </Routes>
+            </MemoryRouter>
+          </SyncProvider>
+        </QueryClientProvider>
       </AuthProvider>
     </APIProvider>,
   );
@@ -379,6 +379,83 @@ describe("DetailPage", () => {
     });
 
     expect(openSyncStore(1, "admin").get("watch", "Demo Show")!.eventTimeMs).toBe(written);
+  });
+
+  it("ignores the episode of a completed watch record", async () => {
+    seedSyncStore(1, "admin", (store) => store.upsert("watch", { ...episodeTwo, progress_sec: 115, completed: true }));
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    renderDetail(createTestAPI({ detail: twoEpisodes, playbackURL }));
+
+    await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/1.m3u8", "source-a"));
+    expect(playbackURL).not.toHaveBeenCalledWith("https://cdn.example/2.m3u8", "source-a");
+    expect((await loadMetadata()).currentTime).toBe(0);
+  });
+
+  it("does not seek to a completed watch record of the first episode", async () => {
+    seedSyncStore(1, "admin", (store) =>
+      store.upsert("watch", { ...episodeTwo, episode: "01", episode_index: 0, progress_sec: 115, completed: true }),
+    );
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    renderDetail(createTestAPI({ detail: twoEpisodes, playbackURL }));
+
+    await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/1.m3u8", "source-a"));
+    expect((await loadMetadata()).currentTime).toBe(0);
+  });
+
+  it("writes the final checkpoint before the hidden flush and sends one keepalive batch", async () => {
+    // Pushes never finish, so the watch record stays dirty and every flush would send it again.
+    //
+    // 推送永不完成, 观看记录保持待推送状态, 每次补写都会再次发送它.
+    const syncPush = vi.fn((_body: SyncPushRequest, _options?: { keepalive?: boolean }) => new Promise<never>(() => undefined));
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    renderDetail(createTestAPI({ detail: twoEpisodes, playbackURL, syncPush }));
+    await waitFor(() => expect(playbackURL).toHaveBeenCalled());
+    await waitFor(() => expect(artplayerMock.instances[0]).toBeDefined());
+    const player = artplayerMock.instances[0]!;
+    player.duration = 120;
+    player.currentTime = 10;
+    const pause = player.on.mock.calls.find(([event]) => event === "video:pause")?.[1] as () => void;
+    act(() => pause());
+    await waitFor(() => expect(syncPush).toHaveBeenCalledTimes(1));
+    expect(syncPush.mock.calls[0]).toMatchObject([{ changes: [{ payload: { progress_sec: 10 } }] }, { keepalive: false }]);
+
+    player.currentTime = 42;
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const keepalivePushes = () => syncPush.mock.calls.filter(([, options]) => options?.keepalive);
+    expect(keepalivePushes()).toHaveLength(1);
+    expect(keepalivePushes()[0]).toMatchObject([{ changes: [{ payload: { progress_sec: 42 } }] }, { keepalive: true }]);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(keepalivePushes()).toHaveLength(1);
+
+    player.currentTime = 50;
+    await act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(keepalivePushes()).toHaveLength(2);
+    expect(keepalivePushes()[1]).toMatchObject([{ changes: [{ payload: { progress_sec: 50 } }] }, { keepalive: true }]);
+  });
+
+  it("does not remember an automatic episode selection", async () => {
+    seedSyncStore(1, "admin", (store) => store.upsert("watch", episodeTwo));
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    renderDetail(createTestAPI({ detail: twoEpisodes, playbackURL }));
+
+    await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/2.m3u8", "source-a"));
+    expect(window.sessionStorage.getItem("kmtv.detail.episode.v1:source-a:video-a")).toBeNull();
+  });
+
+  it("does not remember the first playable episode chosen without a watch record", async () => {
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    renderDetail(createTestAPI({ detail: twoEpisodes, playbackURL }));
+
+    await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/1.m3u8", "source-a"));
+    expect(window.sessionStorage.getItem("kmtv.detail.episode.v1:source-a:video-a")).toBeNull();
   });
 
   it("remembers the picked episode of the route for a reload", async () => {
@@ -928,14 +1005,14 @@ describe("DetailPage", () => {
           queryClient={client}
         >
           <QueryClientProvider client={client}>
-<SyncProvider>
-            <MemoryRouter initialEntries={[DETAIL_A]}>
-              <SameRouteStateHarness
-                sourceBundle={bundleFromSearchResult(stateResult)}
-              />
-            </MemoryRouter>
-          </SyncProvider>
-</QueryClientProvider>
+            <SyncProvider>
+              <MemoryRouter initialEntries={[DETAIL_A]}>
+                <SameRouteStateHarness
+                  sourceBundle={bundleFromSearchResult(stateResult)}
+                />
+              </MemoryRouter>
+            </SyncProvider>
+          </QueryClientProvider>
         </AuthProvider>
       </APIProvider>,
     );
@@ -1245,21 +1322,21 @@ describe("DetailPage", () => {
           queryClient={client}
         >
           <QueryClientProvider client={client}>
-<SyncProvider>
-            <MemoryRouter
-              initialEntries={[
-                {
-                  pathname: DETAIL_A,
-                  state: {
-                    sourceBundle: bundleFromSearchResult(multiSourceResult),
+            <SyncProvider>
+              <MemoryRouter
+                initialEntries={[
+                  {
+                    pathname: DETAIL_A,
+                    state: {
+                      sourceBundle: bundleFromSearchResult(multiSourceResult),
+                    },
                   },
-                },
-              ]}
-            >
-              <RouteChangeHarness />
-            </MemoryRouter>
-          </SyncProvider>
-</QueryClientProvider>
+                ]}
+              >
+                <RouteChangeHarness />
+              </MemoryRouter>
+            </SyncProvider>
+          </QueryClientProvider>
         </AuthProvider>
       </APIProvider>,
     );
@@ -1339,21 +1416,21 @@ describe("DetailPage", () => {
           queryClient={client}
         >
           <QueryClientProvider client={client}>
-<SyncProvider>
-            <MemoryRouter
-              initialEntries={[
-                {
-                  pathname: DETAIL_A,
-                  state: {
-                    sourceBundle: bundleFromSearchResult(multiSourceResult),
+            <SyncProvider>
+              <MemoryRouter
+                initialEntries={[
+                  {
+                    pathname: DETAIL_A,
+                    state: {
+                      sourceBundle: bundleFromSearchResult(multiSourceResult),
+                    },
                   },
-                },
-              ]}
-            >
-              <SameRouteStateHarness sourceBundle={nextBundle} />
-            </MemoryRouter>
-          </SyncProvider>
-</QueryClientProvider>
+                ]}
+              >
+                <SameRouteStateHarness sourceBundle={nextBundle} />
+              </MemoryRouter>
+            </SyncProvider>
+          </QueryClientProvider>
         </AuthProvider>
       </APIProvider>,
     );
@@ -1417,23 +1494,23 @@ describe("DetailPage", () => {
           queryClient={client}
         >
           <QueryClientProvider client={client}>
-<SyncProvider>
-            <MemoryRouter
-              initialEntries={[
-                {
-                  pathname: DETAIL_A,
-                  state: {
-                    sourceBundle: bundleFromSearchResult(multiSourceResult),
+            <SyncProvider>
+              <MemoryRouter
+                initialEntries={[
+                  {
+                    pathname: DETAIL_A,
+                    state: {
+                      sourceBundle: bundleFromSearchResult(multiSourceResult),
+                    },
                   },
-                },
-              ]}
-            >
-              <SameRouteStateHarness
-                sourceBundle={bundleFromSearchResult(multiSourceResult)}
-              />
-            </MemoryRouter>
-          </SyncProvider>
-</QueryClientProvider>
+                ]}
+              >
+                <SameRouteStateHarness
+                  sourceBundle={bundleFromSearchResult(multiSourceResult)}
+                />
+              </MemoryRouter>
+            </SyncProvider>
+          </QueryClientProvider>
         </AuthProvider>
       </APIProvider>,
     );
@@ -1840,21 +1917,21 @@ describe("DetailPage", () => {
           queryClient={client}
         >
           <QueryClientProvider client={client}>
-<SyncProvider>
-            <MemoryRouter
-              initialEntries={[
-                {
-                  pathname: DETAIL_A,
-                  state: {
-                    sourceBundle: bundleFromSearchResult(multiSourceResult),
+            <SyncProvider>
+              <MemoryRouter
+                initialEntries={[
+                  {
+                    pathname: DETAIL_A,
+                    state: {
+                      sourceBundle: bundleFromSearchResult(multiSourceResult),
+                    },
                   },
-                },
-              ]}
-            >
-              <RouteChangeHarness />
-            </MemoryRouter>
-          </SyncProvider>
-</QueryClientProvider>
+                ]}
+              >
+                <RouteChangeHarness />
+              </MemoryRouter>
+            </SyncProvider>
+          </QueryClientProvider>
         </AuthProvider>
       </APIProvider>,
     );
@@ -2074,12 +2151,12 @@ describe("DetailPage", () => {
           queryClient={client}
         >
           <QueryClientProvider client={client}>
-<SyncProvider>
-            <MemoryRouter initialEntries={[DETAIL_A]}>
-              <NavHarness />
-            </MemoryRouter>
-          </SyncProvider>
-</QueryClientProvider>
+            <SyncProvider>
+              <MemoryRouter initialEntries={[DETAIL_A]}>
+                <NavHarness />
+              </MemoryRouter>
+            </SyncProvider>
+          </QueryClientProvider>
         </AuthProvider>
       </APIProvider>,
     );
