@@ -153,6 +153,18 @@ func (h *Handler) SyncPull(c *gin.Context) {
 		}
 		limit = min(parsed, maxSyncPullLimit)
 	}
+	// full marks a page of a pull chain that started at since=0 (first sync or full resync).
+	//
+	// full 表示本页属于从 since=0 开始的拉取链 (首次同步或全量重同步).
+	var full bool
+	if raw := c.Query("full"); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, errs.InvalidRequest.WithMsg("full must be a boolean"))
+			return
+		}
+		full = parsed
+	}
 	epoch, err := h.store.SyncEpoch()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, errs.ServerError.WithMsg("failed to read sync epoch"))
@@ -174,7 +186,7 @@ func (h *Handler) SyncPull(c *gin.Context) {
 		})
 		return
 	}
-	page, err := h.store.PullSyncChanges(user.ID, since, limit)
+	page, err := h.store.PullSyncChanges(user.ID, since, limit, full)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, errs.ServerError.WithMsg("failed to pull sync changes"))
 		return

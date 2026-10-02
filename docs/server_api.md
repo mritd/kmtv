@@ -487,6 +487,7 @@ Protected. Returns changes after a revision cursor.
 | `since` | No       | `0`     | Last `rev` the client applied |
 | `epoch` | No       | empty   | Epoch the client last saw |
 | `limit` | No       | `500`   | Items per page, capped at `1000` |
+| `full`  | No       | `false` | Boolean (`1` or `true`); set on every page of a chain that started at `since=0` |
 
 Success `200`:
 
@@ -502,16 +503,26 @@ Success `200`:
 }
 ```
 
-Records and clears are ordered by `rev`. `rev` is the highest rev on the page (or `since` for an
-empty page); send it back as the next `since` and keep paging while `has_more` is true. Apply a
-page's clears before its records.
+Records and clears are ordered by `rev`. While `has_more` is true, `rev` is the highest rev on the
+page. On the last page (`has_more: false`) it is the user's current revision, which can be above the
+page's last item when the newest revisions belonged to purged tombstones; the page is read from one
+snapshot that holds every row up to that revision, so nothing is skipped. Send `rev` back as the next
+`since` and keep paging while `has_more` is true. Apply a page's clears before its records.
 
 `reset: true` comes with empty lists and `rev` set to the user's current revision. It is returned
 when `epoch` differs from the server's (the database was reset), when `since` is greater than
-`rev` (the database was restored from an older copy), or when `since > 0` and `since` is below the GC
-floor (`min_rev`, the highest rev of purged tombstones). In the first two cases the server lost data the client has, so the client marks
-all local records for upload and pulls again from `since=0`. In the last case the client runs a
-full resync: it pulls from `since=0` and drops synced local records the server no longer has.
+`rev` (the database was restored from an older copy), or when `since > 0`, `full` is not set, and
+`since` is below the GC floor (`min_rev`, the highest rev of purged tombstones). In the first two
+cases the server lost data the client has, so the client marks all local records for upload and
+pulls again from `since=0`, unless the username stored for that scope differs from the current one,
+in which case it drops that scope's local data instead (the user ID may now belong to another
+account). In the last case the client runs a full resync: it pulls from `since=0` and drops synced
+local records the server no longer has.
+
+A client sends `full=1` on every page of a chain that started at `since=0` (a first sync or a full
+resync). Such a chain rebuilds the client's state from scratch, so the server skips the GC floor
+check for it: a tombstone purged mid-chain only hides a record that the client then drops as unseen
+when the full resync ends. The `since > rev` check and the epoch check still apply.
 
 Common errors: `400 InvalidRequest`, `401 NotLoggedIn`, `500 ServerError`.
 

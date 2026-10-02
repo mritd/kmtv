@@ -413,12 +413,13 @@ func getSyncClear(q syncQuerier, userID int64, kind model.SyncKind) (*model.Sync
 
 // PullSyncChanges returns up to limit records and clears with rev > since, ordered by rev.
 // It asks for a resync (Reset) when since is below the GC floor or above the user's rev, and
-// then reports the current rev so the client can tell the two cases apart.
+// then reports the current rev so the client can tell the two cases apart. full marks a page
+// of a chain that started at since=0 and skips the GC floor check.
 //
 // PullSyncChanges 返回最多 limit 条 rev > since 的记录和清空事件, 按 rev 排序.
 // since 低于回收下限或高于用户当前 rev 时要求客户端重同步 (Reset), 并返回当前 rev,
-// 让客户端区分这两种情况.
-func (s *Store) PullSyncChanges(userID, since int64, limit int) (*model.SyncPullPage, error) {
+// 让客户端区分这两种情况. full 表示本页属于从 since=0 开始的拉取链, 此时跳过回收下限检查.
+func (s *Store) PullSyncChanges(userID, since int64, limit int, full bool) (*model.SyncPullPage, error) {
 	if userID <= 0 || since < 0 || limit <= 0 {
 		return nil, errs.ErrInvalidRequest
 	}
@@ -438,7 +439,14 @@ func (s *Store) PullSyncChanges(userID, since int64, limit int) (*model.SyncPull
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("read sync state: %w", err)
 	}
-	if since > rev || (since > 0 && since < minRev) {
+	// A chain from 0 builds the client state from scratch. A tombstone purged mid-chain only hides
+	// a record the client then removes as unseen at the end of the full resync, so full may skip
+	// the GC floor. The since > rev check still detects a restore.
+	//
+	// 从 0 开始的拉取链会从头构建客户端状态. 拉取链中途被回收的删除标记只会隐藏一条记录,
+	// 而客户端在全量重同步结束时会删除未见到的记录, 因此 full 可以跳过回收下限.
+	// since > rev 检查仍用于发现恢复.
+	if since > rev || (!full && since > 0 && since < minRev) {
 		page.Reset = true
 		page.Rev = rev
 		return page, nil
@@ -490,6 +498,15 @@ func (s *Store) PullSyncChanges(userID, since int64, limit int) (*model.SyncPull
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate sync changes: %w", err)
+	}
+	if !page.HasMore {
+		// The last page reports the user's rev, not its last item's rev. The snapshot holds every
+		// row up to rev, so nothing is skipped, and a cursor never stays below min_rev when the
+		// newest revs were purged tombstones.
+		//
+		// 最后一页返回用户当前 rev, 而不是本页最后一项的 rev. 快照包含 rev 以内的所有行, 不会漏项,
+		// 并且最新的 rev 属于已回收的删除标记时, 游标也不会停在 min_rev 之下.
+		page.Rev = rev
 	}
 	return page, nil
 }

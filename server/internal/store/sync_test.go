@@ -277,7 +277,7 @@ func TestPushSyncClearRejectsOlderWrites(t *testing.T) {
 	if res.Status != model.SyncStatusApplied || res.Clear == nil || res.Clear.ClearedAtMS != 2000 {
 		t.Fatalf("clear: %+v", res)
 	}
-	page, err := s.PullSyncChanges(user, 0, 100)
+	page, err := s.PullSyncChanges(user, 0, 100, false)
 	if err != nil {
 		t.Fatalf("PullSyncChanges: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestPushSyncTrimsSearchAndWatch(t *testing.T) {
 	if _, _, err := s.PushSyncChanges(user, changes, syncTestNow); err != nil {
 		t.Fatalf("PushSyncChanges: %v", err)
 	}
-	page, err := s.PullSyncChanges(user, 0, 1000)
+	page, err := s.PullSyncChanges(user, 0, 1000, false)
 	if err != nil {
 		t.Fatalf("PullSyncChanges: %v", err)
 	}
@@ -382,7 +382,7 @@ func TestPushSyncConcurrentWritersOnFileDB(t *testing.T) {
 		live := 0
 		since := int64(0)
 		for {
-			page, err := s.PullSyncChanges(user, since, 30)
+			page, err := s.PullSyncChanges(user, since, 30, false)
 			if err != nil {
 				t.Fatalf("PullSyncChanges: %v", err)
 			}
@@ -436,7 +436,7 @@ func TestPushSyncTrimmedTombstoneGetsNewRev(t *testing.T) {
 	if _, _, err := s.PushSyncChanges(user, changes, syncTestNow); err != nil {
 		t.Fatalf("PushSyncChanges: %v", err)
 	}
-	page, err := s.PullSyncChanges(user, 0, 1000)
+	page, err := s.PullSyncChanges(user, 0, 1000, false)
 	if err != nil {
 		t.Fatalf("PullSyncChanges: %v", err)
 	}
@@ -448,7 +448,7 @@ func TestPushSyncTrimmedTombstoneGetsNewRev(t *testing.T) {
 	}
 
 	pushOne(t, s, user, syncSearch("newest", 5000))
-	page, err = s.PullSyncChanges(user, cursor, 1000)
+	page, err = s.PullSyncChanges(user, cursor, 1000, false)
 	if err != nil {
 		t.Fatalf("PullSyncChanges: %v", err)
 	}
@@ -478,7 +478,7 @@ func TestPushSyncClearEqualityBoundary(t *testing.T) {
 		t.Fatalf("upsert at exactly cleared_at_ms must be stale with no row: %+v", res)
 	}
 
-	page, err := s.PullSyncChanges(user, 0, 100)
+	page, err := s.PullSyncChanges(user, 0, 100, false)
 	if err != nil {
 		t.Fatalf("PullSyncChanges: %v", err)
 	}
@@ -502,7 +502,7 @@ func TestPullSyncPagesInRevOrder(t *testing.T) {
 		t.Fatalf("PushSyncChanges: %v", err)
 	}
 
-	page, err := s.PullSyncChanges(user, 0, 2)
+	page, err := s.PullSyncChanges(user, 0, 2, false)
 	if err != nil {
 		t.Fatalf("pull 1: %v", err)
 	}
@@ -510,7 +510,7 @@ func TestPullSyncPagesInRevOrder(t *testing.T) {
 		page.Records[0].Key != "a" || page.Records[1].Key != "q" {
 		t.Fatalf("page 1: %+v", page)
 	}
-	page, err = s.PullSyncChanges(user, page.Rev, 2)
+	page, err = s.PullSyncChanges(user, page.Rev, 2, false)
 	if err != nil {
 		t.Fatalf("pull 2: %v", err)
 	}
@@ -518,7 +518,7 @@ func TestPullSyncPagesInRevOrder(t *testing.T) {
 		len(page.Records) != 1 || page.Records[0].Key != "b" {
 		t.Fatalf("page 2: %+v", page)
 	}
-	page, err = s.PullSyncChanges(user, 4, 2)
+	page, err = s.PullSyncChanges(user, 4, 2, false)
 	if err != nil {
 		t.Fatalf("pull 3: %v", err)
 	}
@@ -532,14 +532,14 @@ func TestPullSyncResetsWhenCursorIsAhead(t *testing.T) {
 	user := newSyncTestUser(t, s, "sync_ahead")
 	pushOne(t, s, user, syncWatch("A", 1000))
 
-	page, err := s.PullSyncChanges(user, 5, 100)
+	page, err := s.PullSyncChanges(user, 5, 100, false)
 	if err != nil {
 		t.Fatalf("PullSyncChanges: %v", err)
 	}
 	if !page.Reset || page.Rev != 1 {
 		t.Fatalf("a cursor beyond the server rev must reset and report the current rev: %+v", page)
 	}
-	page, err = s.PullSyncChanges(newSyncTestUser(t, s, "sync_new"), 0, 100)
+	page, err = s.PullSyncChanges(newSyncTestUser(t, s, "sync_new"), 0, 100, false)
 	if err != nil || page.Reset {
 		t.Fatalf("a brand-new user pulling from 0 must not reset: %+v, %v", page, err)
 	}
@@ -560,16 +560,89 @@ func TestPurgeSyncTombstonesRaisesMinRev(t *testing.T) {
 		t.Fatalf("expected one purged tombstone, got %d (err %v)", purged, err)
 	}
 
-	page, err := s.PullSyncChanges(user, 1, 100)
+	page, err := s.PullSyncChanges(user, 1, 100, false)
 	if err != nil || !page.Reset || page.Rev != 2 {
 		t.Fatalf("since below min_rev must reset and report the current rev: %+v, %v", page, err)
 	}
-	page, err = s.PullSyncChanges(user, 2, 100)
+	page, err = s.PullSyncChanges(user, 2, 100, false)
 	if err != nil || page.Reset {
 		t.Fatalf("since at min_rev must not reset: %+v, %v", page, err)
 	}
-	page, err = s.PullSyncChanges(user, 0, 100)
+	page, err = s.PullSyncChanges(user, 0, 100, false)
 	if err != nil || page.Reset || len(page.Records) != 1 || page.Records[0].Key != "keep" {
 		t.Fatalf("full pull after GC: %+v, %v", page, err)
+	}
+}
+
+func TestPullSyncLastPageReportsUserRevAfterNewestTombstonesPurged(t *testing.T) {
+	s := newTestStore(t)
+	user := newSyncTestUser(t, s, "sync_gc_tail")
+	pushOne(t, s, user, syncFavorite("Keep", 1000))
+	pushOne(t, s, user, syncDelete(model.SyncKindFavorite, "gone", 1001))
+	if purged, err := s.PurgeSyncTombstones(syncTestNow.Add(time.Millisecond)); err != nil || purged != 1 {
+		t.Fatalf("expected one purged tombstone, got %d (err %v)", purged, err)
+	}
+
+	// The newest rev belonged to the purged tombstone, so min_rev equals the user's rev.
+	//
+	// 最新的 rev 属于已回收的删除标记, 因此 min_rev 等于用户当前 rev.
+	page, err := s.PullSyncChanges(user, 0, 100, false)
+	if err != nil || page.Reset || page.HasMore || len(page.Records) != 1 || page.Rev != 2 {
+		t.Fatalf("the last page of a full pull must report the user's rev: %+v, %v", page, err)
+	}
+	page, err = s.PullSyncChanges(user, page.Rev, 100, false)
+	if err != nil || page.Reset || page.Rev != 2 {
+		t.Fatalf("a delta pull from the full pull's cursor must not reset: %+v, %v", page, err)
+	}
+}
+
+func TestPullSyncFullChainSkipsGCFloor(t *testing.T) {
+	s := newTestStore(t)
+	user := newSyncTestUser(t, s, "sync_gc_full")
+	for i := range 5 {
+		pushOne(t, s, user, syncFavorite(fmt.Sprintf("Fav %d", i), int64(1000+i)))
+	}
+	pushOne(t, s, user, syncDelete(model.SyncKindFavorite, "fav 4", 2000))
+	if purged, err := s.PurgeSyncTombstones(syncTestNow.Add(time.Millisecond)); err != nil || purged != 1 {
+		t.Fatalf("expected one purged tombstone, got %d (err %v)", purged, err)
+	}
+	pushOne(t, s, user, syncWatch("New", 3000))
+
+	// Revs 1-4 hold favorites, 6 the purged tombstone (min_rev), and 7 the watch record, so a
+	// chain from 0 with limit 2 asks for page 2 with since below min_rev.
+	//
+	// rev 1-4 是收藏, 6 是已回收的删除标记 (min_rev), 7 是观看记录, 因此 limit 为 2 的
+	// 从 0 开始的拉取链在第 2 页时 since 低于 min_rev.
+	page, err := s.PullSyncChanges(user, 0, 2, false)
+	if err != nil || page.Reset || !page.HasMore || page.Rev != 2 {
+		t.Fatalf("page 1: %+v, %v", page, err)
+	}
+	if page, err := s.PullSyncChanges(user, page.Rev, 2, false); err != nil || !page.Reset || page.Rev != 7 {
+		t.Fatalf("without full, a page below min_rev must reset: %+v, %v", page, err)
+	}
+
+	var keys []string
+	since := int64(0)
+	for pages := 0; ; pages++ {
+		if pages > 5 {
+			t.Fatalf("full chain did not finish")
+		}
+		page, err := s.PullSyncChanges(user, since, 2, true)
+		if err != nil || page.Reset {
+			t.Fatalf("a full chain must not reset below min_rev: %+v, %v", page, err)
+		}
+		for _, r := range page.Records {
+			keys = append(keys, r.Key)
+		}
+		since = page.Rev
+		if !page.HasMore {
+			break
+		}
+	}
+	if fmt.Sprint(keys) != "[fav 0 fav 1 fav 2 fav 3 new]" || since != 7 {
+		t.Fatalf("full chain keys = %v, cursor = %d", keys, since)
+	}
+	if page, err := s.PullSyncChanges(user, 8, 2, true); err != nil || !page.Reset || page.Rev != 7 {
+		t.Fatalf("full must keep the reset for since beyond the rev: %+v, %v", page, err)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func performSyncRequest(t *testing.T, r http.Handler, method, path, bearer string, body any) *httptest.ResponseRecorder {
@@ -245,12 +246,51 @@ func TestSyncPullValidatesQuery(t *testing.T) {
 	h, r := setupTestHandler(t)
 	createTestUser(t, h, "sync_query_api", "pass", "user")
 	bearer := loginAndGetBearer(t, r, "sync_query_api", "pass")
-	for _, path := range []string{"/api/v1/sync/pull?since=-1", "/api/v1/sync/pull?since=x", "/api/v1/sync/pull?limit=0"} {
+	for _, path := range []string{"/api/v1/sync/pull?since=-1", "/api/v1/sync/pull?since=x", "/api/v1/sync/pull?limit=0", "/api/v1/sync/pull?full=x"} {
 		if rec := performSyncRequest(t, r, http.MethodGet, path, bearer, nil); rec.Code != http.StatusBadRequest {
 			t.Fatalf("%s: expected 400, got %d", path, rec.Code)
 		}
 	}
 	if rec := performSyncRequest(t, r, http.MethodGet, "/api/v1/sync/pull?limit=5000", bearer, nil); rec.Code != http.StatusOK {
 		t.Fatalf("large limit must be clamped, got %d", rec.Code)
+	}
+}
+
+func TestSyncPullFullSkipsGCFloor(t *testing.T) {
+	h, r := setupTestHandler(t)
+	createTestUser(t, h, "sync_full_api", "pass", "user")
+	bearer := loginAndGetBearer(t, r, "sync_full_api", "pass")
+	push := func(change map[string]any) {
+		t.Helper()
+		rec := performSyncRequest(t, r, http.MethodPost, "/api/v1/sync/push", bearer, map[string]any{"changes": []map[string]any{change}})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("push: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+	push(map[string]any{"kind": "favorite", "op": "upsert", "event_time_ms": 1000, "payload": map[string]any{"title": "A"}})
+	push(map[string]any{"kind": "favorite", "op": "upsert", "event_time_ms": 1001, "payload": map[string]any{"title": "B"}})
+	push(map[string]any{"kind": "favorite", "op": "delete", "key": "b", "event_time_ms": 1002})
+	if purged, err := h.store.PurgeSyncTombstones(time.Now().Add(time.Hour)); err != nil || purged != 1 {
+		t.Fatalf("expected one purged tombstone, got %d (err %v)", purged, err)
+	}
+	push(map[string]any{"kind": "favorite", "op": "upsert", "event_time_ms": 1003, "payload": map[string]any{"title": "C"}})
+
+	// Revs: a=1, b=2, the purged tombstone 3 (min_rev), c=4.
+	//
+	// rev: a=1, b=2, 已回收的删除标记为 3 (min_rev), c=4.
+	pull := decodeSync[syncPullReply](t, performSyncRequest(t, r, http.MethodGet, "/api/v1/sync/pull?since=1", bearer, nil))
+	if !pull.Reset || pull.Rev != 4 {
+		t.Fatalf("a delta pull below min_rev must reset: %+v", pull)
+	}
+	for _, flag := range []string{"1", "true"} {
+		rec := performSyncRequest(t, r, http.MethodGet, "/api/v1/sync/pull?since=1&full="+flag, bearer, nil)
+		pull = decodeSync[syncPullReply](t, rec)
+		if rec.Code != http.StatusOK || pull.Reset || pull.Rev != 4 || len(pull.Records) != 1 || pull.Records[0].Key != "c" {
+			t.Fatalf("full=%s must skip the GC floor: %d %+v", flag, rec.Code, pull)
+		}
+	}
+	pull = decodeSync[syncPullReply](t, performSyncRequest(t, r, http.MethodGet, "/api/v1/sync/pull?since=9&full=1", bearer, nil))
+	if !pull.Reset || pull.Rev != 4 {
+		t.Fatalf("full must keep the reset for a cursor beyond the rev: %+v", pull)
 	}
 }

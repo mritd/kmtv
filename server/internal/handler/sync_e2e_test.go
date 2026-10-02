@@ -209,9 +209,16 @@ func (d *simDevice) push() bool {
 func (d *simDevice) pull() bool {
 	d.t.Helper()
 	full := false
+	// Every page of a chain that started at since=0 sends full=1, as the clients do.
+	//
+	// 从 since=0 开始的拉取链每页都带 full=1, 与客户端一致.
+	fromZero := d.cursor == 0
 	seen := map[string]bool{}
 	for {
 		path := fmt.Sprintf("/api/v1/sync/pull?since=%d&epoch=%s&limit=2", d.cursor, url.QueryEscape(d.epoch))
+		if fromZero {
+			path += "&full=1"
+		}
 		rec := performSyncRequest(d.t, d.r, http.MethodGet, path, d.bearer, nil)
 		if rec.Code != http.StatusOK {
 			d.t.Fatalf("%s pull: %d %s", d.name, rec.Code, rec.Body.String())
@@ -230,7 +237,7 @@ func (d *simDevice) pull() bool {
 				d.markForReupload()
 				return false
 			}
-			d.cursor, full, seen = 0, true, map[string]bool{}
+			d.cursor, full, fromZero, seen = 0, true, true, map[string]bool{}
 			continue
 		}
 		d.epoch = page.Epoch
