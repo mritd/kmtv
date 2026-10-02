@@ -114,25 +114,34 @@ func invalidSyncResult(reason string) model.SyncResult {
 	return model.SyncResult{Status: model.SyncStatusInvalid, Reason: reason}
 }
 
-// clampSyncEventTimes maps every event time in the batch that is more than syncMaxFutureLead
-// ahead of now onto now, now+1, ... in ascending order. Equal times stay equal, so clamping keeps
-// the order of changes inside one batch (a clear followed by a newer upsert still lets the upsert win).
+// clampSyncEventTimes returns the event time remapping for one batch. If no time in the batch is
+// more than syncMaxFutureLead ahead of now, it returns an empty map. Otherwise every distinct event
+// time >= now maps to now, now+1, ... in ascending order, and times before now stay unchanged.
+// Equal times stay equal, so clamping keeps the order of changes inside one batch, including
+// changes on both sides of the threshold (a clear followed by a newer upsert still lets the upsert win).
 //
-// clampSyncEventTimes 把本批中超前 now 超过 syncMaxFutureLead 的事件时间按升序映射为 now, now+1, ....
-// 相同时间映射后仍相同, 因此钳制不会打乱同一批内变更的先后 (先清空后写入时, 较新的写入仍然生效).
+// clampSyncEventTimes 返回一批变更的事件时间映射. 若本批没有任何时间超前 now 超过 syncMaxFutureLead,
+// 返回空 map. 否则所有不早于 now 的不同事件时间按升序映射为 now, now+1, ..., 早于 now 的时间保持不变.
+// 相同时间映射后仍相同, 因此钳制不会打乱同一批内变更的先后, 包括跨越阈值两侧的变更
+// (先清空后写入时, 较新的写入仍然生效).
 func clampSyncEventTimes(changes []model.SyncChange, now time.Time) map[int64]int64 {
+	nowMS := now.UnixMilli()
 	limit := now.Add(syncMaxFutureLead).UnixMilli()
-	var future []int64
+	exceeded := slices.ContainsFunc(changes, func(c model.SyncChange) bool { return c.EventTimeMS > limit })
+	if !exceeded {
+		return map[int64]int64{}
+	}
+	var times []int64
 	for _, change := range changes {
-		if change.EventTimeMS > limit {
-			future = append(future, change.EventTimeMS)
+		if change.EventTimeMS >= nowMS {
+			times = append(times, change.EventTimeMS)
 		}
 	}
-	slices.Sort(future)
-	future = slices.Compact(future)
-	clamped := make(map[int64]int64, len(future))
-	for i, eventTime := range future {
-		clamped[eventTime] = now.UnixMilli() + int64(i)
+	slices.Sort(times)
+	times = slices.Compact(times)
+	clamped := make(map[int64]int64, len(times))
+	for i, eventTime := range times {
+		clamped[eventTime] = nowMS + int64(i)
 	}
 	return clamped
 }
@@ -303,6 +312,10 @@ func trimSyncRecords(tx *sql.Tx, userID int64, kind model.SyncKind, now time.Tim
 			return fmt.Errorf("scan trimmed sync record: %w", err)
 		}
 		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("iterate trimmed sync records: %w", err)
 	}
 	if err := rows.Close(); err != nil {
 		return fmt.Errorf("close trimmed sync records: %w", err)

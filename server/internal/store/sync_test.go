@@ -168,6 +168,26 @@ func TestPushSyncClampKeepsBatchOrder(t *testing.T) {
 	}
 }
 
+func TestPushSyncClampKeepsOrderAcrossThreshold(t *testing.T) {
+	s := newTestStore(t)
+	user := newSyncTestUser(t, s, "sync_clamp_straddle")
+	now := syncTestNow.UnixMilli()
+
+	_, results, err := s.PushSyncChanges(user, []model.SyncChange{
+		syncClear(model.SyncKindSearch, now+900),
+		syncSearch("Straddle", now+1100),
+	}, syncTestNow)
+	if err != nil {
+		t.Fatalf("PushSyncChanges: %v", err)
+	}
+	if results[0].Status != model.SyncStatusApplied || results[0].Clear.ClearedAtMS != now {
+		t.Fatalf("clear below the limit must be remapped with the batch: %+v", results[0])
+	}
+	if results[1].Status != model.SyncStatusApplied || results[1].Record.EventTimeMS != now+1 {
+		t.Fatalf("upsert after the clear must survive: %+v", results[1])
+	}
+}
+
 func TestPushSyncFavoriteLimit(t *testing.T) {
 	s := newTestStore(t)
 	user := newSyncTestUser(t, s, "sync_limit")
