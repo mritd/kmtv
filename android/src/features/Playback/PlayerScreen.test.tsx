@@ -6,7 +6,7 @@ import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import React from "react";
 import { I18nextProvider } from "react-i18next";
 import i18next from "i18next";
-import { BackHandler, NativeModules, StyleSheet } from "react-native";
+import { AppState, BackHandler, NativeModules, StyleSheet } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ViewType } from "react-native-video";
 
@@ -219,25 +219,16 @@ test("Video onLoad seeks to resume position and marks consumed", async () => {
 });
 
 test("Video onLoad clamps an over-duration resume position before seeking", async () => {
-  const { recordPlayProgress } = require("@/storage/watchHistory");
   const serverURL = "http://srv-player-clamp";
   const destination: PlayDestination = { ...dest, title: "Clamp T" };
-  recordPlayProgress(serverURL, {
-    id: "a:v-a:0",
-    sourceKey: "a",
-    videoId: "v-a",
-    title: destination.title,
-    cover: "",
-		episode: "E1",
-		groupIndex: 0,
-		episodeIndex: 0,
-    progress: 700,
-		duration: 900,
-		completed: false,
+  const store = memorySyncStore();
+  store.upsert("watch", {
+    title: destination.title, cover: "", source_key: "a", video_id: "v-a", episode: "E1",
+    group_index: 0, episode_index: 0, progress_sec: 700, duration_sec: 900, completed: false,
   });
   const detailAPI: DetailAPI = { detail: jest.fn().mockResolvedValue(detail) };
   const playbackAPI: PlaybackAPI = { playbackURL: jest.fn().mockResolvedValue({ mode: "proxy", url: "https://p/m3u8" }) };
-  const { findByTestId } = wrap(detailAPI, playbackAPI, jest.fn(), destination, serverURL);
+  const { findByTestId } = wrap(detailAPI, playbackAPI, jest.fn(), destination, serverURL, store);
   const video = await findByTestId("video");
   const seek = (globalThis as { __lastMockVideoSeek?: jest.Mock }).__lastMockVideoSeek;
   await act(async () => { fireEvent(video, "onLoad", { duration: 600 }); });
@@ -352,4 +343,39 @@ test("BackHandler dismisses full-screen before popping", async () => {
   act(() => { normalHandler(); });
   expect(onClose).toHaveBeenCalled();
   spy.mockRestore();
+});
+
+test("checkpoints and flushes when the app leaves the foreground", async () => {
+  const store = memorySyncStore(1, "alice");
+  const engine = { requestSync: jest.fn(async () => undefined), flushNow: jest.fn(async () => undefined), start: jest.fn(), stop: jest.fn() };
+  let onChange: ((state: string) => void) | undefined;
+  jest.spyOn(AppState, "addEventListener").mockImplementation((_type, handler) => {
+    onChange = handler as (state: string) => void;
+    return { remove: jest.fn() } as never;
+  });
+  const detailAPI: DetailAPI = { detail: jest.fn().mockResolvedValue(detail) };
+  const playbackAPI: PlaybackAPI = { playbackURL: jest.fn().mockResolvedValue({ mode: "proxy", url: "https://p/m3u8" }) };
+  const { findByTestId } = render(
+    <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+      <I18nextProvider i18n={i18next}>
+        <ThemeProvider override="light">
+          <SyncTestProvider store={store} engine={engine}>
+            <PlayerScreenContext.Provider value={{ detailAPI, playbackAPI, serverURL: "http://srv-bg", onClose: jest.fn() }}>
+              <PlayerScreen route={{ params: dest }} />
+            </PlayerScreenContext.Provider>
+          </SyncTestProvider>
+        </ThemeProvider>
+      </I18nextProvider>
+    </SafeAreaProvider>,
+  );
+  const video = await findByTestId("video");
+  await act(async () => { fireEvent(video, "onLoad", { duration: 100 }); });
+  // Under the 5-second save interval, so only the background checkpoint can store it.
+  //
+  // 低于 5 秒的保存间隔, 因此只有退到后台时的检查点能保存它.
+  await act(async () => { fireEvent(video, "onProgress", { currentTime: 3, seekableDuration: 100 }); });
+  expect(store.get("watch", "T")).toBeNull();
+  act(() => { onChange?.("background"); });
+  expect(store.get("watch", "T")?.payload).toMatchObject({ progress_sec: 3, duration_sec: 100, source_key: "a" });
+  expect(engine.flushNow).toHaveBeenCalled();
 });

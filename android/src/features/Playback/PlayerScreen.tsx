@@ -6,14 +6,13 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import {
-  BackHandler, Modal, Pressable, ScrollView, StyleSheet, Text, View,
+  AppState, BackHandler, Modal, Pressable, ScrollView, StyleSheet, Text, View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Video, { ViewType } from "react-native-video";
 
 import { createAPIClient } from "@/api/client";
 import { createDetailAPI, type DetailAPI } from "@/api/detail";
-import { createWatchHistoryAPI, type WatchHistoryAPI } from "@/api/history";
 import { createPlaybackAPI, type PlaybackAPI } from "@/api/playback";
 import type { PlayDestination } from "@/api/types";
 import { sizes } from "@/designSystem/theme";
@@ -21,6 +20,9 @@ import { useTheme } from "@/designSystem/useTheme";
 import { setAndroidOrientation } from "@/native/screenOrientation";
 import { useAuthStore } from "@/store/authStore";
 import { useServerStore } from "@/store/serverStore";
+import { useSync } from "@/sync/SyncContext";
+import type { WatchPayload } from "@/sync/types";
+import { useWatchResume } from "@/sync/useWatchResume";
 
 import { CustomSlider } from "./CustomSlider";
 import { EpisodeGrid } from "./EpisodeGrid";
@@ -81,7 +83,6 @@ export function progressDurationFor(
 export interface PlayerScreenContextValue {
   detailAPI: DetailAPI;
   playbackAPI: PlaybackAPI;
-  historyAPI?: WatchHistoryAPI;
   serverURL: string;
   onClose: () => void;
 }
@@ -102,7 +103,7 @@ function useDefaultContext(onClose: () => void): PlayerScreenContextValue | null
       getToken: () => useAuthStore.getState().token,
       onUnauthorized: () => useAuthStore.getState().handleAuthExpired(),
     });
-    return { detailAPI: createDetailAPI(client), playbackAPI: createPlaybackAPI(client), historyAPI: createWatchHistoryAPI(client) };
+    return { detailAPI: createDetailAPI(client), playbackAPI: createPlaybackAPI(client) };
   }, [serverURL]);
   return apis && serverURL ? { ...apis, serverURL, onClose } : null;
 }
@@ -134,15 +135,24 @@ export function PlayerScreen({ route, navigation }: PlayerScreenProps) {
 function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; destination: PlayDestination }) {
 	const { colors } = useTheme();
 	const { t } = useTranslation("playback");
-	const userID = useAuthStore((s) => s.user?.id ?? 0);
 	const insets = useSafeAreaInsets();
-	const { state, historyReady, resumeStartSeconds, actions, stateRef } = usePlayer({
-		serverURL: ctx.serverURL,
-		userID,
+  const sync = useSync();
+  const engine = sync.status === "ready" ? sync.engine : null;
+  const resume = useWatchResume(destination.title);
+  const saveWatch = useCallback((payload: WatchPayload) => {
+    if (sync.status === "ready") sync.store.upsert("watch", payload);
+  }, [sync]);
+  const flushWatch = useCallback(() => {
+    void engine?.flushNow();
+  }, [engine]);
+  const { state, historyReady, resumeStartSeconds, actions, stateRef } = usePlayer({
+    serverURL: ctx.serverURL,
     destination,
     detailAPI: ctx.detailAPI,
     playbackAPI: ctx.playbackAPI,
-		historyAPI: userID > 0 ? ctx.historyAPI : undefined,
+    resume,
+    saveWatch,
+    flushWatch,
   });
   const playbackURL = state.playbackURL;
 
@@ -210,10 +220,22 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
     return () => sub.remove();
   }, [ctx, isFullScreen, setFullScreenPreservingPosition]);
 
-  // Persist progress on unmount.
+  // Checkpoint and push when the screen unmounts or the app leaves the foreground, so another
+  // device can resume from here.
   //
-  // 卸载时持久化进度.
-  useEffect(() => () => { actions.persistProgressNow(); }, [actions]);
+  // 页面卸载或应用离开前台时保存进度并推送, 让其他设备能从这里继续.
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (next) => {
+      if (next === "active") return;
+      actions.persistProgressNow();
+      void engine?.flushNow();
+    });
+    return () => {
+      subscription.remove();
+      actions.persistProgressNow();
+      void engine?.flushNow();
+    };
+  }, [actions, engine]);
 
   const onSeekCommit = (ratio: number) => {
     const target = ratio * Math.max(state.duration, 1);
@@ -256,12 +278,12 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
           actions.setPlaying(true);
           return;
         }
-        // First onLoad for a freshly-resolved URL: seek to resumeStartSeconds (watchHistory +
+        // First onLoad for a freshly-resolved URL: seek to resumeStartSeconds (watch record +
         // skipIntro), mark the resume consumed, and seed currentTime/duration. Subsequent onLoad
         // events (Android's onLoad can fire after a rate / track change with the same URL) only
         // refresh duration so they don't yank the player back to the resume point.
         //
-        // 新 URL 的首个 onLoad: seek 到 resumeStartSeconds (watchHistory + skipIntro), 标记消费, 写入
+        // 新 URL 的首个 onLoad: seek 到 resumeStartSeconds (观看记录 + skipIntro), 标记消费, 写入
         // currentTime / duration. 同 URL 的后续 onLoad (Android 上 rate / track 改变时可触发) 只更新
         // duration, 避免把进度拉回起点.
         if (state.urlGeneration !== lastUrlGenRef.current) {
@@ -323,7 +345,13 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
           testID="playerPlayPauseButton"
           accessibilityRole="button"
           accessibilityLabel={state.isPlaying ? t("pause") : t("play")}
-          onPress={() => actions.setPlaying(!state.isPlaying)}
+          onPress={() => {
+            if (state.isPlaying) {
+              actions.persistProgressNow();
+              void engine?.flushNow();
+            }
+            actions.setPlaying(!state.isPlaying);
+          }}
           style={styles.transportBtnPrimary}
         >
           <Ionicons name={state.isPlaying ? "pause" : "play"} size={24} color="white" />
