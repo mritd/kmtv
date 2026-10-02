@@ -196,6 +196,19 @@ describe("createSyncStore", () => {
     expect(store.get("search", "elsewhere")).not.toBeNull();
   });
 
+  it("skips the reload notification when storage did not change", () => {
+    const storage = memoryStorage();
+    const store = makeStore(storage);
+    store.upsert("search", { query: "same" });
+    const listener = vi.fn();
+    store.subscribe(listener);
+    store.reload();
+    expect(listener).not.toHaveBeenCalled();
+    makeStore(storage).upsert("search", { query: "other tab" });
+    store.reload();
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
   it("trims watch records beyond 200", () => {
     let now = 0;
     const store = makeStore(memoryStorage(), "alice", () => ++now);

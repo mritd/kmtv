@@ -133,6 +133,10 @@ export function createSyncStore(options: SyncStoreOptions): SyncStore {
   const localListeners = new Set<(kind: SyncKind) => void>();
   let cache: SyncState = emptySyncState(username);
   let writable = true;
+  // lastRaw is the stored JSON this store last read or wrote; reload() skips when it is unchanged.
+  //
+  // lastRaw 是本存储最近一次读取或写入的 JSON; 未变化时 reload() 直接跳过.
+  let lastRaw: string | null = null;
 
   // readState falls back to the in-memory cache when storage cannot be read or the last write
   // failed, so a refused or full storage keeps working for the session instead of dropping writes.
@@ -147,6 +151,7 @@ export function createSyncStore(options: SyncStoreOptions): SyncStore {
     } catch {
       return cache;
     }
+    lastRaw = raw;
     if (!raw) return emptySyncState(username);
     try {
       const parsed = JSON.parse(raw) as Partial<SyncState> | null;
@@ -181,7 +186,9 @@ export function createSyncStore(options: SyncStoreOptions): SyncStore {
   function update(updater: (state: SyncState) => SyncState): void {
     const next = updater(readState());
     try {
-      storage.setItem(scopeKey, JSON.stringify(next));
+      const raw = JSON.stringify(next);
+      storage.setItem(scopeKey, raw);
+      lastRaw = raw;
       writable = true;
     } catch (error) {
       if (writable) console.warn("sync store write failed", error);
@@ -260,6 +267,15 @@ export function createSyncStore(options: SyncStoreOptions): SyncStore {
     },
     update,
     reload() {
+      if (writable) {
+        let raw: string | null;
+        try {
+          raw = storage.getItem(scopeKey);
+        } catch {
+          return;
+        }
+        if (raw === lastRaw) return;
+      }
       cache = readState();
       notify();
     },
