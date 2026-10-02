@@ -21,7 +21,7 @@ import {
   removeLegacySyncKeys,
   syncServerKey,
 } from "./androidSync";
-import { clearActiveSyncEngine, setActiveSyncEngine } from "./activeSyncEngine";
+import { clearActiveSyncEngine, isActiveSyncEngine, setActiveSyncEngine } from "./activeSyncEngine";
 import { normalizeSyncKey } from "./normalizeKey";
 import { createSyncEngine, type SyncEngine, type SyncTransport } from "./syncEngine";
 import { listLive } from "./syncMerge";
@@ -118,6 +118,11 @@ export function SyncProvider({
     if (!engine) return;
     let active = true;
     let subscription: { remove(): void } | null = null;
+    // Register the engine before the server check, so a logout during the check unregisters it and
+    // the engine never starts.
+    //
+    // 在服务器检查之前登记引擎, 检查期间退出登录会清除登记, 引擎也就不会启动.
+    setActiveSyncEngine(engine);
     // A server older than MIN_SYNC_SERVER_VERSION has no sync endpoints: keep the data local.
     //
     // 低于 MIN_SYNC_SERVER_VERSION 的服务器没有同步接口: 数据只保存在本机.
@@ -125,16 +130,12 @@ export function SyncProvider({
       .then(() => checkServerRef.current(serverURL))
       .catch(() => true)
       .then((compatible) => {
-        if (!active) return;
+        if (!active || !isActiveSyncEngine(engine)) return;
         if (!compatible) {
           onIncompatibleRef.current?.();
           return;
         }
         engine.start();
-        // Register the running engine so logout can stop it before it waits for the server.
-        //
-        // 登记正在运行的引擎, 让退出登录能在等待服务端之前先停止它.
-        setActiveSyncEngine(engine);
         void engine.requestSync("launch");
         // Only a return from the background counts as a foreground; other transitions are transient.
         //
@@ -145,7 +146,8 @@ export function SyncProvider({
           else if (next === "background") void engine.flushNow();
           previous = next;
         });
-      });
+      })
+      .catch(() => undefined);
     return () => {
       active = false;
       subscription?.remove();

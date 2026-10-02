@@ -176,6 +176,46 @@ describe("SyncProvider", () => {
     expect(transport.push).not.toHaveBeenCalled();
   });
 
+  it("never starts the engine when logout runs before the server check answers", async () => {
+    signIn(5, "alice");
+    let answer: (compatible: boolean) => void = () => undefined;
+    const checkServer = jest.fn(() => new Promise<boolean>((resolve) => (answer = resolve)));
+    const transport = fakeTransport();
+    render(<SyncProvider checkServer={checkServer} createTransport={() => transport}><Probe /></SyncProvider>);
+    await waitFor(() => expect(checkServer).toHaveBeenCalledTimes(1));
+    const start = jest.spyOn(readyEngine!, "start");
+    stopActiveSyncEngine();
+    await act(async () => {
+      answer(true);
+    });
+    act(() => {
+      readyStore!.upsert("search", { query: "after logout" });
+    });
+    await act(async () => {
+      await readyEngine!.flushNow();
+    });
+    expect(start).not.toHaveBeenCalled();
+    expect(transport.pull).not.toHaveBeenCalled();
+    expect(transport.push).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing when the scope closes before the server check answers", async () => {
+    signIn(5, "alice");
+    let answer: (compatible: boolean) => void = () => undefined;
+    const checkServer = jest.fn(() => new Promise<boolean>((resolve) => (answer = resolve)));
+    const transport = fakeTransport();
+    const { unmount } = render(<SyncProvider checkServer={checkServer} createTransport={() => transport}><Probe /></SyncProvider>);
+    await waitFor(() => expect(checkServer).toHaveBeenCalledTimes(1));
+    const start = jest.spyOn(readyEngine!, "start");
+    unmount();
+    await act(async () => {
+      answer(true);
+    });
+    expect(start).not.toHaveBeenCalled();
+    expect(transport.pull).not.toHaveBeenCalled();
+    expect(transport.push).not.toHaveBeenCalled();
+  });
+
   it("binds the transport to the scope's user", () => {
     signIn(5, "alice");
     const createTransport = jest.fn(() => fakeTransport(() => new Promise<never>(() => undefined)));
