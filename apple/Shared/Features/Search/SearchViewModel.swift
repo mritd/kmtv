@@ -1,13 +1,11 @@
 import Foundation
 import os
-import SwiftData
 
 @Observable
 @MainActor
 final class SearchViewModel {
     var query = ""
     var results: [SearchResult] = []
-    var searchHistory: [SearchHistoryItem] = []
     var isSearching = false
     var hasSearched = false
     var searchPhase: String = ""
@@ -18,21 +16,45 @@ final class SearchViewModel {
     ///
     /// 使用协议依赖让网络行为可以在单元测试中替换.
     private let apiClient: any SearchAPIProtocol
-    private let modelContext: ModelContext
-    private let serverURL: String
+    private let syncStore: SyncStore?
+    private let syncEngine: SyncEngine?
     private let logger = Logger(subsystem: "com.mritd.kmtv", category: "api")
 
-    init(apiClient: any SearchAPIProtocol, modelContext: ModelContext, serverURL: String) {
-        self.apiClient = apiClient
-        self.modelContext = modelContext
-        self.serverURL = serverURL
+    /// Recent searches shown as chips, newest first.
+    ///
+    /// 以胶囊显示的最近搜索, 最新的在前.
+    var searchHistory: [SearchPayload] {
+        Array((syncStore?.searchItems ?? []).prefix(20))
     }
 
-    func loadHistory() {
-        // Search history is scoped by server URL so multiple servers do not leak queries.
+    init(apiClient: any SearchAPIProtocol, syncStore: SyncStore?, syncEngine: SyncEngine?) {
+        self.apiClient = apiClient
+        self.syncStore = syncStore
+        self.syncEngine = syncEngine
+    }
+
+    /// Runs a search the user submitted from the search field or a history chip, and records it.
+    /// Searches opened from navigation call `search(query:)` and are not recorded.
+    ///
+    /// 执行用户从搜索框或历史胶囊提交的搜索, 并记录到搜索历史. 从导航打开的搜索调用
+    /// `search(query:)`, 不会被记录.
+    func submitSearch(query: String? = nil) async {
+        if let query { self.query = query }
+        let trimmed = self.query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        // Record the query before network work so failed searches are remembered too.
         //
-        // 搜索历史按服务器地址隔离, 避免多个服务器之间泄露搜索词.
-        searchHistory = SearchHistoryItem.recent(in: modelContext, serverURL: serverURL)
+        // 网络请求前先记录搜索词, 让失败的搜索也能出现在历史中.
+        syncStore?.upsert(.search(SearchPayload(query: trimmed)))
+        await search()
+    }
+
+    /// Requests a throttled page sync when the screen appears.
+    ///
+    /// 页面出现时请求一次限频的页面同步.
+    func refreshHistory() {
+        guard let syncEngine else { return }
+        Task { await syncEngine.requestSync(.page) }
     }
 
     func clearResults() {
@@ -48,12 +70,6 @@ final class SearchViewModel {
         searchPhase = ""
         searchCompleted = 0
         searchTotal = 0
-
-        // Persist the query before network work so the UI remembers attempted searches too.
-        //
-        // 网络请求前先保存搜索词, 让失败的搜索也能出现在历史中.
-        SearchHistoryItem.add(in: modelContext, serverURL: serverURL, query: trimmed)
-        loadHistory()
 
         let client = self.apiClient
         let searchQuery = trimmed
@@ -103,12 +119,10 @@ final class SearchViewModel {
         await search()
     }
 
+    /// Clear search history on every device.
+    ///
+    /// 在所有设备上清空搜索历史.
     func clearHistory() {
-        // Clear only this server's search history.
-        //
-        // 只清理当前服务器的搜索历史.
-        SearchHistoryItem.clearAll(in: modelContext, serverURL: serverURL)
-        try? modelContext.save()
-        searchHistory = []
+        syncStore?.clear(.search)
     }
 }

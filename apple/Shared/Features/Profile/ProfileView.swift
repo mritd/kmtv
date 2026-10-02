@@ -9,7 +9,6 @@ import PhotosUI
 
 struct ProfileView: View {
     @Environment(AppViewModel.self) private var appVM
-    @Environment(\.modelContext) private var modelContext
     @State private var viewModel: ProfileViewModel?
     #if os(iOS)
     @State private var selectedPhoto: PhotosPickerItem?
@@ -28,12 +27,9 @@ struct ProfileView: View {
         .navigationTitle("Me")
         .task {
             if viewModel == nil, let client = appVM.apiClient {
-                let vm = ProfileViewModel(apiClient: client, modelContext: modelContext,
-                                           serverURL: appVM.serverURL, user: appVM.currentUser, appVM: appVM)
+                let vm = ProfileViewModel(apiClient: client, syncStore: appVM.sync?.store,
+                                           user: appVM.currentUser, appVM: appVM)
                 viewModel = vm
-                vm.load()
-            } else {
-                viewModel?.load()
             }
             await appVM.fetchServerVersion()
         }
@@ -253,7 +249,7 @@ struct ProfileView: View {
     private func dangerSection(_ vm: ProfileViewModel) -> some View {
 		Section {
 			Button("Clear Watch History") {
-				Task { await vm.clearWatchHistory() }
+				vm.clearWatchHistory()
 			}
             .foregroundStyle(.red)
         }

@@ -3,7 +3,6 @@ import Kingfisher
 
 struct FavoritesView: View {
     @Environment(AppViewModel.self) private var appVM
-    @Environment(\.modelContext) private var modelContext
     @State private var viewModel: FavoritesViewModel?
     #if os(tvOS)
     var onSearch: ((SearchQuery) -> Void)?
@@ -31,7 +30,7 @@ struct FavoritesView: View {
         #endif
         .task {
             if viewModel == nil {
-                let vm = FavoritesViewModel(modelContext: modelContext, serverURL: appVM.serverURL)
+                let vm = FavoritesViewModel(syncStore: appVM.sync?.store, syncEngine: appVM.sync?.engine)
                 viewModel = vm
                 vm.load()
             }
@@ -57,7 +56,7 @@ struct FavoritesView: View {
     #if os(iOS)
     private func iosList(_ vm: FavoritesViewModel) -> some View {
         List {
-            ForEach(vm.favorites, id: \.persistentModelID) { item in
+            ForEach(vm.favorites) { item in
                 Button {
                     path.append(SearchQuery(query: item.title, coverHint: item.cover))
                 } label: {
@@ -75,7 +74,7 @@ struct FavoritesView: View {
         .background(Theme.bgPrimary)
     }
 
-    private func favoriteRow(_ item: FavoriteItem) -> some View {
+    private func favoriteRow(_ item: FavoritePayload) -> some View {
         HStack(spacing: 12) {
             KFImage(coverURL(item.cover))
                 .placeholder {
@@ -102,7 +101,7 @@ struct FavoritesView: View {
     private func tvGrid(_ vm: FavoritesViewModel) -> some View {
         ScrollView {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 32), count: 5), spacing: 32) {
-                ForEach(vm.favorites, id: \.persistentModelID) { item in
+                ForEach(vm.favorites) { item in
                     Button {
                         onSearch?(SearchQuery(query: item.title, coverHint: item.cover))
                     } label: {

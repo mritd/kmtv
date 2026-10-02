@@ -4,55 +4,27 @@ import UIKit
 
 @MainActor
 final class ProfileViewModelTests: XCTestCase {
-    func testLoadCountsWatchHistoryForCurrentServerOnly() throws {
+    func testWatchHistoryCountAndClearUseTheSyncStore() throws {
         let container = try ModelContainerFactory.makeInMemory()
-        let context = container.mainContext
-        WatchHistoryItem.upsert(
-			in: context,
-			serverURL: "https://kmtv.example",
-			userID: 1,
-            sourceKey: "s1",
-            videoId: "v1",
-            title: "Video 1",
-            cover: "",
-            episode: "EP1",
-            episodeIndex: 0,
-            progress: 20,
-            duration: 100
-        )
-        WatchHistoryItem.upsert(
-			in: context,
-			serverURL: "https://other.example",
-			userID: 1,
-            sourceKey: "s1",
-            videoId: "v2",
-            title: "Video 2",
-            cover: "",
-            episode: "EP1",
-            episodeIndex: 0,
-            progress: 20,
-            duration: 100
-        )
-		let api = AuthAPIFake()
-		let vm = ProfileViewModel(
-			apiClient: api,
-			modelContext: context,
-			serverURL: "https://kmtv.example",
-			user: api.user
-        )
-
-        vm.load()
+        let store = makeSyncStore(container)
+        store.upsert(.watch(WatchPayload(title: "Video 1")))
+        store.upsert(.watch(WatchPayload(title: "Finished", completed: true)))
+        makeSyncStore(container, serverURL: "https://other.example").upsert(.watch(WatchPayload(title: "Video 2")))
+        let api = AuthAPIFake()
+        let vm = ProfileViewModel(apiClient: api, syncStore: store, user: api.user)
 
         XCTAssertEqual(vm.watchHistoryCount, 1)
+        vm.clearWatchHistory()
+        XCTAssertEqual(vm.watchHistoryCount, 0)
+        XCTAssertEqual(makeSyncStore(container, serverURL: "https://other.example").watchItems.count, 1)
+        XCTAssertNotNil(vm.successMessage)
     }
 
     func testUpdateUsernameUpdatesUserState() async throws {
-        let container = try ModelContainerFactory.makeInMemory()
         let api = AuthAPIFake()
         let vm = ProfileViewModel(
             apiClient: api,
-            modelContext: container.mainContext,
-            serverURL: "https://kmtv.example",
+            syncStore: nil,
             user: api.user
         )
         vm.editUsername = "kovacs"
@@ -64,12 +36,10 @@ final class ProfileViewModelTests: XCTestCase {
     }
 
     func testChangePasswordRejectsMismatchedConfirmation() async throws {
-        let container = try ModelContainerFactory.makeInMemory()
         let api = AuthAPIFake()
         let vm = ProfileViewModel(
             apiClient: api,
-            modelContext: container.mainContext,
-            serverURL: "https://kmtv.example",
+            syncStore: nil,
             user: api.user
         )
         vm.passwordOld = "old"
@@ -82,12 +52,10 @@ final class ProfileViewModelTests: XCTestCase {
     }
 
     func testChangePasswordSuccessClearsFields() async throws {
-        let container = try ModelContainerFactory.makeInMemory()
         let api = AuthAPIFake()
         let vm = ProfileViewModel(
             apiClient: api,
-            modelContext: container.mainContext,
-            serverURL: "https://kmtv.example",
+            syncStore: nil,
             user: api.user
         )
         vm.passwordOld = "old"
@@ -105,13 +73,11 @@ final class ProfileViewModelTests: XCTestCase {
     }
 
     func testDeleteAvatarUpdatesUserState() async throws {
-        let container = try ModelContainerFactory.makeInMemory()
         let api = AuthAPIFake()
         api.user.avatar = "/avatar.jpg"
         let vm = ProfileViewModel(
             apiClient: api,
-            modelContext: container.mainContext,
-            serverURL: "https://kmtv.example",
+            syncStore: nil,
             user: api.user
         )
 
@@ -122,12 +88,10 @@ final class ProfileViewModelTests: XCTestCase {
     }
 
     func testUploadAvatarConvertsImageToJPEGAndUpdatesUserState() async throws {
-        let container = try ModelContainerFactory.makeInMemory()
         let api = AuthAPIFake()
         let vm = ProfileViewModel(
             apiClient: api,
-            modelContext: container.mainContext,
-            serverURL: "https://kmtv.example",
+            syncStore: nil,
             user: api.user
         )
         let imageData = UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4)).pngData { context in
@@ -140,50 +104,5 @@ final class ProfileViewModelTests: XCTestCase {
         XCTAssertEqual(api.uploadedAvatar?.mimeType, "image/jpeg")
         XCTAssertGreaterThan(api.uploadedAvatar?.bytes ?? 0, 0)
         XCTAssertEqual(vm.user?.avatar, "/api/v1/auth/avatar")
-    }
-
-    func testClearWatchHistoryRemovesServerScopedRows() async throws {
-        let container = try ModelContainerFactory.makeInMemory()
-        let context = container.mainContext
-		WatchHistoryItem.upsert(
-			in: context,
-			serverURL: "https://kmtv.example",
-			userID: 1,
-            sourceKey: "s1",
-            videoId: "v1",
-            title: "Video 1",
-            cover: "",
-            episode: "EP1",
-            episodeIndex: 0,
-            progress: 20,
-            duration: 100
-        )
-		WatchHistoryItem.upsert(
-			in: context,
-			serverURL: "https://other.example",
-			userID: 1,
-            sourceKey: "s1",
-            videoId: "v2",
-            title: "Video 2",
-            cover: "",
-            episode: "EP1",
-            episodeIndex: 0,
-            progress: 20,
-            duration: 100
-        )
-        let api = AuthAPIFake()
-        let vm = ProfileViewModel(
-            apiClient: api,
-			modelContext: context,
-			serverURL: "https://kmtv.example",
-			user: api.user
-        )
-
-		await vm.clearWatchHistory()
-
-		XCTAssertTrue(WatchHistoryItem.recent(in: context, serverURL: "https://kmtv.example", userID: 1).isEmpty)
-		XCTAssertEqual(WatchHistoryItem.recent(in: context, serverURL: "https://other.example", userID: 1).count, 1)
-        XCTAssertEqual(vm.watchHistoryCount, 0)
-        XCTAssertTrue(api.clearRemoteWatchHistoryCalled)
     }
 }

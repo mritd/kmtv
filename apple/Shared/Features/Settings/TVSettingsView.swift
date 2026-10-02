@@ -1,10 +1,7 @@
-import SwiftData
 import SwiftUI
 
 struct TVSettingsView: View {
     @Environment(AppViewModel.self) private var appVM
-    @Environment(\.modelContext) private var modelContext
-    @State private var watchHistoryCount = 0
 
     var body: some View {
         List {
@@ -46,21 +43,7 @@ struct TVSettingsView: View {
             }
 
 			Section {
-				Button(String(localized: "Clear Watch History"), role: .destructive) {
-					Task {
-						let userID = Int64(appVM.currentUser?.id ?? 0)
-						if userID > 0, let client = appVM.apiClient {
-							do {
-								try await client.clearRemoteWatchHistory()
-							} catch {
-								return
-							}
-						}
-						WatchHistoryItem.clearAll(in: modelContext, serverURL: appVM.serverURL, userID: userID)
-						try? modelContext.save()
-						watchHistoryCount = 0
-					}
-                }
+                Button(String(localized: "Clear Watch History"), role: .destructive) { appVM.sync?.store.clear(.watch) }
             }
 
             Section {
@@ -74,13 +57,7 @@ struct TVSettingsView: View {
         .background(Theme.bgPrimary)
         .navigationTitle("Settings")
         #endif
-		.task {
-			let serverURL = appVM.serverURL
-			let userID = Int64(appVM.currentUser?.id ?? 0)
-			let descriptor = FetchDescriptor<WatchHistoryItem>(
-				predicate: #Predicate { $0.serverURL == serverURL && $0.userID == userID }
-			)
-            watchHistoryCount = (try? modelContext.fetchCount(descriptor)) ?? 0
+        .task {
             await appVM.fetchServerVersion()
         }
     }

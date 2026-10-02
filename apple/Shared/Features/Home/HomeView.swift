@@ -4,7 +4,6 @@ import SkeletonUI
 
 struct HomeView: View {
     @Environment(AppViewModel.self) private var appVM
-    @Environment(\.modelContext) private var modelContext
     #if os(tvOS)
     var onSearch: ((SearchQuery) -> Void)?
     #else
@@ -54,20 +53,13 @@ struct HomeView: View {
         #endif
         .task {
             if viewModel == nil, let client = appVM.apiClient {
-				let vm = HomeViewModel(
-					apiClient: client,
-					modelContext: modelContext,
-					serverURL: appVM.serverURL,
-					userID: Int64(appVM.currentUser?.id ?? 0)
-				)
+                let vm = HomeViewModel(apiClient: client, syncStore: appVM.sync?.store, syncEngine: appVM.sync?.engine)
                 viewModel = vm
                 await vm.load()
             }
         }
         .onAppear {
-            Task {
-                await viewModel?.loadRemoteWatchHistory()
-            }
+            viewModel?.refreshWatchHistory()
         }
     }
 
@@ -303,7 +295,7 @@ struct HomeView: View {
                 .foregroundStyle(.primary)
             Spacer()
             #if os(iOS)
-			Button("Clear") { Task { await vm.clearWatchHistory() } }
+			Button("Clear") { vm.clearWatchHistory() }
                 .font(.caption)
                 .foregroundStyle(.secondary)
             #endif
@@ -316,7 +308,7 @@ struct HomeView: View {
 
         ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(spacing: 12) {
-                ForEach(vm.watchHistory, id: \.persistentModelID) { item in
+                ForEach(vm.watchHistory) { item in
                     Button {
                         navigateToSearch(SearchQuery(
                             query: item.title,
@@ -350,7 +342,7 @@ struct HomeView: View {
         #endif
     }
 
-    private func watchHistoryCard(_ item: WatchHistoryItem) -> some View {
+    private func watchHistoryCard(_ item: WatchPayload) -> some View {
         #if os(tvOS)
         ZStack(alignment: .bottomLeading) {
             KFImage(heroImageURL(item.cover))
@@ -372,14 +364,14 @@ struct HomeView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
 
             VStack(alignment: .leading, spacing: 4) {
-                if item.duration > 0 {
+                if item.durationSec > 0 {
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 1)
                             .fill(Color(white: 0.3))
                             .frame(height: 3)
                         RoundedRectangle(cornerRadius: 1)
                             .fill(Theme.accent)
-                            .frame(width: (Theme.cardWidth - 20) * min(1.0, CGFloat(item.progress / item.duration)), height: 3)
+                            .frame(width: (Theme.cardWidth - 20) * min(1.0, CGFloat(item.progressSec / item.durationSec)), height: 3)
                     }
                     .frame(width: Theme.cardWidth - 20, height: 3)
                 }
@@ -403,14 +395,14 @@ struct HomeView: View {
                 .frame(width: Theme.cardWidth, height: Theme.cardWidth * 1.5)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
-            if item.duration > 0 {
+            if item.durationSec > 0 {
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 1)
                         .fill(Theme.bgCard)
                         .frame(height: 3)
                     RoundedRectangle(cornerRadius: 1)
                         .fill(Theme.accent)
-                        .frame(width: Theme.cardWidth * min(1.0, CGFloat(item.progress / item.duration)), height: 3)
+                        .frame(width: Theme.cardWidth * min(1.0, CGFloat(item.progressSec / item.durationSec)), height: 3)
                 }
                 .frame(width: Theme.cardWidth, height: 3)
             }
