@@ -6,6 +6,10 @@ const viewer = {
     placeholder: "Enter a movie or series title",
     submit: "Search",
     inputLabel: "Search query",
+    history: {
+      title: "Recent searches",
+      clear: "Clear",
+    },
     failed: "Search failed",
     failedDescription: "Please retry, or use a different keyword.",
     retry: "Retry",

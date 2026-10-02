@@ -6,6 +6,10 @@ const viewer = {
     placeholder: "输入电影或剧集名称",
     submit: "搜索",
     inputLabel: "搜索关键词",
+    history: {
+      title: "最近搜索",
+      clear: "清空",
+    },
     failed: "搜索失败",
     failedDescription: "请稍后重试, 或换一个关键词.",
     retry: "重试",

@@ -13,7 +13,10 @@
  *
  *     save SourceBundle to localStorage — 卡片打开时跳转到 /detail/:token (token 由 storage/detailRoute 生成),
  *     并保存 SourceBundle 到 localStorage
- *   - Track favorite state in local React state; sync on each toggle — 在本地 React state 中追踪收藏状态; 每次切换时同步
+ *   - Read and toggle favorites through the sync store — 通过同步存储读取并切换收藏
+ *   - Record only user-submitted searches (form or history chip) in the sync store; ?q= opened
+ *     from links, posters, or reloads is searched but not recorded — 仅把用户主动提交 (表单或历史标签)
+ *     的搜索记录到同步存储; 来自链接, 海报或刷新的 ?q= 只搜索不记录
  *
  * State ownership / 状态所有权:
  *   searchStore (Zustand vanilla) owns SSE lifecycle + query + results + progress.
@@ -38,7 +41,7 @@
  */
 
 import type { CSSProperties, FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -62,7 +65,6 @@ const STAGGER_CAP = 8;
 
 import { useAPI } from "@/api/context";
 import type { Episode, SearchProgress, SearchResult, SourceResult } from "@/api/types";
-import { favoriteIDs, resultFavoriteIDs, toggleResultFavorite } from "@/storage/favorites";
 import { detailRoutePath } from "@/storage/detailRoute";
 import { bundleFromSearchResult, saveSourceBundle } from "@/storage/sourceBundles";
 import { Button } from "@/shared/ui/Button";
@@ -71,8 +73,19 @@ import { StatusState } from "@/shared/ui/StatusState";
 import { VideoResultCard } from "@/viewer/components/VideoResultCard";
 import { SearchSkeleton } from "@/viewer/skeletons/SearchSkeleton";
 import { searchStore, type SearchProgressMap, type SearchStatus } from "@/store/searchStore";
+import { favoriteFromSearchResult } from "@/sync/kinds";
+import { normalizeSyncKey } from "@/sync/normalizeKey";
+import { useSync, useSyncList } from "@/sync/SyncContext";
 
+import { SearchHistory } from "./SearchHistory";
 import { useSearchStreamSync } from "./useSearchStreamSync";
+
+/**
+ * SEARCH_HISTORY_VISIBLE is the number of recent searches shown as chips.
+ *
+ * SEARCH_HISTORY_VISIBLE 是以标签形式显示的最近搜索数量.
+ */
+export const SEARCH_HISTORY_VISIBLE = 20;
 
 // TrackedSearchPhase — the two SSE progress phases the backend emits and we display.
 //
@@ -124,11 +137,30 @@ export function SearchPage() {
   const submitQueryAction = useStore(searchStore, (s) => s.submitQuery);
   const retryQuery = useStore(searchStore, (s) => s.retryQuery);
 
-  // savedFavoriteIDs is local state so toggling a favorite updates the card immediately
-  // without a full store round-trip.
+  const sync = useSync();
+  const store = sync.status === "ready" ? sync.store : null;
+  const favorites = useSyncList("favorite");
+  const favoriteKeys = useMemo(() => new Set(favorites.map((record) => record.key)), [favorites]);
+  const recentSearches = useSyncList("search");
+  const recentQueries = useMemo(
+    () => recentSearches.slice(0, SEARCH_HISTORY_VISIBLE).map((record) => record.payload.query),
+    [recentSearches],
+  );
+
+  const engine = sync.status === "ready" ? sync.engine : null;
+  useEffect(() => {
+    void engine?.requestSync("page");
+  }, [engine]);
+
+  // recordSearch saves a query the user submitted (form or history chip). A ?q= that arrives
+  // from a link, a poster, or a reload is searched but not recorded.
   //
-  // savedFavoriteIDs 是本地 state, 切换收藏时立即更新卡片, 无需完整 store 往返.
-  const [savedFavoriteIDs, setSavedFavoriteIDs] = useState<Set<string>>(() => favoriteIDs());
+  // recordSearch 保存用户主动提交的查询 (表单或历史标签). 来自链接, 海报或刷新的 ?q= 会执行
+  // 搜索, 但不会记录.
+  function recordSearch(query: string) {
+    store?.upsert("search", { query });
+  }
+
   // Stagger collapses to a no-op variant when reduced motion is preferred.
   //
   // 用户偏好减少动画时 stagger 变为空变体.
@@ -167,6 +199,7 @@ export function SearchPage() {
     //
     // 仅在查询非空时推送到 URL; 空提交为无操作.
     if (next) {
+      recordSearch(next);
       setParams({ q: next });
     }
   }
@@ -196,11 +229,10 @@ export function SearchPage() {
   }
 
   function toggleSearchFavorite(item: SearchResult) {
-    toggleResultFavorite(item);
-    // Re-read favoriteIDs from localStorage after the toggle to keep local state in sync.
-    //
-    // toggle 后重新从 localStorage 读取 favoriteIDs 以保持本地 state 同步.
-    setSavedFavoriteIDs(favoriteIDs());
+    if (!store) return;
+    const key = normalizeSyncKey(item.title);
+    if (favoriteKeys.has(key)) store.remove("favorite", key);
+    else store.upsert("favorite", favoriteFromSearchResult(sanitizeSearchResult(item)));
   }
 
   const searchingProgress = progressMap.searching;
@@ -219,6 +251,16 @@ export function SearchPage() {
                 {t("search.submit")}
               </Button>
             </form>
+            {!activeQuery ? (
+              <SearchHistory
+                items={recentQueries}
+                onSelect={(query) => {
+                  recordSearch(query);
+                  setParams({ q: query });
+                }}
+                onClear={() => store?.clear("search")}
+              />
+            ) : null}
           </section>
 
           {activeQuery && (status === "loading" || status === "success") ? <SearchProgressCard progressMap={progressMap} /> : null}
@@ -244,7 +286,7 @@ export function SearchPage() {
                   key={searchResultKey(safeItem, index)}
                   variants={index < STAGGER_CAP ? childVariants : undefined}
                 >
-                  <VideoResultCard item={safeItem} onOpen={openSource} onFavorite={toggleSearchFavorite} isFavorited={isResultFavorited(safeItem, savedFavoriteIDs)} />
+                  <VideoResultCard item={safeItem} onOpen={openSource} onFavorite={toggleSearchFavorite} isFavorited={favoriteKeys.has(normalizeSyncKey(safeItem.title))} />
                 </motion.div>
               );
             })}
@@ -490,13 +532,6 @@ function fastestSourceIndex(sources: SourceResult[]): number {
     }
   });
   return bestIndex;
-}
-
-// isResultFavorited checks whether any of the result's canonical IDs is in the saved set.
-//
-// isResultFavorited 检查结果的任意规范 ID 是否在已保存集合中.
-function isResultFavorited(item: SearchResult, ids: Set<string>): boolean {
-  return Array.from(resultFavoriteIDs(item)).some((id) => ids.has(id));
 }
 
 // searchResultKey builds a stable React list key from the exact title, year, and first valid source
