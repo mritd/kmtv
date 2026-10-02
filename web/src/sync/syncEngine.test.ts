@@ -334,6 +334,55 @@ describe("createSyncEngine", () => {
     engine.stop();
   });
 
+  it("pushes a record written after a joined flush collected its empty batch", async () => {
+    const { store, engine, push } = setup();
+
+    const first = engine.flushNow();
+    store.upsert("watch", watch);
+    const joined = engine.flushNow();
+    await Promise.all([first, joined]);
+
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(push.mock.calls[0]![0].changes).toMatchObject([{ kind: "watch", op: "upsert" }]);
+    expect(store.state().records["watch|movie"]).toMatchObject({ dirty: false, synced: true });
+    engine.stop();
+  });
+
+  it("pushes a record written while a joined flush waits for its push", async () => {
+    const { store, engine, push } = setup();
+    let release: () => void = () => undefined;
+    push.mockImplementationOnce((body) => new Promise((resolve) => (release = () => resolve(applied(body)))));
+    store.upsert("search", { query: "first" });
+
+    const first = engine.flushNow();
+    await vi.advanceTimersByTimeAsync(0);
+    store.upsert("watch", watch);
+    const joined = engine.flushNow();
+    release();
+    await Promise.all([first, joined]);
+
+    expect(push).toHaveBeenCalledTimes(2);
+    expect(store.state().records["watch|movie"]).toMatchObject({ dirty: false, synced: true });
+    engine.stop();
+  });
+
+  it("leaves a joined flush's new record to the pending retry after the flush fails", async () => {
+    const { store, engine, push } = setup();
+    push.mockRejectedValueOnce(new Error("offline"));
+    store.upsert("search", { query: "first" });
+
+    const first = engine.flushNow();
+    store.upsert("watch", watch);
+    const joined = engine.flushNow();
+    await Promise.all([first, joined]);
+    expect(push).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(push).toHaveBeenCalledTimes(2);
+    expect(store.state().records["watch|movie"]).toMatchObject({ dirty: false, synced: true });
+    engine.stop();
+  });
+
   it("sends a keepalive flush even while a regular flush is in flight", async () => {
     const { store, engine, push } = setup();
     let release: () => void = () => undefined;
