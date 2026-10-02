@@ -7,9 +7,7 @@ struct KMTVTVApp: App {
 
     init() {
         do {
-            container = try ModelContainer(
-                for: Server.self, WatchHistoryItem.self, FavoriteItem.self, SearchHistoryItem.self, PlaybackSettings.self
-            )
+            container = try AppModelContainer.make()
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
         }
