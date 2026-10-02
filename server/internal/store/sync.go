@@ -528,6 +528,10 @@ func (s *Store) PurgeSyncTombstones(before time.Time) (int64, error) {
 		purged++
 		floors[userID] = max(floors[userID], rev)
 	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return 0, fmt.Errorf("iterate purged tombstones: %w", err)
+	}
 	if err := rows.Close(); err != nil {
 		return 0, fmt.Errorf("close purged tombstones: %w", err)
 	}
