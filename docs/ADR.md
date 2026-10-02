@@ -260,6 +260,6 @@ Durable architectural decisions for the KMTV Go backend, native Apple clients, a
 
 **Consequences:**
 - Screens read only local data; only the sync engine calls the sync endpoints.
-- Accepted limits: an offline device that returns after tombstones are purged (90 days) can bring deleted items back, and an epoch reset brings back deletions that other devices had already acknowledged. A restore is detected only if the restored device pushes before others raise the revision past its cursor.
+- Accepted limits: an offline device that returns after tombstones are purged (90 days) can bring deleted items back, and an epoch reset brings back deletions that other devices had already acknowledged. A restore is detected only if the restored device pushes or pulls before others raise the revision past its cursor.
 - Adding a synchronized collection means adding a kind on the server and an adapter per client.
 - Clients older than this ADR cannot sync.

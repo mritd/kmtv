@@ -469,7 +469,7 @@ payload 长度限制 (按 Unicode 码点计): `title`, `episode` 和 `query` 512
 | `applied` | 已保存. `record` 是保存后的记录, 带规范 key 和实际保存的事件时间. |
 | `stale`   | 服务端已有更新的状态. `record` 是当前记录 (可能是删除标记, 包括本次写入被上限淘汰后生成的删除标记), 不存在时为 `null`. 清空操作则在 `clear` 中返回当前清空时间点. |
 | `invalid` | 未通过校验或无法解码, `reason` 说明原因. 同批其他变更照常应用. |
-| `limit`   | 收藏已达上限且该 key 是新的. |
+| `limit`   | 收藏已达上限且该 key 没有有效记录 (包括复活已被删除标记的 key). |
 
 常见错误: `400 InvalidRequest`, `401 NotLoggedIn`, `409 EpochMismatch`, `409 SyncCursorAhead`, `500 ServerError`.
 
@@ -501,7 +501,7 @@ payload 长度限制 (按 Unicode 码点计): `title`, `episode` 和 `query` 512
 传回, `has_more` 为 true 时继续翻页. 同一页内先应用清空事件, 再应用记录.
 
 `reset: true` 时列表为空, `rev` 为该用户当前版本. 以下情况会返回它: `epoch` 与服务端不一致 (数据库被重置),
-`since` 大于 `rev` (数据库从旧副本恢复), 或 `since` 低于仍保留的最旧删除标记版本. 前两种情况下服务端丢失了
+`since` 大于 `rev` (数据库从旧副本恢复), 或 `since > 0` 且 `since` 低于 GC 下限 (`min_rev`, 即已清除删除标记的最大版本). 前两种情况下服务端丢失了
 客户端已有的数据, 客户端把所有本地记录标记为待上传, 再从 `since=0` 重新拉取. 最后一种情况下客户端全量重同步:
 从 `since=0` 拉取, 并删除服务端已不存在的已同步本地记录.
 

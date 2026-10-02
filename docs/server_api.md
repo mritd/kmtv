@@ -474,7 +474,7 @@ Success `200`:
 | `applied` | Stored. `record` is the stored row with the canonical key and stored event time. |
 | `stale`   | Newer server state won. `record` is the current row (possibly a tombstone, including one created by trimming this write), or `null` when none exists. For a clear, `clear` is the current watermark. |
 | `invalid` | Failed validation or could not be decoded; `reason` explains why. Other changes in the batch still apply. |
-| `limit`   | The favorite cap is reached and the key is new. |
+| `limit`   | The favorite cap is reached and the key has no live row (this includes reviving a tombstoned key). |
 
 Common errors: `400 InvalidRequest`, `401 NotLoggedIn`, `409 EpochMismatch`, `409 SyncCursorAhead`, `500 ServerError`.
 
@@ -508,8 +508,8 @@ page's clears before its records.
 
 `reset: true` comes with empty lists and `rev` set to the user's current revision. It is returned
 when `epoch` differs from the server's (the database was reset), when `since` is greater than
-`rev` (the database was restored from an older copy), or when `since` is below the oldest retained
-tombstone revision. In the first two cases the server lost data the client has, so the client marks
+`rev` (the database was restored from an older copy), or when `since > 0` and `since` is below the GC
+floor (`min_rev`, the highest rev of purged tombstones). In the first two cases the server lost data the client has, so the client marks
 all local records for upload and pulls again from `since=0`. In the last case the client runs a
 full resync: it pulls from `since=0` and drops synced local records the server no longer has.
 
