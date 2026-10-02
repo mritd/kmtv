@@ -8,6 +8,7 @@ import React, { type ReactElement } from "react";
 
 import { initI18n } from "@/i18n";
 import { useServerStore } from "@/store/serverStore";
+import type { SyncEngine } from "@/sync/syncEngine";
 import type { SyncStore } from "@/sync/syncStore";
 import { SyncTestProvider, memorySyncStore } from "@/sync/syncTesting";
 import type { FavoritePayload } from "@/sync/types";
@@ -23,10 +24,10 @@ function favorite(over: Partial<FavoritePayload> = {}): FavoritePayload {
 // FavoritesScreen uses useFocusEffect which requires a NavigationContainer ancestor.
 //
 // FavoritesScreen 用了 useFocusEffect, 必须挂在 NavigationContainer 下.
-function wrap(store: SyncStore, child: ReactElement): ReactElement {
+function wrap(store: SyncStore, child: ReactElement, engine: SyncEngine | null = null): ReactElement {
   return (
     <NavigationContainer>
-      <SyncTestProvider store={store}>{child}</SyncTestProvider>
+      <SyncTestProvider store={store} engine={engine}>{child}</SyncTestProvider>
     </NavigationContainer>
   );
 }
@@ -62,6 +63,13 @@ describe("FavoritesScreen", () => {
     const { getByTestId } = render(wrap(store, <FavoritesScreen navigation={navigation as never} />));
     fireEvent.press(getByTestId("favorite-row-web only"));
     expect(navigation.navigate).toHaveBeenCalledWith("Search", { initialQuery: "Web Only" });
+  });
+
+  it("requests a page sync when the screen gains focus", () => {
+    const engine = { requestSync: jest.fn(async () => undefined), flushNow: jest.fn(async () => undefined), start: jest.fn(), stop: jest.fn() };
+    const navigation = { navigate: jest.fn() };
+    render(wrap(memorySyncStore(), <FavoritesScreen navigation={navigation as never} />, engine));
+    expect(engine.requestSync).toHaveBeenCalledWith("page");
   });
 
   it("removes a favorite through the sync store", async () => {

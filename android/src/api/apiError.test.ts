@@ -35,7 +35,7 @@ describe("APIError", () => {
   });
 
   it("APIError.fromResponse uses body.message when body.error missing", async () => {
-    const res = { status: 500, json: async () => ({ message: "alt msg", status: 500 }) } as unknown as Response;
+    const res = { status: 500, json: async () => ({ message: "alt msg" }) } as unknown as Response;
     const err = await APIError.fromResponse(res);
     expect(err).toEqual({ kind: "server", message: "alt msg", status: 500 });
   });

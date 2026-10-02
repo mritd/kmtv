@@ -220,22 +220,27 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
     return () => sub.remove();
   }, [ctx, isFullScreen, setFullScreenPreservingPosition]);
 
-  // Checkpoint and push when the screen unmounts or the app leaves the foreground, so another
-  // device can resume from here.
+  // checkpoint saves the current position and pushes it, so another device can resume from here.
   //
-  // 页面卸载或应用离开前台时保存进度并推送, 让其他设备能从这里继续.
+  // checkpoint 保存当前进度并推送, 让其他设备能从这里继续.
+  const checkpoint = useCallback(() => {
+    actions.persistProgressNow();
+    void engine?.flushNow();
+  }, [actions, engine]);
+
+  // Checkpoint when the screen unmounts or the app leaves the foreground.
+  //
+  // 页面卸载或应用离开前台时保存并推送进度.
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (next) => {
       if (next === "active") return;
-      actions.persistProgressNow();
-      void engine?.flushNow();
+      checkpoint();
     });
     return () => {
       subscription.remove();
-      actions.persistProgressNow();
-      void engine?.flushNow();
+      checkpoint();
     };
-  }, [actions, engine]);
+  }, [checkpoint]);
 
   const onSeekCommit = (ratio: number) => {
     const target = ratio * Math.max(state.duration, 1);
@@ -303,7 +308,18 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
         actions.timeUpdate(p.currentTime, progressDurationFor(stateRef.current.duration, p))}
       onError={() => { void actions.onError("player error"); }}
       onBuffer={(b: { isBuffering: boolean }) => actions.setBuffering(b.isBuffering)}
-      onEnd={() => { void actions.switchEpisode(state.currentEpisodeIndex + 1); }}
+      onEnd={() => {
+        // The last episode ends the title: save it as finished and stop instead of advancing.
+        //
+        // 最后一集播完即看完该标题: 保存为已完成并停止, 不再前进.
+        const next = state.currentEpisodeIndex + 1;
+        if (next < list.length) {
+          void actions.switchEpisode(next);
+          return;
+        }
+        checkpoint();
+        actions.setPlaying(false);
+      }}
       onTouchStart={() => setOverlayVisible(true)}
       resizeMode="contain"
       style={StyleSheet.absoluteFill}
@@ -346,10 +362,7 @@ function PlayerInner({ ctx, destination }: { ctx: PlayerScreenContextValue; dest
           accessibilityRole="button"
           accessibilityLabel={state.isPlaying ? t("pause") : t("play")}
           onPress={() => {
-            if (state.isPlaying) {
-              actions.persistProgressNow();
-              void engine?.flushNow();
-            }
+            if (state.isPlaying) checkpoint();
             actions.setPlaying(!state.isPlaying);
           }}
           style={styles.transportBtnPrimary}

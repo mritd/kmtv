@@ -9,9 +9,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import type { DetailAPI } from "@/api/detail";
 import type { PlaybackAPI } from "@/api/playback";
 import type { PlayDestination, VideoDetail } from "@/api/types";
-import {
-  loadPlaybackSettings, savePlaybackSettings, type PlaybackSettings,
-} from "@/storage/playbackSettings";
+import { loadPlaybackSettings, savePlaybackSettings } from "@/storage/playbackSettings";
 import type { WatchPayload } from "@/sync/types";
 import type { WatchResume } from "@/sync/useWatchResume";
 
@@ -335,8 +333,18 @@ export function usePlayer({ serverURL, destination, detailAPI, playbackAPI, resu
     const before = stateRef.current;
     const after = await playFrom(before);
     commitFinalState(before, after);
-    setResumeConsumed(false);
-  }, [commitFinalState, playFrom]);
+    // A startup fallback to another source, line, or episode matches the resume position again,
+    // so the record's position applies only to the exact episode it was saved for.
+    //
+    // 起播时回退到其他来源, 线路或剧集后重新匹配续播位置, 记录的位置只用于保存它的那一集.
+    if (after.currentSourceKey !== before.currentSourceKey
+        || after.currentLineIndex !== before.currentLineIndex
+        || after.currentEpisodeIndex !== before.currentEpisodeIndex) {
+      setResumeStartFor(after);
+    } else {
+      setResumeConsumed(false);
+    }
+  }, [commitFinalState, playFrom, setResumeStartFor]);
 
   const onError = useCallback(async (message: string) => {
     const before = playerReducer(stateRef.current, { type: "error", message });
@@ -359,7 +367,7 @@ export function usePlayer({ serverURL, destination, detailAPI, playbackAPI, resu
     const { detail, currentSourceKey, currentEpisodeIndex } = stateRef.current;
     const currentTime = current ?? stateRef.current.currentTime;
     const duration = total ?? stateRef.current.duration;
-    if (currentTime <= 0 || !Number.isFinite(duration)) return;
+    if (!Number.isFinite(currentTime) || currentTime <= 0 || !Number.isFinite(duration)) return;
     lastSavedTimeRef.current = currentTime;
     const checkpoint = [currentSourceKey, videoId, stateRef.current.currentLineIndex, currentEpisodeIndex, Math.floor(currentTime)].join("|");
     if (checkpoint === lastCheckpointRef.current) return;
@@ -438,6 +446,16 @@ export function usePlayer({ serverURL, destination, detailAPI, playbackAPI, resu
   }, [checkpointOutgoing, commitFinalState, playFrom, setResumeStartFor]);
 
   const switchEpisode = useCallback(async (index: number) => {
+    // Past the last episode nothing is left to play: save the finished episode and stop. Falling
+    // back to another line or source would replay content and overwrite the completed record.
+    //
+    // 超过最后一集时已没有可播放的内容: 保存已看完的剧集并停止. 回退到其他线路或来源会重播
+    // 内容, 并覆盖已完成的记录.
+    if (index >= selectEpisodes(stateRef.current).length) {
+      checkpointOutgoing();
+      dispatch({ type: "playState", value: false });
+      return;
+    }
     checkpointOutgoing();
     const before = stateRef.current;
     const seed = applyAll(before, [

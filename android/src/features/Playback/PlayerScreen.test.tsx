@@ -379,3 +379,70 @@ test("checkpoints and flushes when the app leaves the foreground", async () => {
   expect(store.get("watch", "T")?.payload).toMatchObject({ progress_sec: 3, duration_sec: 100, source_key: "a" });
   expect(engine.flushNow).toHaveBeenCalled();
 });
+
+test("finishing the last episode keeps the title finished and starts no fallback", async () => {
+  const store = memorySyncStore(1, "alice");
+  const engine = { requestSync: jest.fn(async () => undefined), flushNow: jest.fn(async () => undefined), start: jest.fn(), stop: jest.fn() };
+  const single: VideoDetail = { ...detail, episodes: [[{ name: "E1", url: "raw://e1" }]] };
+  const detailAPI: DetailAPI = { detail: jest.fn().mockResolvedValue(single) };
+  const playbackAPI: PlaybackAPI = { playbackURL: jest.fn().mockResolvedValue({ mode: "proxy", url: "https://p/m3u8" }) };
+  const destination: PlayDestination = { ...dest, sources: [src, { ...src, source_key: "b", source_name: "B", video_id: "v-b" }] };
+  const { findByTestId, getByTestId } = render(
+    <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+      <I18nextProvider i18n={i18next}>
+        <ThemeProvider override="light">
+          <SyncTestProvider store={store} engine={engine}>
+            <PlayerScreenContext.Provider value={{ detailAPI, playbackAPI, serverURL: "http://srv-end", onClose: jest.fn() }}>
+              <PlayerScreen route={{ params: destination }} />
+            </PlayerScreenContext.Provider>
+          </SyncTestProvider>
+        </ThemeProvider>
+      </I18nextProvider>
+    </SafeAreaProvider>,
+  );
+  const video = await findByTestId("video");
+  await act(async () => { fireEvent(video, "onLoad", { duration: 100 }); });
+  await act(async () => { fireEvent(video, "onProgress", { currentTime: 99.6, seekableDuration: 100 }); });
+  expect(store.get("watch", "T")?.payload).toMatchObject({ episode_index: 0, completed: true });
+  engine.flushNow.mockClear();
+
+  await act(async () => { fireEvent(video, "onEnd"); });
+
+  expect(engine.flushNow).toHaveBeenCalled();
+  expect(playbackAPI.playbackURL).toHaveBeenCalledTimes(1);
+  expect(detailAPI.detail).toHaveBeenCalledTimes(1);
+  expect(getByTestId("video").props.paused).toBe(true);
+  await act(async () => { fireEvent(getByTestId("video"), "onProgress", { currentTime: 99.9, seekableDuration: 100 }); });
+  expect(store.get("watch", "T")?.payload).toMatchObject({ source_key: "a", completed: true });
+});
+
+test("pausing checkpoints the position and flushes it", async () => {
+  const store = memorySyncStore(1, "alice");
+  const engine = { requestSync: jest.fn(async () => undefined), flushNow: jest.fn(async () => undefined), start: jest.fn(), stop: jest.fn() };
+  const detailAPI: DetailAPI = { detail: jest.fn().mockResolvedValue(detail) };
+  const playbackAPI: PlaybackAPI = { playbackURL: jest.fn().mockResolvedValue({ mode: "proxy", url: "https://p/m3u8" }) };
+  const { findByTestId, getByTestId } = render(
+    <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+      <I18nextProvider i18n={i18next}>
+        <ThemeProvider override="light">
+          <SyncTestProvider store={store} engine={engine}>
+            <PlayerScreenContext.Provider value={{ detailAPI, playbackAPI, serverURL: "http://srv-pause", onClose: jest.fn() }}>
+              <PlayerScreen route={{ params: dest }} />
+            </PlayerScreenContext.Provider>
+          </SyncTestProvider>
+        </ThemeProvider>
+      </I18nextProvider>
+    </SafeAreaProvider>,
+  );
+  const video = await findByTestId("video");
+  await act(async () => { fireEvent(video, "onLoad", { duration: 100 }); });
+  await act(async () => { fireEvent(video, "onProgress", { currentTime: 3, seekableDuration: 100 }); });
+  expect(store.get("watch", "T")).toBeNull();
+  engine.flushNow.mockClear();
+
+  await act(async () => { fireEvent.press(getByTestId("playerPlayPauseButton")); });
+
+  expect(store.get("watch", "T")?.payload).toMatchObject({ progress_sec: 3, episode_index: 0 });
+  expect(engine.flushNow).toHaveBeenCalledTimes(1);
+  expect(getByTestId("video").props.paused).toBe(true);
+});

@@ -364,3 +364,78 @@ test("switchEpisode recomputes resume position for the target episode", async ()
   expect(result.current.state.currentEpisodeIndex).toBe(1);
   expect(result.current.resumeStartSeconds).toBe(12);
 });
+
+test("switchEpisode past the last episode keeps the title finished and plays nothing new", async () => {
+  const apis = mkAPIs();
+  const saveWatch = jest.fn();
+  const flushWatch = jest.fn();
+  const multiSrcDest: PlayDestination = { ...dest, sources: [src("a"), src("b")] };
+  const { result } = renderHook(() =>
+    usePlayer({ serverURL: "http://srv-last-episode", destination: multiSrcDest, detailAPI: apis.detail, playbackAPI: apis.playback, saveWatch, flushWatch }),
+  );
+  await waitFor(() => expect(result.current.state.detail).not.toBeNull());
+  await act(async () => { await result.current.actions.switchEpisode(1); });
+  act(() => { result.current.actions.setPlaying(true); });
+  act(() => { result.current.actions.timeUpdate(99.5, 100); });
+  expect(saveWatch).toHaveBeenLastCalledWith(expect.objectContaining({ episode_index: 1, completed: true }));
+  const resolves = (apis.playback.playbackURL as jest.Mock).mock.calls.length;
+  const details = (apis.detail.detail as jest.Mock).mock.calls.length;
+  flushWatch.mockClear();
+
+  await act(async () => { await result.current.actions.switchEpisode(2); });
+
+  expect(flushWatch).toHaveBeenCalledTimes(1);
+  expect(apis.playback.playbackURL).toHaveBeenCalledTimes(resolves);
+  expect(apis.detail.detail).toHaveBeenCalledTimes(details);
+  expect(result.current.state.currentSourceKey).toBe("a");
+  expect(result.current.state.currentEpisodeIndex).toBe(1);
+  expect(result.current.state.isPlaying).toBe(false);
+  expect(result.current.state.errorMessage).toBe("");
+
+  act(() => { result.current.actions.timeUpdate(99.9, 100); });
+  act(() => { result.current.actions.persistProgressNow(); });
+  expect(saveWatch).not.toHaveBeenCalledWith(expect.objectContaining({ completed: false }));
+});
+
+test("persistProgressNow ignores a non-finite position", async () => {
+  const apis = mkAPIs();
+  const saveWatch = jest.fn();
+  const { result } = renderHook(() =>
+    usePlayer({ serverURL: "http://srv-non-finite", destination: dest, detailAPI: apis.detail, playbackAPI: apis.playback, saveWatch }),
+  );
+  await waitFor(() => expect(result.current.state.detail).not.toBeNull());
+  act(() => { result.current.actions.persistProgressNow(Number.NaN, 100); });
+  act(() => { result.current.actions.persistProgressNow(Number.POSITIVE_INFINITY, 100); });
+  act(() => { result.current.actions.timeUpdate(Number.POSITIVE_INFINITY, 100); });
+  expect(saveWatch).not.toHaveBeenCalled();
+});
+
+test("a startup line fallback does not seek to the record's position for another episode", async () => {
+  const serverURL = "http://srv-fallback-resume";
+  savePlaybackSettings(serverURL, "T", { skipIntroSeconds: 7, skipOutroSeconds: 0, playbackRate: 1 });
+  const apis = mkAPIs();
+  apis.detail.detail = jest.fn().mockResolvedValue({
+    ...detail,
+    episodes: [
+      [{ name: "L1E1", url: "raw://l1e1" }, { name: "L1E2", url: "raw://l1e2" }],
+      [{ name: "L2E1", url: "raw://l2e1" }],
+    ],
+  });
+  apis.playback.playbackURL = jest.fn()
+    .mockRejectedValueOnce(new Error("line 1 down"))
+    .mockResolvedValueOnce({ mode: "direct", url: "https://ok/m3u8" });
+  const { result } = renderHook(() => usePlayer({
+    serverURL,
+    destination: dest,
+    detailAPI: apis.detail,
+    playbackAPI: apis.playback,
+    resume: { pending: false, item: watchRecord({ group_index: 0, episode_index: 1, progress_sec: 45 }) },
+  }));
+  await waitFor(() => expect(result.current.resumeStartSeconds).toBe(45));
+
+  await act(async () => { await result.current.actions.startPlayback(); });
+
+  expect(result.current.state.currentLineIndex).toBe(1);
+  expect(result.current.state.currentEpisodeIndex).toBe(0);
+  expect(result.current.resumeStartSeconds).toBe(7);
+});
