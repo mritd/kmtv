@@ -151,6 +151,12 @@ export function createSyncStore(options: SyncStoreOptions): SyncStore {
     } catch {
       return cache;
     }
+    // While storage is writable the cache always holds what lastRaw encodes, so an unchanged value
+    // (the common case for every write) skips the parse and the per-record validation.
+    //
+    // 存储可写时缓存始终对应 lastRaw 的内容, 因此值未变化 (每次写入的常见情况) 时跳过解析和
+    // 逐条记录校验.
+    if (raw === lastRaw) return cache;
     lastRaw = raw;
     if (!raw) return emptySyncState(username);
     try {

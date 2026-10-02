@@ -184,6 +184,24 @@ describe("createSyncStore", () => {
     expect(makeStore(storage).list("search").map((r) => r.key).sort()).toEqual(["from a", "from b"]);
   });
 
+  it("reuses the cached state for a write when storage did not change", () => {
+    const storage = memoryStorage();
+    const store = makeStore(storage);
+    store.upsert("search", { query: "first" });
+    const parse = vi.spyOn(JSON, "parse");
+    try {
+      store.upsert("search", { query: "second" });
+      expect(parse).not.toHaveBeenCalled();
+      makeStore(storage).upsert("search", { query: "other tab" });
+      parse.mockClear();
+      store.upsert("search", { query: "third" });
+      expect(parse).toHaveBeenCalledTimes(1);
+    } finally {
+      parse.mockRestore();
+    }
+    expect(makeStore(storage).list("search").map((r) => r.key).sort()).toEqual(["first", "other tab", "second", "third"]);
+  });
+
   it("reloads state written by another instance and notifies", () => {
     const storage = memoryStorage();
     const store = makeStore(storage);
