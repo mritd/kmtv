@@ -103,6 +103,8 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	protectedv1.GET("/douban/recommend/filter", h.DoubanRecommendByFilters)
 	protectedv1.GET("/douban/home", h.DoubanHomeSections)
 	protectedv1.POST("/playback/url", h.PlaybackURL)
+	protectedv1.POST("/sync/push", h.SyncPush)
+	protectedv1.GET("/sync/pull", h.SyncPull)
 
 	// Admin routes require authentication and admin role.
 	//
