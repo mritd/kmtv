@@ -1,0 +1,18 @@
+{
+  "description": "Key normalization vectors shared by the Go server and every client. Split on the sync whitespace set, join with one ASCII space, then lowercase each code point on its own (Go unicode.ToLower; a multi-code-point mapping keeps its first code point).",
+  "vectors": [
+    {"input": "Demo Show", "key": "demo show"},
+    {"input": "  Demo   Show  ", "key": "demo show"},
+    {"input": "\tDemo\nShow\r\n", "key": "demo show"},
+    {"input": "Demo Show", "key": "demo show"},
+    {"input": "　三体　第一季　", "key": "三体 第一季"},
+    {"input": "三体", "key": "三体"},
+    {"input": "ÉCOLE Été", "key": "école été"},
+    {"input": "ＡＢＣ", "key": "ａｂｃ"},
+    {"input": "Movie 2", "key": "movie 2"},
+    {"input": "A B C", "key": "a b c"},
+    {"input": "İSTANBUL", "key": "istanbul"},
+    {"input": "ΟΔΟΣ", "key": "οδοσ"},
+    {"input": "   ", "key": ""}
+  ]
+}
