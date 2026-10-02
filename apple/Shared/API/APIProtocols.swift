@@ -198,7 +198,7 @@ protocol AdminAPIProtocol: Sendable {
 /// Combined playback dependencies needed by PlayerViewModel.
 ///
 /// PlayerViewModel 需要的播放相关组合依赖.
-typealias PlaybackDetailAPIProtocol = DetailAPIProtocol & PlaybackAPIProtocol & WatchHistoryAPIProtocol
+typealias PlaybackDetailAPIProtocol = DetailAPIProtocol & PlaybackAPIProtocol
 /// Combined home dependencies needed by HomeViewModel.
 ///
 /// HomeViewModel 需要的首页相关组合依赖.

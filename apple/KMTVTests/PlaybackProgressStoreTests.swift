@@ -6,11 +6,7 @@ import XCTest
 final class PlaybackProgressStoreTests: XCTestCase {
     func testLoadSettingsCreatesDefaultRecord() throws {
         let container = try ModelContainerFactory.makeInMemory()
-        let store = PlaybackProgressStore(
-            modelContext: container.mainContext,
-            serverURL: "https://kmtv.example",
-            title: "Video"
-        )
+        let store = PlaybackProgressStore(modelContext: container.mainContext, serverURL: "https://kmtv.example", syncStore: nil, title: "Video")
 
         let settings = store.loadSettings()
 
@@ -19,179 +15,49 @@ final class PlaybackProgressStoreTests: XCTestCase {
         XCTAssertEqual(settings.skipIntroSeconds, 0)
     }
 
-    func testStartTimeUsesSavedProgressBeforeIntroSkip() throws {
+    private let detail = VideoDetail(id: "v1", title: "Video", type: "movie", year: "2026", cover: "c",
+                                     desc: "", director: "", actor: "", area: "",
+                                     episodes: [[Episode(name: "EP1", url: "u")]])
+
+    func testStartTimeUsesMatchingWatchRecordBeforeIntroSkip() throws {
         let container = try ModelContainerFactory.makeInMemory()
-        let context = container.mainContext
-        WatchHistoryItem.upsert(
-            in: context,
-            serverURL: "https://kmtv.example",
-            sourceKey: "s1",
-            videoId: "v1",
-            title: "Video",
-            cover: "",
-            episode: "EP1",
-			groupIndex: 1,
-            episodeIndex: 0,
-            progress: 42,
-            duration: 100
-        )
-        let store = PlaybackProgressStore(
-            modelContext: context,
-            serverURL: "https://kmtv.example",
-            title: "Video"
-        )
+        let sync = makeSyncStore(container)
+        sync.upsert(.watch(WatchPayload(title: "Video", sourceKey: "s1", videoId: "v1", groupIndex: 1, progressSec: 42, durationSec: 100)))
+        let store = PlaybackProgressStore(modelContext: container.mainContext, serverURL: "https://kmtv.example", syncStore: sync, title: "Video")
 
-		let startTime = store.startTime(
-			sourceKey: "s1", videoId: "v1", groupIndex: 1, episodeIndex: 0, skipIntroSeconds: 12
-		)
-
-        XCTAssertEqual(startTime, 42)
+        XCTAssertEqual(store.startTime(sourceKey: "s1", videoId: "v1", groupIndex: 1, episodeIndex: 0, skipIntroSeconds: 12), 42)
+        XCTAssertEqual(store.startTime(sourceKey: "s1", videoId: "v1", groupIndex: 0, episodeIndex: 0, skipIntroSeconds: 12), 12)
+        XCTAssertEqual(store.startTime(sourceKey: "s2", videoId: "v1", groupIndex: 1, episodeIndex: 0, skipIntroSeconds: 0), 0)
     }
 
-    func testStartTimeFallsBackToIntroSkipWhenHistoryDoesNotMatch() throws {
+    func testSaveProgressWritesWatchRecordAndKeepsCompletedFlag() throws {
         let container = try ModelContainerFactory.makeInMemory()
-        let context = container.mainContext
-        WatchHistoryItem.upsert(
-            in: context,
-            serverURL: "https://kmtv.example",
-            sourceKey: "s1",
-            videoId: "v1",
-            title: "Video",
-            cover: "",
-            episode: "EP1",
-			groupIndex: 1,
-            episodeIndex: 0,
-            progress: 42,
-            duration: 100
-        )
-        let store = PlaybackProgressStore(
-            modelContext: context,
-            serverURL: "https://kmtv.example",
-            title: "Video"
-        )
+        let sync = makeSyncStore(container)
+        let store = PlaybackProgressStore(modelContext: container.mainContext, serverURL: "https://kmtv.example", syncStore: sync, title: "Video")
 
-		let startTime = store.startTime(
-			sourceKey: "s1", videoId: "v1", groupIndex: 0, episodeIndex: 0, skipIntroSeconds: 12
-		)
+        store.saveProgress(detail: detail, sourceKey: "s1", videoId: "v1", episode: Episode(name: "EP1", url: "u"),
+                           groupIndex: 0, episodeIndex: 0, current: 30, duration: 120)
+        XCTAssertEqual(sync.watch(title: "Video"), WatchPayload(title: "Video", cover: "c", sourceKey: "s1", videoId: "v1",
+                                                                episode: "EP1", progressSec: 30, durationSec: 120))
 
-        XCTAssertEqual(startTime, 12)
-    }
-
-    func testSaveProgressPersistsWatchHistory() throws {
-        let container = try ModelContainerFactory.makeInMemory()
-        let context = container.mainContext
-        let store = PlaybackProgressStore(
-            modelContext: context,
-            serverURL: "https://kmtv.example",
-            title: "Video"
-        )
-        let detail = VideoDetail(
-            id: "v1",
-            title: "Video",
-            type: "",
-            year: "",
-            cover: "https://img.example/cover.jpg",
-            desc: "",
-            director: "",
-            actor: "",
-            area: "",
-            episodes: []
-        )
-
-        store.saveProgress(
-            detail: detail,
-            sourceKey: "s1",
-            videoId: "v1",
-            episode: Episode(name: "EP1", url: "https://cdn.example/ep1.m3u8"),
-            episodeIndex: 0,
-            current: 30,
-            duration: 120
-        )
-
-        let history = WatchHistoryItem.recent(in: context, serverURL: "https://kmtv.example")
-        XCTAssertEqual(history.count, 1)
-        XCTAssertEqual(history.first?.sourceKey, "s1")
-        XCTAssertEqual(history.first?.videoId, "v1")
-		XCTAssertEqual(history.first?.groupIndex, 0)
-        XCTAssertEqual(history.first?.progress, 30)
-        XCTAssertEqual(history.first?.duration, 120)
+        store.saveProgress(detail: detail, sourceKey: "s1", videoId: "v1", episode: Episode(name: "EP1", url: "u"),
+                           groupIndex: 0, episodeIndex: 0, current: 119, duration: 120, completed: true)
+        XCTAssertEqual(sync.watch(title: "Video")?.completed, true)
+        XCTAssertEqual(store.startTime(sourceKey: "s1", videoId: "v1", episodeIndex: 0, skipIntroSeconds: 5), 5)
     }
 
     func testSaveProgressIgnoresInvalidProgress() throws {
         let container = try ModelContainerFactory.makeInMemory()
-        let context = container.mainContext
-        let store = PlaybackProgressStore(
-            modelContext: context,
-            serverURL: "https://kmtv.example",
-            title: "Video"
-        )
-        let detail = VideoDetail(
-            id: "v1",
-            title: "Video",
-            type: "",
-            year: "",
-            cover: "",
-            desc: "",
-            director: "",
-            actor: "",
-            area: "",
-            episodes: []
-        )
-
-        store.saveProgress(
-            detail: detail,
-            sourceKey: "s1",
-            videoId: "",
-            episode: Episode(name: "EP1", url: "https://cdn.example/ep1.m3u8"),
-            episodeIndex: 0,
-            current: 30,
-            duration: 120
-        )
-        store.saveProgress(
-            detail: detail,
-            sourceKey: "s1",
-            videoId: "v1",
-            episode: Episode(name: "EP1", url: "https://cdn.example/ep1.m3u8"),
-            episodeIndex: 0,
-            current: 0,
-            duration: 120
-        )
-        store.saveProgress(
-            detail: detail,
-            sourceKey: "s1",
-            videoId: "v1",
-            episode: Episode(name: "EP1", url: "https://cdn.example/ep1.m3u8"),
-            episodeIndex: 0,
-            current: 30,
-            duration: .infinity
-        )
-
-        XCTAssertTrue(WatchHistoryItem.recent(in: context, serverURL: "https://kmtv.example").isEmpty)
+        let sync = makeSyncStore(container)
+        let store = PlaybackProgressStore(modelContext: container.mainContext, serverURL: "https://kmtv.example", syncStore: sync, title: "Video")
+        store.saveProgress(detail: detail, sourceKey: "s1", videoId: "", episode: Episode(name: "EP1", url: "u"),
+                           episodeIndex: 0, current: 30, duration: 120)
+        store.saveProgress(detail: detail, sourceKey: "s1", videoId: "v1", episode: Episode(name: "EP1", url: "u"),
+                           episodeIndex: 0, current: 0, duration: 120)
+        store.saveProgress(detail: detail, sourceKey: "s1", videoId: "v1", episode: Episode(name: "EP1", url: "u"),
+                           episodeIndex: 0, current: 10, duration: .nan)
+        store.saveProgress(detail: detail, sourceKey: "s1", videoId: "v1", episode: Episode(name: "EP1", url: "u"),
+                           episodeIndex: 0, current: .nan, duration: 120)
+        XCTAssertNil(sync.watch(title: "Video"))
     }
-
-	func testCompletedProgressRemovesLocalContinueWatchingItem() throws {
-		let container = try ModelContainerFactory.makeInMemory()
-		let context = container.mainContext
-		let store = PlaybackProgressStore(
-			modelContext: context,
-			serverURL: "https://kmtv.example",
-			title: "Video"
-		)
-		let detail = VideoDetail(
-			id: "v1", title: "Video", type: "", year: "", cover: "", desc: "",
-			director: "", actor: "", area: "", episodes: []
-		)
-		let episode = Episode(name: "EP1", url: "https://cdn.example/ep1.m3u8")
-
-		store.saveProgress(
-			detail: detail, sourceKey: "s1", videoId: "v1", episode: episode,
-			episodeIndex: 0, current: 30, duration: 100
-		)
-		store.saveProgress(
-			detail: detail, sourceKey: "s1", videoId: "v1", episode: episode,
-			episodeIndex: 0, current: 100, duration: 100, completed: true
-		)
-
-		XCTAssertTrue(WatchHistoryItem.recent(in: context, serverURL: "https://kmtv.example").isEmpty)
-	}
 }

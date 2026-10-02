@@ -12,6 +12,7 @@ struct DetailView: View {
 
     @Environment(AppViewModel.self) private var appVM
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: PlayerViewModel?
     @State private var showPlayer = false
@@ -34,13 +35,13 @@ struct DetailView: View {
             if viewModel == nil, let client = appVM.apiClient {
                 let vm = PlayerViewModel(
 					apiClient: client, modelContext: modelContext, serverURL: appVM.serverURL,
-					userID: Int64(appVM.currentUser?.id ?? 0),
+					syncStore: appVM.sync?.store, syncEngine: appVM.sync?.engine,
                     sources: sources, sourceKey: sourceKey, videoId: videoId, title: title,
                     coverHint: coverHint,
                     initialEpisodeIndex: resumeIntent?.episodeIndex
 				)
 				viewModel = vm
-				await vm.loadRemoteWatchHistory()
+				await vm.prepareResume()
 				let resumeVideoID = vm.currentVideoID.isEmpty ? videoId : vm.currentVideoID
 				let ok = await vm.loadDetail(sourceKey: vm.currentSourceKey, videoId: resumeVideoID)
                 guard !Task.isCancelled else {
@@ -58,6 +59,12 @@ struct DetailView: View {
         }
         .onAppear {
             viewModel?.resume()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Checkpoint before the app is suspended; the session flush may run before this one.
+            //
+            // 应用挂起前保存进度; 会话级补写可能先于这里执行.
+            if phase == .background { viewModel?.checkpoint() }
         }
         .onDisappear {
             if showPlayer {
