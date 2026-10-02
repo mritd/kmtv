@@ -24,6 +24,7 @@ import {
   sourceBundleStorageKey,
   upsertSourceBundleDetail,
 } from "@/storage/sourceBundles";
+import { detailStore } from "@/store/detailStore";
 import { SyncProvider } from "@/sync/SyncContext";
 import type { SyncPullResponse, SyncPushRequest } from "@/sync/types";
 import { emptyPullResponse, openSyncStore, seedSyncStore } from "@/test/syncFixtures";
@@ -198,6 +199,7 @@ describe("DetailPage", () => {
     window.localStorage.clear();
     window.sessionStorage.clear();
     artplayerMock.instances.length = 0;
+    detailStore.getState().resetAll();
     vi.restoreAllMocks();
     vi.useRealTimers();
   });
@@ -245,6 +247,73 @@ describe("DetailPage", () => {
     });
 
     await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/2.m3u8", "source-a"));
+  });
+
+  it("waits for the launch sync before selecting the episode of a detail known on the first render", async () => {
+    // A reload keeps location.state, so the title is known before SyncProvider starts the engine.
+    //
+    // 重新加载会保留 location.state, 因此在 SyncProvider 启动引擎之前标题就已确定.
+    const bundle = bundleFromSearchResult({
+      title: "Demo Show",
+      sources: [
+        {
+          source_key: "source-a",
+          source_name: "Source A",
+          video_id: "video-a",
+          episodes: [
+            { name: "01", url: "https://cdn.example/1.m3u8" },
+            { name: "02", url: "https://cdn.example/2.m3u8" },
+          ],
+        },
+      ],
+    } as SearchResult);
+    seedSyncStore(1, "admin", (store) => store.upsert("watch", { ...episodeTwo, episode: "01", episode_index: 0, progress_sec: 30 }));
+    const pull = deferred<SyncPullResponse>();
+    const syncPull = vi.fn().mockReturnValueOnce(pull.promise).mockResolvedValue(emptyPullResponse());
+    const playbackURL = vi.fn(async (url: string) => ({ mode: "proxy" as const, url }));
+    renderDetail(createTestAPI({ detail: twoEpisodes, syncPull, playbackURL }), {
+      pathname: DETAIL_A,
+      state: { sourceBundle: bundle },
+    });
+
+    await waitFor(() => expect(syncPull).toHaveBeenCalled());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(playbackURL).not.toHaveBeenCalled();
+    await act(async () => {
+      pull.resolve(
+        emptyPullResponse({
+          rev: 1,
+          records: [{ kind: "watch", key: "demo show", payload: episodeTwo, event_time_ms: Date.now() + 60_000, deleted: false, rev: 1 }],
+        }),
+      );
+    });
+
+    await waitFor(() => expect(playbackURL).toHaveBeenCalledWith("https://cdn.example/2.m3u8", "source-a"));
+    expect(playbackURL).toHaveBeenCalledTimes(1);
+  });
+
+  it("resumes a player restored from the detail cache from the local record while the sync is pending", async () => {
+    seedSyncStore(1, "admin", (store) => store.upsert("watch", episodeTwo));
+    const key = detailStore.getState().ensureEntry("source-a", "video-a");
+    detailStore.getState().dispatchPlayback(key, {
+      type: "selectEpisode",
+      groupIndex: 0,
+      episodeIndex: 1,
+      episode: { name: "02", url: "https://cdn.example/2.m3u8" },
+    });
+    detailStore.getState().dispatchPlayback(key, { type: "resolveSuccess", url: "https://cdn.example/2.m3u8", mode: "proxy" });
+    const syncPush = vi.fn(() => new Promise<never>(() => undefined));
+    renderDetail(createTestAPI({ detail: twoEpisodes, syncPull: () => new Promise<never>(() => undefined), syncPush }));
+
+    const player = await loadMetadata();
+    expect(player.currentTime).toBe(45);
+    const pause = player.on.mock.calls.find(([event]) => event === "video:pause")?.[1] as () => void;
+    await act(async () => {
+      pause();
+    });
+    expect(openSyncStore(1, "admin").get("watch", "Demo Show")?.payload.progress_sec).toBe(45);
   });
 
   it("starts from the local watch record when the player sync is slow", async () => {

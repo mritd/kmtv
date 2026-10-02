@@ -307,7 +307,14 @@ function DetailPageContent({
   //
   // 播放器会短暂等待一次同步, 让其他设备上更新的进度生效; 见 useWatchResume.
   const { pending: remoteHistoryPending, item: remoteHistory } = useWatchResume(currentHistoryTitle);
-  const watchRecordTime = useSyncRecord("watch", currentHistoryTitle)?.eventTimeMs ?? 0;
+  // The local record, without waiting for the gate. A player restored from detailStore mounts with
+  // its URL while the gate is still pending, and its one-shot initial seek must not miss the saved
+  // position; the exact-match rule in resumePositionFor still guards the position.
+  //
+  // 不等待同步的本地记录. 从 detailStore 恢复的播放器在等待同步期间就带着 URL 挂载, 它唯一一次的
+  // 初始跳转不能错过已保存的位置; resumePositionFor 的完全匹配规则仍然约束该位置.
+  const localWatchRecord = useSyncRecord("watch", currentHistoryTitle);
+  const watchRecordTime = localWatchRecord?.eventTimeMs ?? 0;
   // The last checkpoint this page wrote. A paused or idle player reports the same position again;
   // rewriting it would give old progress a new event time and override what another device saved since.
   //
@@ -719,15 +726,18 @@ function DetailPageContent({
             sourceName={currentSource.source_name}
             onPlaying={() => dispatch({ type: "playing" })}
             onRetry={retry}
-            // Resume only when the synced watch record matches the episode currently loaded.
+            // Resume only when the watch record matches the episode currently loaded. The episode
+            // waits for the gate, so once it resolves this is the gated record; before that only a
+            // player restored from detailStore can be mounted, and it reads the local record.
             //
-            // 仅当同步观看记录与当前播放集匹配时才恢复.
+            // 仅当观看记录与当前播放集匹配时才恢复. 选集会等待同步, 因此同步结束后这里就是等待后的
+            // 记录; 在此之前只有从 detailStore 恢复的播放器可能已挂载, 它读取本地记录.
             initialPositionSec={resumePositionFor(
               currentSourceKey,
               currentVideoID,
               state.groupIndex,
               state.episodeIndex,
-              remoteHistory,
+              localWatchRecord?.payload ?? null,
             )}
             onPositionChange={(positionSec, durationSec, reason) => {
               // Checkpoints go to the active identity's local store; the engine pushes them later.
