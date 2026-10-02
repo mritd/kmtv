@@ -211,3 +211,6 @@
 "Yes" = "Yes";
 "No" = "No";
 "N/A" = "N/A";
+
+/* Sync */
+"Favorites are full" = "Favorites are full";

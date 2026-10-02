@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import SwiftUI
 
 enum AppState {
     case loading
@@ -16,14 +17,24 @@ final class AppViewModel {
     var apiClient: APIClient?
     var serverVersion: String = ""
 
+    /// Sync store and engine of the current identity; nil until authenticated.
+    ///
+    /// 当前身份的同步存储与引擎; 认证前为 nil.
+    private(set) var sync: SyncSession?
+
     private var modelContext: ModelContext
+    private let session: URLSession?
 
     private let accessTokenBox = AccessTokenBox()
     private var authStore: AuthStore?
     private var authObserver: Any?
 
-    init(modelContext: ModelContext) {
+    /// `session` replaces the API client's URL session; tests pass a stubbed one.
+    ///
+    /// `session` 替换 API 客户端使用的 URL 会话; 测试会传入桩会话.
+    init(modelContext: ModelContext, session: URLSession? = nil) {
         self.modelContext = modelContext
+        self.session = session
         authObserver = NotificationCenter.default.addObserver(
             forName: .authExpired, object: nil, queue: .main
         ) { [weak self] notification in
@@ -73,18 +84,15 @@ final class AppViewModel {
             }
 
             currentUser = user
+            // Open the store before the screens appear, so they never render without it.
+            //
+            // 在页面出现之前打开存储, 页面因此不会在没有存储的情况下渲染.
+            openSync(for: user)
             state = .authenticated
             // Check server compatibility after authentication because settings are fetched best-effort.
             //
             // 认证成功后再检查服务端兼容性, 因为设置接口是尽力获取.
-            await fetchServerVersion()
-            if !serverVersion.isEmpty && !VersionCompatibility.isCompatible(serverVersion) {
-                state = .incompatibleServer(
-                    serverVersion: serverVersion,
-                    requiredVersion: VersionCompatibility.minimumServerVersion
-                )
-                return
-            }
+            await startSyncIfCompatible()
         } catch let error as URLError where error.code == .timedOut {
             prefillServerURL = server.url
             state = .serverSetup
@@ -137,7 +145,9 @@ final class AppViewModel {
             } else {
                 currentUser = try await client.me()
             }
+            if let currentUser { openSync(for: currentUser) }
             state = .authenticated
+            await startSyncIfCompatible()
         } catch {
             // Rollback
             //
@@ -161,10 +171,17 @@ final class AppViewModel {
         try authStore?.save(accessToken: response.accessToken, expiresAt: response.expiresAt)
         accessTokenBox.set(response.accessToken)
         currentUser = response.user
+        openSync(for: response.user)
         state = .authenticated
+        await startSyncIfCompatible()
     }
 
     func logout() async {
+        // Stop syncing first: a cycle running while the token is revoked would report the session
+        // as expired.
+        //
+        // 先停止同步: 在 token 被注销期间运行的同步会把会话误报为过期.
+        sync?.stop()
         // Best-effort server logout with 3s timeout - don't block on failed server
         //
         // 登出请求尽力发送, 服务器不可用时不阻塞本地退出.
@@ -178,6 +195,48 @@ final class AppViewModel {
     ///
     /// 登出或连接失败后预填的服务器地址.
     var prefillServerURL: String = ""
+
+    /// Opens the sync scope of `user`, replacing any previous one. Screens can read the store at
+    /// once; the engine stays idle until `startSyncIfCompatible()`.
+    ///
+    /// 打开 `user` 的同步作用域, 并替换之前的作用域. 页面可以立即读取存储; 引擎在
+    /// `startSyncIfCompatible()` 之前保持空闲.
+    private func openSync(for user: User) {
+        sync?.stop()
+        sync = SyncSession(context: modelContext, serverURL: serverURL, user: user, api: apiClient,
+                           activeUserID: { [weak self] in self?.currentUser.map { Int64(max(0, $0.id)) } })
+    }
+
+    /// Checks the server version, then starts the sync engine. A server older than
+    /// `VersionCompatibility.minimumServerVersion` has no sync endpoints: the session closes and the
+    /// incompatible-server screen shows instead. The check is best-effort, so an unknown version
+    /// counts as compatible. A session replaced or closed during the check is left alone.
+    ///
+    /// 检查服务端版本后启动同步引擎. 低于 `VersionCompatibility.minimumServerVersion` 的服务端没有
+    /// 同步接口: 关闭同步会话并显示服务端不兼容页面. 检查是尽力而为的, 版本未知时视为兼容.
+    /// 检查期间被替换或关闭的会话不会被处理.
+    private func startSyncIfCompatible() async {
+        let captured = sync
+        await fetchServerVersion()
+        guard sync === captured else { return }
+        if !serverVersion.isEmpty && !VersionCompatibility.isCompatible(serverVersion) {
+            sync?.stop()
+            sync = nil
+            state = .incompatibleServer(
+                serverVersion: serverVersion,
+                requiredVersion: VersionCompatibility.minimumServerVersion
+            )
+            return
+        }
+        sync?.start()
+    }
+
+    /// Forwards scene phase changes to the sync session.
+    ///
+    /// 将场景状态变化转发给同步会话.
+    func handleScenePhase(_ phase: ScenePhase) {
+        sync?.handleScenePhase(phase)
+    }
 
     /// Fetch server version from public settings endpoint (best-effort).
     ///
@@ -214,6 +273,8 @@ final class AppViewModel {
         apiClient = nil
         currentUser = nil
         serverVersion = ""
+        sync?.stop()
+        sync = nil
         Server.deleteAll(in: modelContext)
         state = .serverSetup
         if let error {
@@ -225,7 +286,7 @@ final class AppViewModel {
     ///
     /// 创建绑定当前 token provider 的 API 客户端.
     private func makeClient(for serverURL: String) -> APIClient {
-        APIClient(baseURL: serverURL, tokenProvider: { [accessTokenBox] in
+        APIClient(baseURL: serverURL, session: session, tokenProvider: { [accessTokenBox] in
             accessTokenBox.get()
         })
     }

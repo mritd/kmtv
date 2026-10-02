@@ -23,6 +23,7 @@ struct KMTVTVApp: App {
 
 struct TVRootView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @State private var appVM: AppViewModel?
 
     var body: some View {
@@ -35,6 +36,9 @@ struct TVRootView: View {
             let vm = AppViewModel(modelContext: modelContext)
             appVM = vm
             await vm.bootstrap()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            appVM?.handleScenePhase(phase)
         }
     }
 
