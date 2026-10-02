@@ -235,12 +235,74 @@ final class APIClientTests: XCTestCase {
             let items = Set(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
             XCTAssertEqual(items, [URLQueryItem(name: "since", value: "4"), URLQueryItem(name: "limit", value: "500"),
                                    URLQueryItem(name: "epoch", value: "e1")])
+            XCTAssertNil(items.first { $0.name == "full" })
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
             let body = #"{"epoch":"e1","server_time_ms":1,"rev":4,"reset":false,"has_more":false,"clears":[],"records":[]}"#
             return (response, Data(body.utf8))
         }
 
-        let page = try await client.syncPull(since: 4, epoch: "e1", limit: 500)
+        let page = try await client.syncPull(since: 4, epoch: "e1", limit: 500, full: false)
         XCTAssertEqual(page.rev, 4)
+    }
+
+    func testSyncPullSendsFullOnlyWhenRequested() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [URLProtocolStub.self]
+        let client = APIClient(
+            baseURL: "https://kmtv.example.com",
+            session: URLSession(configuration: config),
+            tokenProvider: { "AccessToken" }
+        )
+        URLProtocolStub.requestHandler = { request in
+            let url = request.url!
+            let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            XCTAssertEqual(items.first { $0.name == "full" }?.value, "1")
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            let body = #"{"epoch":"e1","server_time_ms":1,"rev":0,"reset":false,"has_more":false,"clears":[],"records":[]}"#
+            return (response, Data(body.utf8))
+        }
+        _ = try await client.syncPull(since: 0, epoch: "", limit: 500, full: true)
+    }
+
+    func testSyncPushBodyIsEncodedWithoutEscapingSlashes() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [URLProtocolStub.self]
+        let client = APIClient(
+            baseURL: "https://kmtv.example.com",
+            session: URLSession(configuration: config),
+            tokenProvider: { "AccessToken" }
+        )
+        let change = SyncChangeWire(kind: .favorite, op: .upsert, key: "a/b",
+                                    payload: .favorite(FavoritePayload(title: "a/b", cover: "https://img.example/a/b.jpg")),
+                                    eventTimeMs: 5)
+        let request = SyncPushRequest(epoch: "e1", cursor: 0, changes: [change])
+        var sent = 0
+        var escaped = false
+        URLProtocolStub.requestHandler = { req in
+            var data = req.httpBody ?? Data()
+            if data.isEmpty, let stream = req.httpBodyStream {
+                stream.open()
+                defer { stream.close() }
+                var buffer = [UInt8](repeating: 0, count: 4096)
+                while stream.hasBytesAvailable {
+                    let n = stream.read(&buffer, maxLength: buffer.count)
+                    if n <= 0 { break }
+                    data.append(buffer, count: n)
+                }
+            }
+            sent = data.count
+            escaped = String(decoding: data, as: UTF8.self).contains("\\/")
+            let response = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, Data(#"{"epoch":"e1","rev":0,"server_time_ms":1,"results":[]}"#.utf8))
+        }
+        _ = try await client.syncPush(request)
+
+        // The batch budget is measured without slash escaping, so the wire body must match it.
+        //
+        // 批次预算按不转义斜杠计算, 因此实际请求体必须与之一致.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .withoutEscapingSlashes
+        XCTAssertEqual(sent, try encoder.encode(request).count)
+        XCTAssertFalse(escaped)
     }
 }

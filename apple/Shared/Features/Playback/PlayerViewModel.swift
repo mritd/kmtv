@@ -112,6 +112,12 @@ final class PlayerViewModel {
     //
     // 每次播放请求都会递增; 不属于最新请求的地址响应已过期, 不会挂载 item.
     private var playbackRequest = 0
+    // Set by `prepareResume` when no record exists under the navigation title; the first
+    // `loadDetail` then looks the record up under the detail title that checkpoints write under.
+    //
+    // 导航标题下没有记录时由 `prepareResume` 设置; 第一次 `loadDetail` 随后会用检查点写入时的
+    // 详情标题查找记录.
+    private var resumeByDetailTitle = false
 
     private let apiClient: any PlaybackDetailAPIProtocol
     private let modelContext: ModelContext
@@ -189,14 +195,18 @@ final class PlayerViewModel {
     /// Waits briefly for a sync, then lets an unfinished watch record pick the line and episode,
     /// whichever source it was saved from. The open source stays; `loadDetail` clamps the indices,
     /// and `startTime` reuses the saved position only when source, video, line, and episode match.
+    /// When no record exists under the navigation title, `loadDetail` retries under the detail title.
     ///
     /// 短暂等待一次同步, 然后由未看完的观看记录决定线路和分集, 无论它保存自哪个来源. 当前来源
     /// 保持不变; `loadDetail` 会钳制索引, `startTime` 仅在来源, 视频, 线路和分集都一致时复用保存的进度.
+    /// 导航标题下没有记录时, `loadDetail` 会改用详情标题再查一次.
     func prepareResume() async {
         if let syncEngine {
             await syncEngine.requestSync(.player, waitingAtMost: playerSyncWait)
         }
-        guard let item = syncStore?.watch(title: videoTitle), !item.completed else { return }
+        let record = syncStore?.watch(title: videoTitle)
+        resumeByDetailTitle = syncStore != nil && record == nil
+        guard let item = record, !item.completed else { return }
         currentLineIndex = max(0, item.groupIndex)
         currentEpisodeIndex = max(0, item.episodeIndex)
     }
@@ -215,6 +225,7 @@ final class PlayerViewModel {
                     durationMs: 0, episodes: d.episodes.first ?? []
                 ), at: 0)
             }
+            applyResumeByDetailTitle()
             clampCurrentEpisodeIndex()
 
             return !d.episodes.isEmpty && !(d.episodes.first?.isEmpty ?? true)
@@ -690,6 +701,21 @@ final class PlayerViewModel {
             }
         }
         currentEpisodeIndex = 0
+    }
+
+    /// Once after `prepareResume` found nothing under the navigation title: when the detail title
+    /// normalizes differently, an unfinished record under it picks the line and episode. The caller
+    /// clamps the indices.
+    ///
+    /// 在 `prepareResume` 于导航标题下一无所获之后只执行一次: 详情标题归一化后不同时, 由其下未看完
+    /// 的记录决定线路和分集. 索引由调用方钳制.
+    private func applyResumeByDetailTitle() {
+        guard resumeByDetailTitle else { return }
+        resumeByDetailTitle = false
+        guard let title = detail?.title, normalizeSyncKey(title) != normalizeSyncKey(videoTitle),
+              let item = syncStore?.watch(title: title), !item.completed else { return }
+        currentLineIndex = max(0, item.groupIndex)
+        currentEpisodeIndex = max(0, item.episodeIndex)
     }
 
 	private func clampCurrentEpisodeIndex() {

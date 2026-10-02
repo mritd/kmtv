@@ -388,11 +388,18 @@ final class SyncEngine {
         var full = false
         var fullCursor: Int64 = 0
         var resets = 0
+        // A chain that starts at revision 0 asks the server not to answer with a reset for a cursor
+        // below its purge floor; it stays set for every later page of that chain.
+        //
+        // 从版本 0 开始的拉取链会要求服务端, 不要因为游标低于其清理下限而返回 reset; 该标志对
+        // 这条链之后的每一页都保持有效.
+        let fromZero = store.state.cursor == 0
         while true {
             let state = store.state
             let since = full ? fullCursor : state.cursor
             let sentAt = now()
-            let page = try await api.syncPull(since: since, epoch: state.epoch, limit: Self.pullLimit)
+            let page = try await api.syncPull(since: since, epoch: state.epoch, limit: Self.pullLimit,
+                                            full: fromZero || full)
             try checkStopped(started)
             store.clock.observe(serverTimeMs: page.serverTimeMs, sentAtMs: sentAt, receivedAtMs: now())
             if page.reset {
@@ -401,7 +408,7 @@ final class SyncEngine {
                     return false
                 }
                 if page.rev < state.cursor {
-                    store.update { SyncMerge.markForReupload($0) }
+                    store.update { SyncMerge.resetForNewEpoch($0, epoch: $0.epoch, username: store.username) }
                     return false
                 }
                 resets += 1

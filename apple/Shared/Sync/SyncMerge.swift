@@ -239,12 +239,14 @@ enum SyncMerge {
         return next
     }
 
-    /// Handles a server database reset. If the local data belongs to another username, the user ID
-    /// was reused by someone else and the data is dropped. Otherwise every record is marked for
-    /// re-upload.
+    /// Handles a server that lost data this device has: a new epoch, or a same-epoch restore from an
+    /// older copy (pass the current epoch). If the local data belongs to another username, the user
+    /// ID was reused by someone else and the data is dropped, keeping the clock offset and epoch.
+    /// Otherwise every record is marked for re-upload.
     ///
-    /// 处理服务端数据库重置. 如果本地数据属于其他用户名, 说明该用户 ID 已被他人复用, 本地数据会
-    /// 被丢弃. 否则所有记录都标记为需要重新上传.
+    /// 处理服务端丢失本设备已有数据的情况: 新 epoch, 或同 epoch 下从旧副本恢复 (传入当前 epoch).
+    /// 如果本地数据属于其他用户名, 说明该用户 ID 已被他人复用, 本地数据会被丢弃, 仅保留时钟偏移
+    /// 与 epoch. 否则所有记录都标记为需要重新上传.
     static func resetForNewEpoch(_ state: SyncState, epoch: String, username: String) -> SyncState {
         if !state.username.isEmpty && state.username != username {
             return SyncState(username: username, epoch: epoch, clockOffsetMs: state.clockOffsetMs)

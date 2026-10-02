@@ -106,9 +106,9 @@ private struct UserBoundSyncAPI: SyncAPIProtocol {
         return try await base.syncPush(request)
     }
 
-    func syncPull(since: Int64, epoch: String, limit: Int) async throws -> SyncPullResponse {
+    func syncPull(since: Int64, epoch: String, limit: Int, full: Bool) async throws -> SyncPullResponse {
         try await check()
-        return try await base.syncPull(since: since, epoch: epoch, limit: limit)
+        return try await base.syncPull(since: since, epoch: epoch, limit: limit, full: full)
     }
 
     // `SyncErrorKind.classify` maps `APIError.unauthorized` to the unauthorized kind, so the engine

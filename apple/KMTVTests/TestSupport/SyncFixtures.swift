@@ -53,6 +53,10 @@ final class FakeSyncAPI: SyncAPIProtocol {
     ///
     /// 每次拉取的 `since` 游标, 按调用顺序排列.
     var pullSinces: [Int64] = []
+    /// The `full` flag of every pull, in order.
+    ///
+    /// 每次拉取的 `full` 标志, 按调用顺序排列.
+    var pullFulls: [Bool] = []
     var pushHandler: ((SyncPushRequest) throws -> SyncPushResponse)?
     var hangPull = false
     /// Awaited before a push or pull answers, so a test can hold a request in flight.
@@ -69,9 +73,10 @@ final class FakeSyncAPI: SyncAPIProtocol {
                                 serverTimeMs: 1, results: request.changes.indices.map { SyncResultWire(index: $0, status: .applied) })
     }
 
-    func syncPull(since: Int64, epoch: String, limit: Int) async throws -> SyncPullResponse {
+    func syncPull(since: Int64, epoch: String, limit: Int, full: Bool) async throws -> SyncPullResponse {
         pullCount += 1
         pullSinces.append(since)
+        pullFulls.append(full)
         await pullGate?.wait()
         if hangPull { try await Task.sleep(for: .seconds(3600)) }
         guard !pulls.isEmpty else { return SyncPullResponse(epoch: epoch.isEmpty ? "e1" : epoch, rev: since) }

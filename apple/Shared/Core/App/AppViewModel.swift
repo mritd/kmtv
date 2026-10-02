@@ -162,20 +162,6 @@ final class AppViewModel {
         }
     }
 
-    func login(username: String, password: String) async throws {
-        guard let client = apiClient else { return }
-        let response = try await client.login(username: username, password: password)
-        if authStore == nil, !serverURL.isEmpty {
-            authStore = AuthStore(serverURL: serverURL)
-        }
-        try authStore?.save(accessToken: response.accessToken, expiresAt: response.expiresAt)
-        accessTokenBox.set(response.accessToken)
-        currentUser = response.user
-        openSync(for: response.user)
-        state = .authenticated
-        await startSyncIfCompatible()
-    }
-
     func logout() async {
         // Stop syncing first: a cycle running while the token is revoked would report the session
         // as expired.

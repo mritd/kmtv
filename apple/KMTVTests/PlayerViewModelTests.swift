@@ -40,6 +40,61 @@ final class PlayerViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testResumeFallsBackToTheDetailTitleRecord() async throws {
+        // The navigation title ("Show") normalizes differently from the detail title ("Show S1"),
+        // and the record is keyed by the detail title that checkpoints write under.
+        //
+        // 导航标题 ("Show") 与详情标题 ("Show S1") 归一化后不同, 而记录以检查点写入时使用的详情标题为键.
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        sync.upsert(.watch(WatchPayload(title: "Show S1", sourceKey: "s1", videoId: "video-1", episode: "EP3",
+                                        episodeIndex: 2, progressSec: 45, durationSec: 120)))
+        let playerAPI = FakePlayerAPI()
+        playerAPI.detailResponse = VideoDetail(
+            id: "video-1", title: "Show S1", type: "tv", year: "2026",
+            cover: "", desc: "", director: "", actor: "", area: "",
+            episodes: [(1...4).map { Episode(name: "EP\($0)", url: "https://cdn.example/\($0).m3u8") }]
+        )
+        let vm = PlayerViewModel(
+            apiClient: playerAPI, modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: nil,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Show"
+        )
+
+        await vm.prepareResume()
+        XCTAssertEqual(vm.currentEpisodeIndex, 0)
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+
+        XCTAssertEqual(vm.currentEpisodeIndex, 2)
+    }
+
+    @MainActor
+    func testResumeByTheDetailTitleIgnoresACompletedRecord() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        sync.upsert(.watch(WatchPayload(title: "Show S1", sourceKey: "s1", videoId: "video-1", episode: "EP3",
+                                        episodeIndex: 2, progressSec: 118, durationSec: 120, completed: true)))
+        let playerAPI = FakePlayerAPI()
+        playerAPI.detailResponse = VideoDetail(
+            id: "video-1", title: "Show S1", type: "tv", year: "2026",
+            cover: "", desc: "", director: "", actor: "", area: "",
+            episodes: [(1...4).map { Episode(name: "EP\($0)", url: "https://cdn.example/\($0).m3u8") }]
+        )
+        let vm = PlayerViewModel(
+            apiClient: playerAPI, modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: nil,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Show"
+        )
+
+        await vm.prepareResume()
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+
+        XCTAssertEqual(vm.currentEpisodeIndex, 0)
+    }
+
+    @MainActor
     func testPrepareResumePicksTheEpisodeButKeepsTheOpenSource() async throws {
         let container = try ModelContainerFactory.makeInMemory()
         let sync = makeSyncStore(container)

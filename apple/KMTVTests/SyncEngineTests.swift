@@ -157,6 +157,74 @@ final class SyncEngineTests: XCTestCase {
         engine.stop()
     }
 
+    func testPullsFromCursorZeroAreFullAndDeltaPullsAreNot() async throws {
+        let (store, engine, api, _) = try setup([page(rev: 2, hasMore: true), page(rev: 4), page(rev: 5)])
+        await engine.requestSync(.launch)
+        XCTAssertEqual(api.pullSinces, [0, 2])
+        XCTAssertEqual(api.pullFulls, [true, true])
+
+        wall.nowMs += 60_000
+        await engine.requestSync(.foreground)
+        XCTAssertEqual(api.pullSinces, [0, 2, 4])
+        XCTAssertEqual(api.pullFulls, [true, true, false])
+        XCTAssertEqual(store.state.cursor, 5)
+        engine.stop()
+    }
+
+    func testEveryPageOfAFullResyncIsFull() async throws {
+        let (store, engine, api, _) = try setup([page(rev: 5, reset: true), page(rev: 3, hasMore: true), page(rev: 5)])
+        store.update { var next = $0; next.epoch = "e1"; next.cursor = 1; return next }
+        await engine.requestSync(.launch)
+        XCTAssertEqual(api.pullSinces, [1, 0, 3])
+        XCTAssertEqual(api.pullFulls, [false, true, true])
+        engine.stop()
+    }
+
+    func testSameEpochResetDropsDataOfAnotherUsername() async throws {
+        // The user ID was reused after a restore: rev (3) is below the cursor (9) and the stored
+        // username belongs to someone else, so nothing of theirs may be kept or pushed.
+        //
+        // 恢复后用户 ID 被复用: rev (3) 低于游标 (9), 且已存的用户名属于他人, 因此其数据不能保留或推送.
+        let (store, engine, api, _) = try setup([page(rev: 3, reset: true), page(rev: 3)], username: "bob")
+        store.upsert(.search(SearchPayload(query: "someone else")))
+        store.update { state in
+            var next = state
+            next.username = "alice"
+            next.epoch = "e1"
+            next.cursor = 9
+            next.records = state.records.mapValues { var r = $0; r.dirty = false; r.synced = true; return r }
+            return next
+        }
+
+        await engine.requestSync(.launch)
+
+        XCTAssertTrue(store.searchItems.isEmpty)
+        XCTAssertTrue(api.pushes.isEmpty)
+        XCTAssertEqual(store.state.username, "bob")
+        XCTAssertEqual(store.state.epoch, "e1")
+        XCTAssertEqual(store.state.cursor, 3)
+        engine.stop()
+    }
+
+    func testSameEpochResetWithTheSameUsernameStillReuploads() async throws {
+        let (store, engine, api, _) = try setup([page(rev: 3, reset: true), page(rev: 3)], username: "alice")
+        store.upsert(.search(SearchPayload(query: "mine")))
+        store.update { state in
+            var next = state
+            next.username = "alice"
+            next.epoch = "e1"
+            next.cursor = 9
+            next.records = state.records.mapValues { var r = $0; r.dirty = false; r.synced = true; return r }
+            return next
+        }
+
+        await engine.requestSync(.launch)
+
+        XCTAssertEqual(api.pushes.first?.changes.first?.kind, .search)
+        XCTAssertNotNil(store.record(.search, key: "mine"))
+        engine.stop()
+    }
+
     func testFullResyncRemovesUnseenSyncedRows() async throws {
         let (store, engine, _, _) = try setup([page(rev: 2, reset: true), page(rev: 2, records: [
             SyncRecordWire(kind: .search, key: "kept", payload: .search(SearchPayload(query: "kept")), eventTimeMs: 1, rev: 2),
