@@ -4,8 +4,8 @@ import SwiftData
 /// Playback progress and settings for one server and title. Progress comes from the sync store
 /// (the watch record); settings still come from SwiftData `PlaybackSettings`.
 ///
-/// 单个服务器与标题的播放进度和设置. 进度来自同步存储 (观看记录); 设置仍来自 SwiftData 的
-/// `PlaybackSettings`.
+/// 单个服务器与标题的播放进度和设置. 进度来自同步存储 (观看记录);
+/// 设置仍来自 SwiftData 的 `PlaybackSettings`.
 @MainActor
 struct PlaybackProgressStore {
     let modelContext: ModelContext
