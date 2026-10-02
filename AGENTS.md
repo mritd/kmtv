@@ -43,6 +43,7 @@ Use the smallest useful verification command for each change.
 - Run `gofmt` on changed Go files; use `task test` or `go test ./...` from `server/` for verification.
 - SQLite migrations live in Go code under `server/internal/store` (ADR-002).
 - Treat upstream video-source compatible responses as inconsistent and untrusted (ADR-005).
+- Watch history, favorites, and search history sync through `/api/v1/sync/push` and `/api/v1/sync/pull` (ADR-016). Add a synchronized collection as a new `model.SyncKind`; keep key normalization in sync with `testdata/sync-key-vectors.json`.
 
 ## Apple Client Rules
 
@@ -52,6 +53,7 @@ Use the smallest useful verification command for each change.
 - iOS and tvOS targets share API models and storage where practical; navigation is platform-specific.
 - tvOS must avoid multi-level `NavigationStack` push flows inside `TabView` (ADR-009).
 - AVPlayer media requests do not share app cookies, so playback URLs must encode authorization (ADR-011).
+- `apple/Shared/Sync/` ports the Web sync core to Swift with the same names and rules. Change merge or engine behavior in `web/src/sync/` and `apple/Shared/Sync/` together.
 
 ## Web Client Rules
 
@@ -59,6 +61,7 @@ Use the smallest useful verification command for each change.
 - All web builds use `bun`; direct dependencies in `package.json` must be exact-pinned (ADR-010).
 - Every TypeScript file under `web/src/` carries bilingual EN+CN module headers and JSDoc on exported symbols (ADR-014).
 - Detail page navigation goes through `detailRoutePath` from `web/src/storage/detailRoute.ts`; never hand-build the `/detail/:token` path (ADR-013).
+- `web/src/sync/` holds the sync core (`types`, `normalizeKey`, `kinds`, `syncClock`, `syncMerge`, `syncStore`, `syncEngine`, `useWatchResume`). These files import only siblings and `react`, use no `@/` paths or browser globals, and are copied byte for byte to `android/src/sync/`. Change them on Web first, then copy; `android/src/sync/sharedFiles.test.ts` fails on drift. Browser-only code goes in `webSync.ts` and `SyncContext.tsx`.
 
 ## Physical Device Workflow
 

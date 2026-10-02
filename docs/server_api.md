@@ -37,6 +37,8 @@ This document is the current `/api/v1` server API contract, derived from `server
 | 1205 | `UnknownSetting`       | `unknown setting`                     |
 | 1206 | `LastAdmin`            | `cannot remove the last admin`        |
 | 1207 | `SelfDelete`           | `cannot delete your own account`      |
+| 1209 | `EpochMismatch`        | `sync epoch mismatch`                 |
+| 1210 | `SyncCursorAhead`      | `sync cursor ahead of server`         |
 | 1300 | `ServerError`          | `internal server error`               |
 | 1301 | `MissingParam`         | `missing required parameter`          |
 | 1302 | `Blocked`              | `request blocked`                     |
@@ -390,130 +392,126 @@ Success `200`:
 
 Common errors: `400 MissingParam`, `404 NotFound`, `500 ServerError`.
 
-## Watch History
+## Sync
 
-Watch history endpoints require a real logged-in user. When `anonymous_access == "true"`,
-anonymous viewers may still browse and play, but these endpoints return `401 NotLoggedIn`
-because there is no user row to synchronize.
+Sync endpoints require a real logged-in user. When `anonymous_access == "true"`, anonymous
+viewers may still browse and play, but these endpoints return `401 NotLoggedIn`; clients keep
+anonymous data local and must not treat this 401 as a session expiry.
 
-History is deduplicated by `(user_id, normalized title)`. The server normalizes the title by
-trimming whitespace and lowercasing it. `source_key` and `video_id` are stored as the latest
-watched source payload for resume/search handoff, not as the database identity.
+Every synchronized item is a record identified by `(kind, key)`:
 
-### `GET /history`
+| kind       | key                         | payload fields | cap |
+|------------|-----------------------------|----------------|-----|
+| `watch`    | normalized `title`          | `title, cover, source_key, video_id, episode, group_index, episode_index, progress_sec, duration_sec, completed` | 200 newest kept |
+| `favorite` | normalized `title`          | `title, cover, type, year, rate, desc, source_key, video_id` | 1000; new keys beyond it get `limit` |
+| `search`   | normalized `query`          | `query` | 50 newest kept |
 
-Protected. Returns the current user's recent watch history, newest first.
+Key normalization splits on whitespace (`\t \n \v \f \r`, space, U+0085, U+00A0, U+1680,
+U+2000-U+200A, U+2028, U+2029, U+202F, U+205F, U+3000), joins the parts with one space, and
+lowercases the result. The server's key is canonical. `testdata/sync-key-vectors.json` lists the
+reference cases.
 
-Query parameters:
+Payload limits (in Unicode code points): `title`, `episode`, and `query` 512; `source_key` and
+`video_id` 1024; `cover` 8192; `type`, `year`, and `rate` 64; `desc` 2048. `group_index` and
+`episode_index` are non-negative integers; `progress_sec` and `duration_sec` are finite and
+non-negative. Unknown payload fields are dropped and text is trimmed.
 
-| Name    | Required | Default | Description                         |
-|---------|----------|---------|-------------------------------------|
-| `limit` | No       | `10`    | Positive item count, capped at `100` |
-| `completed` | No   | all     | Optional `true`/`false` filter applied before `limit` |
+A write with event time `t` wins only if `t` is strictly greater than the stored record's event time
+and greater than the kind's clear time. Event times more than one second ahead of the server clock
+are clamped to the server clock (when a push has such a time, its times from `now` on are renumbered `now, now+1, ...` in their original order). Deletes leave a tombstone that is kept for 90 days. When `watch` or
+`search` exceeds its cap, the oldest rows become tombstones with a new `rev`.
 
-Success `200`:
+### `POST /sync/push`
+
+Protected. Applies up to 200 changes in one transaction. Body limit 256 KiB.
 
 ```json
 {
-  "items": [
-    {
-      "id": 1,
-      "source_key": "source.example",
-      "video_id": "123",
-      "title": "Movie",
-      "cover": "https://example.com/cover.jpg",
-      "episode": "Episode 1",
-      "group_index": 0,
-      "episode_index": 0,
-      "progress_sec": 120,
-      "duration_sec": 1800,
-	  "completed": false,
-	  "event_time_ms": 1783656000000,
-      "created_at": "2026-07-09T12:00:00Z",
-      "updated_at": "2026-07-09T12:05:00Z"
-    }
+  "epoch": "QJ4D...",
+  "cursor": 41,
+  "changes": [
+    {"kind": "watch", "op": "upsert", "event_time_ms": 1790000000000,
+     "payload": {"title": "Movie", "episode_index": 1, "progress_sec": 42, "duration_sec": 1800}},
+    {"kind": "favorite", "op": "delete", "key": "movie", "event_time_ms": 1790000000001},
+    {"kind": "search", "op": "clear", "event_time_ms": 1790000000002}
   ]
 }
 ```
 
-Common errors: `400 InvalidRequest`, `401 NotLoggedIn`, `500 ServerError`.
+`epoch` is empty on a client's first sync. `cursor` is the client's pull cursor (`0` if it has not
+pulled). A non-empty `epoch` that differs from the server's fails the whole request with `409`:
 
-### `PUT /history`
+```json
+{"code": 1209, "error": "sync epoch mismatch", "epoch": "<current epoch>"}
+```
 
-Protected. Upserts the latest playback state for a title. If the same user writes the same
-normalized title again, the row is overwritten only when `event_time_ms` is newer than the
-stored event. Clients set `completed=true` only after the final episode reaches its completion
-threshold; the server does not infer title completion from an arbitrary episode.
+With a matching `epoch`, a `cursor` greater than the user's current revision means the server was
+restored from an older copy. The request fails before anything is applied:
 
-The request body is capped at 64 KiB. Titles are limited to 512 Unicode scalars, source keys and
-video IDs to 1024, episode labels to 512, and cover values to 8192.
+```json
+{"code": 1210, "error": "sync cursor ahead of server", "epoch": "<current epoch>"}
+```
 
-Request:
+Clients resolve both `409` responses by pulling, which returns `reset: true` (see `GET /sync/pull`).
+
+Success `200`:
 
 ```json
 {
-  "source_key": "source.example",
-  "video_id": "123",
-  "title": "Movie",
-  "cover": "https://example.com/cover.jpg",
-  "episode": "Episode 1",
-  "group_index": 0,
-  "episode_index": 0,
-  "progress_sec": 120,
-  "duration_sec": 1800,
-	"completed": false,
-	"event_time_ms": 1783656000000
+  "epoch": "QJ4D...",
+  "rev": 42,
+  "server_time_ms": 1790000000100,
+  "results": [
+    {"index": 0, "status": "applied", "record": {"kind": "watch", "key": "movie", "payload": {}, "event_time_ms": 1790000000000, "deleted": false, "rev": 41}},
+    {"index": 1, "status": "stale", "record": {"kind": "favorite", "key": "movie", "payload": {}, "event_time_ms": 1790000000050, "deleted": false, "rev": 39}},
+    {"index": 2, "status": "applied", "record": null, "clear": {"kind": "search", "cleared_at_ms": 1790000000002, "rev": 42}}
+  ]
 }
 ```
 
-Success `200`: one watch-history item with the same shape as `GET /history.items[]`.
+| status    | meaning |
+|-----------|---------|
+| `applied` | Stored. `record` is the stored row with the canonical key and stored event time. |
+| `stale`   | Newer server state won. `record` is the current row (possibly a tombstone, including one created by trimming this write), or `null` when none exists. For a clear, `clear` is the current watermark. |
+| `invalid` | Failed validation or could not be decoded; `reason` explains why. Other changes in the batch still apply. |
+| `limit`   | The favorite cap is reached and the key is new. |
 
-Common errors: `400 InvalidRequest`, `401 NotLoggedIn`, `409 StaleWrite`, `500 ServerError`.
+Common errors: `400 InvalidRequest`, `401 NotLoggedIn`, `409 EpochMismatch`, `409 SyncCursorAhead`, `500 ServerError`.
 
-### `GET /history/item`
+### `GET /sync/pull`
 
-Protected. Returns one history item by title.
+Protected. Returns changes after a revision cursor.
 
-Query parameters:
-
-| Name    | Required | Description |
-|---------|----------|-------------|
-| `title` | Yes      | Title lookup |
-
-Success `200`: one watch-history item.
-
-Common errors: `400 MissingParam`, `401 NotLoggedIn`, `404 NotFound`, `500 ServerError`.
-
-### `DELETE /history/item`
-
-Protected. Deletes one history item by title.
-
-Query parameters are the same as `GET /history/item`.
+| Name    | Required | Default | Description |
+|---------|----------|---------|-------------|
+| `since` | No       | `0`     | Last `rev` the client applied |
+| `epoch` | No       | empty   | Epoch the client last saw |
+| `limit` | No       | `500`   | Items per page, capped at `1000` |
 
 Success `200`:
 
 ```json
-{"message": "watch history deleted"}
+{
+  "epoch": "QJ4D...",
+  "server_time_ms": 1790000000100,
+  "rev": 42,
+  "reset": false,
+  "has_more": false,
+  "clears": [{"kind": "search", "cleared_at_ms": 1790000000002, "rev": 42}],
+  "records": [{"kind": "watch", "key": "movie", "payload": {}, "event_time_ms": 1790000000000, "deleted": false, "rev": 41}]
+}
 ```
 
-Common errors: `400 MissingParam`, `401 NotLoggedIn`, `404 NotFound`, `500 ServerError`.
+Records and clears are ordered by `rev`. `rev` is the highest rev on the page (or `since` for an
+empty page); send it back as the next `since` and keep paging while `has_more` is true. Apply a
+page's clears before its records.
 
-### `DELETE /history`
-
-Protected. Clears all watch history for the current user.
-
-Optional query parameter `event_time_ms` records the clear event and prevents older in-flight
-PUT requests from recreating deleted rows. Current clients always send it.
-
-Success `200`:
-
-```json
-{"message": "watch history cleared"}
-```
-
-`event_time_ms` must be a positive integer. The server preserves a value up to one second ahead of
-its own clock so consecutive events from the same client remain ordered, but clamps larger future
-values to server time so a fast client clock cannot block that user's later writes.
+`reset: true` comes with empty lists and `rev` set to the user's current revision. It is returned
+when `epoch` differs from the server's (the database was reset), when `since` is greater than
+`rev` (the database was restored from an older copy), or when `since` is below the oldest retained
+tombstone revision. In the first two cases the server lost data the client has, so the client marks
+all local records for upload and pulls again from `since=0`. In the last case the client runs a
+full resync: it pulls from `since=0` and drops synced local records the server no longer has.
 
 Common errors: `400 InvalidRequest`, `401 NotLoggedIn`, `500 ServerError`.
 
