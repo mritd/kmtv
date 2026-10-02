@@ -1,6 +1,7 @@
 package store
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -64,6 +65,11 @@ var migrations = []migration{
 		version: 10,
 		name:    "fix_watch_history_index",
 		up:      migrateFixWatchHistoryIndex,
+	},
+	{
+		version: 11,
+		name:    "replace_watch_history_with_sync",
+		up:      migrateReplaceWatchHistoryWithSync,
 	},
 }
 
@@ -463,4 +469,57 @@ func tableHasColumn(tx *sql.Tx, tableName, columnName string) (bool, error) {
 		return false, fmt.Errorf("iterate %s columns: %w", tableName, err)
 	}
 	return false, nil
+}
+
+// migrateReplaceWatchHistoryWithSync drops the per-title watch history tables and
+// creates the generic sync tables plus a fresh database epoch.
+//
+// migrateReplaceWatchHistoryWithSync 删除按标题存储的观看历史表,
+// 创建通用同步表, 并生成新的数据库 epoch.
+func migrateReplaceWatchHistoryWithSync(tx *sql.Tx) error {
+	statements := []string{
+		`DROP TABLE IF EXISTS watch_history`,
+		`DROP TABLE IF EXISTS watch_history_clear_state`,
+		`CREATE TABLE IF NOT EXISTS sync_records (
+			user_id INTEGER NOT NULL,
+			kind TEXT NOT NULL,
+			record_key TEXT NOT NULL,
+			payload TEXT NOT NULL,
+			event_time_ms INTEGER NOT NULL,
+			deleted INTEGER NOT NULL DEFAULT 0,
+			rev INTEGER NOT NULL,
+			updated_at_ms INTEGER NOT NULL,
+			PRIMARY KEY (user_id, kind, record_key),
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_sync_records_user_rev ON sync_records(user_id, rev)`,
+		`CREATE TABLE IF NOT EXISTS sync_clears (
+			user_id INTEGER NOT NULL,
+			kind TEXT NOT NULL,
+			cleared_at_ms INTEGER NOT NULL,
+			rev INTEGER NOT NULL,
+			PRIMARY KEY (user_id, kind),
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE IF NOT EXISTS sync_users (
+			user_id INTEGER PRIMARY KEY,
+			rev INTEGER NOT NULL DEFAULT 0,
+			min_rev INTEGER NOT NULL DEFAULT 0,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+	}
+	for _, stmt := range statements {
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("exec sync migration %.40q: %w", stmt, err)
+		}
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+		consts.SettingSyncEpoch,
+		rand.Text(),
+	); err != nil {
+		return fmt.Errorf("store sync epoch: %w", err)
+	}
+	return nil
 }

@@ -56,15 +56,16 @@ var (
 // --- 资源错误 (12xx) ---
 
 var (
-	InvalidID      = E{1200, "invalid id"}
-	MissingFields  = E{1201, "required fields missing"}
-	InvalidURL     = E{1202, "invalid URL"}
-	InvalidRole    = E{1203, "role must be 'admin' or 'user'"}
-	NotFound       = E{1204, "resource not found"}
-	UnknownSetting = E{1205, "unknown setting"}
-	LastAdmin      = E{1206, "cannot remove the last admin"}
-	SelfDelete     = E{1207, "cannot delete your own account"}
-	StaleWrite     = E{1208, "stale write rejected"}
+	InvalidID       = E{1200, "invalid id"}
+	MissingFields   = E{1201, "required fields missing"}
+	InvalidURL      = E{1202, "invalid URL"}
+	InvalidRole     = E{1203, "role must be 'admin' or 'user'"}
+	NotFound        = E{1204, "resource not found"}
+	UnknownSetting  = E{1205, "unknown setting"}
+	LastAdmin       = E{1206, "cannot remove the last admin"}
+	SelfDelete      = E{1207, "cannot delete your own account"}
+	EpochMismatch   = E{1209, "sync epoch mismatch"}
+	SyncCursorAhead = E{1210, "sync cursor ahead of server"}
 )
 
 // --- General (13xx) ---
