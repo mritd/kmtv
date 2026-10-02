@@ -13,6 +13,7 @@ const SHARED_FILES = [
   "syncMerge.ts",
   "syncStore.ts",
   "syncEngine.ts",
+  "useWatchResume.ts",
 ];
 
 const WEB_SYNC_DIR = join(__dirname, "../../../web/src/sync");
