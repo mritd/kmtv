@@ -173,10 +173,6 @@ protocol AdminAPIProtocol: Sendable {
 ///
 /// PlayerViewModel 需要的播放相关组合依赖.
 typealias PlaybackDetailAPIProtocol = DetailAPIProtocol & PlaybackAPIProtocol
-/// Combined home dependencies needed by HomeViewModel.
-///
-/// HomeViewModel 需要的首页相关组合依赖.
-typealias HomeAPIProtocol = DoubanAPIProtocol
 /// Combined profile dependencies needed by ProfileViewModel.
 ///
 /// ProfileViewModel 需要的个人资料相关组合依赖.

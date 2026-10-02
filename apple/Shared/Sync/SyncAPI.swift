@@ -16,10 +16,16 @@ protocol SyncAPIProtocol: Sendable {
 }
 
 extension APIClient {
+    /// Posts a batch of local changes to the sync push endpoint.
+    ///
+    /// 将一批本地变更 POST 到同步推送接口.
     func syncPush(_ request: SyncPushRequest) async throws -> SyncPushResponse {
         try await post("/api/v1/sync/push", body: request)
     }
 
+    /// Reads one page of changes after `since`; an empty `epoch` is omitted from the query.
+    ///
+    /// 读取 `since` 之后的一页变更; `epoch` 为空时不带该查询参数.
     func syncPull(since: Int64, epoch: String, limit: Int) async throws -> SyncPullResponse {
         var query = ["since": String(since), "limit": String(limit)]
         if !epoch.isEmpty { query["epoch"] = epoch }

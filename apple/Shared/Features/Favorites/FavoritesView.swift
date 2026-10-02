@@ -65,9 +65,11 @@ struct FavoritesView: View {
                 .listRowBackground(Theme.bgCard)
             }
             .onDelete { indexSet in
-                for i in indexSet {
-                    vm.remove(vm.favorites[i])
-                }
+                // Map the offsets to items first: each removal shifts the rows behind it.
+                //
+                // 先把偏移映射为条目: 每次删除都会让后面的行前移.
+                let items = indexSet.map { vm.favorites[$0] }
+                for item in items { vm.remove(item) }
             }
         }
         .scrollContentBackground(.hidden)
