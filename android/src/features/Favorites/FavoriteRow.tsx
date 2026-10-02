@@ -9,7 +9,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { PosterImage } from "@/designSystem/PosterImage";
 import { sizes } from "@/designSystem/theme";
 import { useTheme } from "@/designSystem/useTheme";
-import type { FavoriteItem } from "@/storage/favorites";
+import type { LocalRecord } from "@/sync/types";
 
 /**
  * Props for FavoriteRow — server-baseURL for cover URL composition and the tap target.
@@ -17,9 +17,9 @@ import type { FavoriteItem } from "@/storage/favorites";
  * FavoriteRow 的 props — 提供拼接封面 URL 的 serverURL 与点击回调.
  */
 export interface FavoriteRowProps {
-  item: FavoriteItem;
+  item: LocalRecord<"favorite">;
   serverURL: string;
-  onPress: (item: FavoriteItem) => void;
+  onPress: (item: LocalRecord<"favorite">) => void;
   testID?: string;
 }
 
@@ -33,11 +33,11 @@ export function FavoriteRow({ item, serverURL, onPress, testID }: FavoriteRowPro
   const { t } = useTranslation("favorites");
   return (
     <Pressable testID={testID} onPress={() => onPress(item)} style={[styles.row, { backgroundColor: colors.bgCard }]}>
-      <PosterImage baseURL={serverURL} cover={item.cover} style={styles.cover} />
+      <PosterImage baseURL={serverURL} cover={item.payload.cover} style={styles.cover} />
       <View style={styles.text}>
-        <Text style={[styles.title, { color: colors.textPrimary }]} numberOfLines={1}>{item.title}</Text>
+        <Text style={[styles.title, { color: colors.textPrimary }]} numberOfLines={1}>{item.payload.title}</Text>
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-          {t("meta.typeYear", { type: item.type, year: item.year })}
+          {t("meta.typeYear", { type: item.payload.type, year: item.payload.year })}
         </Text>
       </View>
     </Pressable>

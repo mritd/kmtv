@@ -23,7 +23,7 @@ function stub(over: Partial<UseProfileResult> = {}): UseProfileResult {
     setPasswordCurrent: jest.fn(), setPasswordNext: jest.fn(), setPasswordConfirm: jest.fn(),
     submitPassword: jest.fn(async () => {}),
     pickAndUploadAvatar: jest.fn(async () => {}), deleteAvatar: jest.fn(async () => {}),
-    refreshWatchCount: jest.fn(), clearWatchHistory: jest.fn(),
+    clearWatchHistory: jest.fn(),
     dismissError: jest.fn(), dismissSuccess: jest.fn(),
     ...over,
   };

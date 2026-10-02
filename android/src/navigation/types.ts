@@ -71,6 +71,7 @@ export type CategoriesStackParamList = {
  */
 export type FavoritesStackParamList = {
   FavoritesRoot: undefined;
+  Search: SearchRouteParams;
   Player: PlayDestination;
 };
 

@@ -14,7 +14,9 @@ import { ToastProvider } from "@/designSystem/Toast";
 import { initI18n } from "@/i18n";
 import { useServerStore } from "@/store/serverStore";
 import { _resetForTests } from "@/storage/mmkv";
-import { recordPlayProgress, type WatchHistoryItem } from "@/storage/watchHistory";
+import type { SyncStore } from "@/sync/syncStore";
+import { SyncTestProvider, memorySyncStore } from "@/sync/syncTesting";
+import type { LocalRecord } from "@/sync/types";
 
 import { HomeScreen, HomeScreenContext } from "./HomeScreen";
 
@@ -57,8 +59,9 @@ function makeWrapper(
   callbacks: {
     onSearch?: () => void;
     onSelectTitle?: (title: string) => void;
-    onSelectHistory?: (entry: WatchHistoryItem) => void;
+    onSelectHistory?: (entry: LocalRecord<"watch">) => void;
   } = {},
+  store: SyncStore = memorySyncStore(),
 ) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // eslint-disable-next-line react/display-name
@@ -67,9 +70,11 @@ function makeWrapper(
       <QueryClientProvider client={qc}>
         <ThemeProvider override="system">
           <ToastProvider>
-            <HomeScreenContext.Provider value={{ api, ...callbacks }}>
-              {children}
-            </HomeScreenContext.Provider>
+            <SyncTestProvider store={store}>
+              <HomeScreenContext.Provider value={{ api, ...callbacks }}>
+                {children}
+              </HomeScreenContext.Provider>
+            </SyncTestProvider>
           </ToastProvider>
         </ThemeProvider>
       </QueryClientProvider>
@@ -149,34 +154,42 @@ describe("HomeScreen", () => {
     expect(onSelectTitle).toHaveBeenCalledWith("OnlyInNewSection");
   });
 
-  it("passes the full watch-history entry when a continue-watching card is tapped", async () => {
-    recordPlayProgress("https://x", {
-      id: "src:v-continue:3",
-      sourceKey: "src",
-      videoId: "v-continue",
-      title: "Continue Title",
-      cover: "/continue.jpg",
-		episode: "E4",
-		groupIndex: 0,
-		episodeIndex: 3,
-      progress: 120,
-		duration: 600,
-		completed: false,
-    });
+  const watchPayload = {
+    title: "Continue Title",
+    cover: "/continue.jpg",
+    source_key: "src",
+    video_id: "v-continue",
+    episode: "E4",
+    group_index: 0,
+    episode_index: 3,
+    progress_sec: 120,
+    duration_sec: 600,
+    completed: false,
+  };
+
+  it("passes the full watch record when a continue-watching card is tapped", async () => {
+    const store = memorySyncStore(42, "viewer");
+    store.upsert("watch", watchPayload);
     const onSelectHistory = jest.fn();
-    const api: DoubanAPI = {
-      doubanHome: jest.fn(async () => payload),
-      doubanCategories: jest.fn(),
-      doubanRecommendFilter: jest.fn(),
-    };
-    const { findByText, getByTestId } = render(<HomeScreen />, { wrapper: makeWrapper(api, { onSelectHistory }) });
+    const api: DoubanAPI = { doubanHome: jest.fn(async () => payload), doubanCategories: jest.fn(), doubanRecommendFilter: jest.fn() };
+    const { findByText, getByTestId } = render(<HomeScreen />, { wrapper: makeWrapper(api, { onSelectHistory }, store) });
     await findByText("Continue Title");
     fireEvent.press(getByTestId("continueCard"));
     expect(onSelectHistory).toHaveBeenCalledWith(expect.objectContaining({
-      sourceKey: "src",
-      videoId: "v-continue",
-      episodeIndex: 3,
-      episode: "E4",
+      payload: expect.objectContaining({ source_key: "src", video_id: "v-continue", episode_index: 3, episode: "E4" }),
     }));
+  });
+
+  it("hides finished titles and clears continue watching through the sync store", async () => {
+    const store = memorySyncStore(42, "viewer");
+    store.upsert("watch", watchPayload);
+    store.upsert("watch", { ...watchPayload, title: "Finished Title", completed: true });
+    const api: DoubanAPI = { doubanHome: jest.fn(async () => payload), doubanCategories: jest.fn(), doubanRecommendFilter: jest.fn() };
+    const { findByText, queryByText, getByTestId } = render(<HomeScreen />, { wrapper: makeWrapper(api, {}, store) });
+    await findByText("Continue Title");
+    expect(queryByText("Finished Title")).toBeNull();
+    fireEvent.press(getByTestId("continueClear"));
+    await waitFor(() => expect(queryByText("Continue Title")).toBeNull());
+    expect(store.state().pendingClears.watch).toBeGreaterThan(0);
   });
 });

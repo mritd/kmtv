@@ -4,7 +4,7 @@
 
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
-import React, { useCallback, useState } from "react";
+import React, { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
@@ -12,52 +12,58 @@ import { Swipeable } from "react-native-gesture-handler";
 import type { PlayDestination } from "@/api/types";
 import { LIST_PERF_DEFAULT } from "@/designSystem/listPerf";
 import { useTheme } from "@/designSystem/useTheme";
-import { listFavorites, removeFavorite, type FavoriteItem } from "@/storage/favorites";
+import type { SearchRouteParams } from "@/navigation/types";
 import { useServerStore } from "@/store/serverStore";
+import { useSync, useSyncList } from "@/sync/SyncContext";
+import type { LocalRecord } from "@/sync/types";
 
 import { FavoriteRow } from "./FavoriteRow";
 
 /**
- * Props injected by FavoritesStack. `navigation.navigate` lands on Player.
+ * Props injected by FavoritesStack. `navigation.navigate` lands on Player or Search.
  *
- * 由 FavoritesStack 注入的 props. navigation.navigate 跳转到 Player.
+ * 由 FavoritesStack 注入的 props. navigation.navigate 跳转到 Player 或 Search.
  */
 export interface FavoritesScreenProps {
-  navigation: { navigate: (route: "Player", params: PlayDestination) => void };
+  navigation: {
+    navigate: ((route: "Player", params: PlayDestination) => void) & ((route: "Search", params: SearchRouteParams) => void);
+  };
 }
 
 /**
- * FavoritesScreen — root of the FavoritesTab. Hydrates from MMKV every time the tab is focused.
+ * FavoritesScreen — root of the FavoritesTab. The list comes from the sync store and refreshes on focus.
  *
- * FavoritesScreen — FavoritesTab 的根. 每次 tab 被聚焦时从 MMKV 重新读取.
+ * FavoritesScreen — FavoritesTab 的根. 列表来自同步存储, 并在获得焦点时刷新.
  */
 export function FavoritesScreen({ navigation }: FavoritesScreenProps) {
   const { colors } = useTheme();
   const { t } = useTranslation("favorites");
   const serverURL = useServerStore((s) => s.serverURL) ?? "";
-  const [items, setItems] = useState<FavoriteItem[]>([]);
+  const sync = useSync();
+  const items = useSyncList("favorite");
+  const engine = sync.status === "ready" ? sync.engine : null;
 
-  const reload = useCallback(() => {
-    setItems(listFavorites(serverURL));
-  }, [serverURL]);
+  useFocusEffect(
+    useCallback(() => {
+      void engine?.requestSync("page");
+    }, [engine]),
+  );
 
-  useFocusEffect(reload);
-
-  const onOpenDetail = useCallback((it: FavoriteItem) => {
-    const destination: PlayDestination = {
-      title: it.title,
-      sources: [],
-      sourceKey: it.sourceKey,
-      videoId: it.videoId,
-      coverHint: it.cover,
-    };
-    navigation.navigate("Player", destination);
+  // A favorite saved on another device may have no source; search by title to find fresh ones.
+  //
+  // 其他设备保存的收藏可能没有来源; 按标题搜索以获取最新来源.
+  const onOpenDetail = useCallback((it: LocalRecord<"favorite">) => {
+    const p = it.payload;
+    if (!p.source_key || !p.video_id) {
+      navigation.navigate("Search", { initialQuery: p.title });
+      return;
+    }
+    navigation.navigate("Player", { title: p.title, sources: [], sourceKey: p.source_key, videoId: p.video_id, coverHint: p.cover });
   }, [navigation]);
 
-  const onDelete = useCallback((it: FavoriteItem) => {
-    removeFavorite(serverURL, it.sourceKey, it.videoId);
-    reload();
-  }, [reload, serverURL]);
+  const onDelete = useCallback((it: LocalRecord<"favorite">) => {
+    if (sync.status === "ready") sync.store.remove("favorite", it.key);
+  }, [sync]);
 
   if (items.length === 0) {
     return (
@@ -73,13 +79,13 @@ export function FavoritesScreen({ navigation }: FavoritesScreenProps) {
     <FlatList
       style={{ backgroundColor: colors.bgPrimary }}
       data={items}
-      keyExtractor={(it) => `${it.sourceKey}:${it.videoId}`}
+      keyExtractor={(it) => it.key}
       {...LIST_PERF_DEFAULT}
       renderItem={({ item }) => (
         <Swipeable
           renderRightActions={() => (
             <Pressable
-              testID={`favorite-delete-${item.sourceKey}:${item.videoId}`}
+              testID={`favorite-delete-${item.key}`}
               onPress={() => onDelete(item)}
               style={styles.delete}
               accessibilityRole="button"
@@ -90,7 +96,7 @@ export function FavoritesScreen({ navigation }: FavoritesScreenProps) {
           )}
         >
           <FavoriteRow
-            testID={`favorite-row-${item.sourceKey}:${item.videoId}`}
+            testID={`favorite-row-${item.key}`}
             item={item}
             serverURL={serverURL}
             onPress={onOpenDetail}

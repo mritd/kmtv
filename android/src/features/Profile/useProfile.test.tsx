@@ -3,10 +3,12 @@
 // useProfile 测试 — 覆盖 username、password、avatar 拾取/删除、观看历史.
 
 import { act, renderHook } from "@testing-library/react-native";
+import React from "react";
 
 import type { AuthAPI } from "@/api/auth";
 import type { User } from "@/api/types";
 import { _resetForTests } from "@/storage/mmkv";
+import { SyncTestProvider, memorySyncStore } from "@/sync/syncTesting";
 
 import { useProfile } from "./useProfile";
 
@@ -50,7 +52,7 @@ describe("useProfile", () => {
     const auth = makeAuth();
     const onUserChanged = jest.fn();
     const { result } = renderHook(() =>
-      useProfile({ auth, user, serverURL: "http://localhost", onUserChanged }),
+      useProfile({ auth, user, onUserChanged }),
     );
     act(() => result.current.setEditUsername("  new  "));
     await act(async () => { await result.current.submitUsername(); });
@@ -62,7 +64,7 @@ describe("useProfile", () => {
   it("submitUsername with blank input is a noop", async () => {
     const auth = makeAuth();
     const { result } = renderHook(() =>
-      useProfile({ auth, user, serverURL: "http://localhost", onUserChanged: jest.fn() }),
+      useProfile({ auth, user, onUserChanged: jest.fn() }),
     );
     act(() => result.current.setEditUsername("   "));
     await act(async () => { await result.current.submitUsername(); });
@@ -72,7 +74,7 @@ describe("useProfile", () => {
   it("submitPassword rejects mismatched confirmation", async () => {
     const auth = makeAuth();
     const { result } = renderHook(() =>
-      useProfile({ auth, user, serverURL: "http://localhost", onUserChanged: jest.fn() }),
+      useProfile({ auth, user, onUserChanged: jest.fn() }),
     );
     act(() => result.current.setPasswordNext("a"));
     act(() => result.current.setPasswordConfirm("b"));
@@ -84,7 +86,7 @@ describe("useProfile", () => {
   it("submitPassword rejects empty password", async () => {
     const auth = makeAuth();
     const { result } = renderHook(() =>
-      useProfile({ auth, user, serverURL: "http://localhost", onUserChanged: jest.fn() }),
+      useProfile({ auth, user, onUserChanged: jest.fn() }),
     );
     await act(async () => { await result.current.submitPassword(); });
     expect(auth.changePassword).not.toHaveBeenCalled();
@@ -94,7 +96,7 @@ describe("useProfile", () => {
   it("submitPassword calls changePassword on success and clears the form", async () => {
     const auth = makeAuth();
     const { result } = renderHook(() =>
-      useProfile({ auth, user, serverURL: "http://localhost", onUserChanged: jest.fn() }),
+      useProfile({ auth, user, onUserChanged: jest.fn() }),
     );
     act(() => result.current.setPasswordCurrent("x"));
     act(() => result.current.setPasswordNext("y"));
@@ -112,7 +114,7 @@ describe("useProfile", () => {
     const ImagePicker = require("expo-image-picker");
     const ImageManipulator = require("expo-image-manipulator");
     const { result } = renderHook(() =>
-      useProfile({ auth, user, serverURL: "http://localhost", onUserChanged }),
+      useProfile({ auth, user, onUserChanged }),
     );
     await act(async () => { await result.current.pickAndUploadAvatar(); });
     expect(ImagePicker.requestMediaLibraryPermissionsAsync).toHaveBeenCalled();
@@ -142,7 +144,7 @@ describe("useProfile", () => {
     const ImageManipulator = require("expo-image-manipulator");
     const auth = makeAuth();
     const { result } = renderHook(() =>
-      useProfile({ auth, user, serverURL: "http://localhost", onUserChanged: jest.fn() }),
+      useProfile({ auth, user, onUserChanged: jest.fn() }),
     );
     await act(async () => { await result.current.pickAndUploadAvatar(); });
     const call = ImageManipulator.manipulateAsync.mock.calls.at(-1)!;
@@ -154,7 +156,7 @@ describe("useProfile", () => {
     ImagePicker.requestMediaLibraryPermissionsAsync.mockResolvedValueOnce({ status: "denied", granted: false });
     const auth = makeAuth();
     const { result } = renderHook(() =>
-      useProfile({ auth, user, serverURL: "http://localhost", onUserChanged: jest.fn() }),
+      useProfile({ auth, user, onUserChanged: jest.fn() }),
     );
     await act(async () => { await result.current.pickAndUploadAvatar(); });
     expect(auth.uploadAvatar).not.toHaveBeenCalled();
@@ -166,7 +168,7 @@ describe("useProfile", () => {
     ImagePicker.launchImageLibraryAsync.mockResolvedValueOnce({ canceled: true });
     const auth = makeAuth();
     const { result } = renderHook(() =>
-      useProfile({ auth, user, serverURL: "http://localhost", onUserChanged: jest.fn() }),
+      useProfile({ auth, user, onUserChanged: jest.fn() }),
     );
     await act(async () => { await result.current.pickAndUploadAvatar(); });
     expect(auth.uploadAvatar).not.toHaveBeenCalled();
@@ -177,27 +179,25 @@ describe("useProfile", () => {
     const auth = makeAuth();
     const onUserChanged = jest.fn();
     const { result } = renderHook(() =>
-      useProfile({ auth, user, serverURL: "http://localhost", onUserChanged }),
+      useProfile({ auth, user, onUserChanged }),
     );
     await act(async () => { await result.current.deleteAvatar(); });
     expect(auth.deleteAvatar).toHaveBeenCalled();
     expect(onUserChanged).toHaveBeenCalled();
   });
 
-  it("clearWatchHistory wipes the store and resets the counter", async () => {
-    const { recordPlayProgress } = require("@/storage/watchHistory");
-		recordPlayProgress("http://localhost", {
-			id: "x", sourceKey: "s", videoId: "v", title: "T", cover: "",
-			episode: "", groupIndex: 0, episodeIndex: 0, progress: 1, duration: 10, completed: false,
-		}, user.id);
-    const auth = makeAuth();
-    const { result } = renderHook(() =>
-      useProfile({ auth, user, serverURL: "http://localhost", onUserChanged: jest.fn() }),
-    );
-    act(() => result.current.refreshWatchCount());
-    expect(result.current.watchHistoryCount).toBeGreaterThan(0);
-		await act(async () => { await result.current.clearWatchHistory(); });
+  it("clearWatchHistory clears watch records and resets the counter", async () => {
+    const store = memorySyncStore(1, "u");
+    store.upsert("watch", {
+      title: "T", cover: "", source_key: "s", video_id: "v", episode: "", group_index: 0,
+      episode_index: 0, progress_sec: 1, duration_sec: 10, completed: false,
+    });
+    const wrapper = ({ children }: { children: React.ReactNode }) => <SyncTestProvider store={store}>{children}</SyncTestProvider>;
+    const { result } = renderHook(() => useProfile({ auth: makeAuth(), user, onUserChanged: jest.fn() }), { wrapper });
+    expect(result.current.watchHistoryCount).toBe(1);
+    await act(async () => { await result.current.clearWatchHistory(); });
     expect(result.current.watchHistoryCount).toBe(0);
+    expect(result.current.successMessage).toBe("profile.danger.historyCleared");
   });
 
   it("error / success message dismissers reset the strings", async () => {
@@ -205,7 +205,7 @@ describe("useProfile", () => {
       changePassword: jest.fn(async () => { throw new Error("network"); }),
     });
     const { result } = renderHook(() =>
-      useProfile({ auth, user, serverURL: "http://localhost", onUserChanged: jest.fn() }),
+      useProfile({ auth, user, onUserChanged: jest.fn() }),
     );
     act(() => result.current.setPasswordNext("y"));
     act(() => result.current.setPasswordConfirm("y"));
@@ -221,7 +221,6 @@ describe("useProfile", () => {
       useProfile({
         auth,
         user: { id: 1, username: "alice", role: "user" },
-        serverURL: "http://localhost",
         onUserChanged: jest.fn(),
       }),
     );

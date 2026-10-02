@@ -7,9 +7,8 @@ import * as ImagePicker from "expo-image-picker";
 import { useCallback, useState } from "react";
 
 import type { AuthAPI } from "@/api/auth";
-import type { WatchHistoryAPI } from "@/api/history";
 import type { User } from "@/api/types";
-import { clearWatchHistory, loadWatchHistory } from "@/storage/watchHistory";
+import { useSync, useSyncList } from "@/sync/SyncContext";
 
 /**
  * Args passed in by ProfileScreen.
@@ -18,11 +17,8 @@ import { clearWatchHistory, loadWatchHistory } from "@/storage/watchHistory";
  */
 export interface UseProfileArgs {
   auth: AuthAPI;
-  historyAPI?: WatchHistoryAPI;
   user: User | null;
-  serverURL: string;
   onUserChanged: (user: User) => void;
-  initialWatchCount?: number;
 }
 
 /**
@@ -58,8 +54,7 @@ export interface UseProfileResult {
   pickAndUploadAvatar: () => Promise<void>;
   deleteAvatar: () => Promise<void>;
 
-  refreshWatchCount: () => void;
-	clearWatchHistory: () => Promise<void>;
+  clearWatchHistory: () => Promise<void>;
 
   dismissError: () => void;
   dismissSuccess: () => void;
@@ -70,13 +65,14 @@ export interface UseProfileResult {
  *
  * useProfile — 把 ProfileScreen 的四类子操作组合成单一 hook.
  */
-export function useProfile({ auth, historyAPI, user, serverURL, onUserChanged, initialWatchCount = 0 }: UseProfileArgs): UseProfileResult {
+export function useProfile({ auth, user, onUserChanged }: UseProfileArgs): UseProfileResult {
   const [isEditingUsername, setIsEditingUsername] = useState(false);
   const [editUsername, setEditUsername] = useState(user?.username ?? "");
   const [passwordCurrent, setPasswordCurrent] = useState("");
   const [passwordNext, setPasswordNext] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
-  const [watchHistoryCount, setWatchHistoryCount] = useState(initialWatchCount);
+  const sync = useSync();
+  const watchHistoryCount = useSyncList("watch").length;
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
@@ -166,22 +162,14 @@ export function useProfile({ auth, historyAPI, user, serverURL, onUserChanged, i
     } catch (e) { reportError(e); }
   }, [auth, onUserChanged, reportError]);
 
-	const refreshWatchCount = useCallback(() => {
-		setWatchHistoryCount(loadWatchHistory(serverURL, 1000, user?.id ?? 0).length);
-	}, [serverURL, user?.id]);
-
-	const clearAllWatch = useCallback(async () => {
-		try {
-			if ((user?.id ?? 0) > 0 && historyAPI) {
-				await historyAPI.clearWatchHistory();
-			}
-			clearWatchHistory(serverURL, user?.id ?? 0);
-			setWatchHistoryCount(0);
-			setSuccessMessage("profile.danger.historyCleared");
-		} catch (e) {
-			reportError(e);
-		}
-	}, [historyAPI, reportError, serverURL, user?.id]);
+  // Clearing writes a clear watermark; the engine pushes it so every device drops older records.
+  //
+  // 清空会写入清空时间点, 由同步引擎推送, 让所有设备删除更早的记录.
+  const clearAllWatch = useCallback(async () => {
+    if (sync.status !== "ready") return;
+    sync.store.clear("watch");
+    setSuccessMessage("profile.danger.historyCleared");
+  }, [sync]);
 
   return {
     isEditingUsername, editUsername, passwordCurrent, passwordNext, passwordConfirm,
@@ -189,7 +177,7 @@ export function useProfile({ auth, historyAPI, user, serverURL, onUserChanged, i
     startEditUsername, cancelEditUsername, setEditUsername, submitUsername,
     setPasswordCurrent, setPasswordNext, setPasswordConfirm, submitPassword,
     pickAndUploadAvatar, deleteAvatar,
-    refreshWatchCount, clearWatchHistory: clearAllWatch,
+    clearWatchHistory: clearAllWatch,
     dismissError: () => setErrorMessage(""),
     dismissSuccess: () => setSuccessMessage(""),
   };

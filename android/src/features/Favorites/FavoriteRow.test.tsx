@@ -6,15 +6,16 @@ import { render, fireEvent } from "@testing-library/react-native";
 import React from "react";
 
 import { initI18n } from "@/i18n";
+import type { LocalRecord } from "@/sync/types";
 
 import { FavoriteRow } from "./FavoriteRow";
 
 beforeAll(async () => { await initI18n("en"); });
 
 describe("FavoriteRow", () => {
-  const item = {
-    sourceKey: "s1", videoId: "v1", title: "Title",
-    cover: "/c.jpg", type: "Movie", year: "2026", addedAt: 1,
+  const item: LocalRecord<"favorite"> = {
+    kind: "favorite", key: "title", eventTimeMs: 1, deleted: false, dirty: false, synced: true,
+    payload: { title: "Title", cover: "/c.jpg", type: "Movie", year: "2026", rate: "", desc: "", source_key: "s1", video_id: "v1" },
   };
   it("renders title + subtitle and dispatches onPress with the item", () => {
     const onPress = jest.fn();

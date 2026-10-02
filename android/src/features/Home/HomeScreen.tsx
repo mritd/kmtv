@@ -3,17 +3,16 @@
 // HomeScreen 由 useDoubanHomeQuery 驱动, 组合 HeroCarousel + ContinueWatchingRow + SectionRow.
 
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Image } from "expo-image";
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { createAPIClient } from "@/api/client";
 import { createDoubanAPI, type DoubanAPI } from "@/api/douban";
-import { createWatchHistoryAPI, type WatchHistoryAPI } from "@/api/history";
 import { useDoubanHomeQuery } from "@/api/viewerHooks";
 import { resolvePosterURL } from "@/designSystem/PosterImage";
 import { Skeleton } from "@/designSystem/Skeleton";
@@ -22,20 +21,22 @@ import { useTheme } from "@/designSystem/useTheme";
 import type { HomeStackParamList } from "@/navigation/types";
 import { useAuthStore } from "@/store/authStore";
 import { useServerStore } from "@/store/serverStore";
-import {
-  clearWatchHistory,
-  loadWatchHistory,
-  recordPlayProgress,
-  type WatchHistoryItem,
-  watchHistoryItemFromRemote,
-} from "@/storage/watchHistory";
+import { useSync, useSyncList } from "@/sync/SyncContext";
+import type { LocalRecord } from "@/sync/types";
 
 import { ContinueWatchingRow } from "./ContinueWatchingRow";
 import { HeroCarousel } from "./HeroCarousel";
 import { SectionRow } from "./SectionRow";
 
+/**
+ * CONTINUE_WATCHING_LIMIT is the number of unfinished titles on the home row.
+ *
+ * CONTINUE_WATCHING_LIMIT 是首页继续观看行显示的未看完标题数量.
+ */
+export const CONTINUE_WATCHING_LIMIT = 10;
+
 interface HomeScreenContextValue {
-  api: DoubanAPI & Partial<WatchHistoryAPI>;
+  api: DoubanAPI;
   /**
    * Optional callback so tests can stub the search button navigation without wrapping in
    * a NavigationContainer just to satisfy useNavigation. Production path supplies a navigate
@@ -53,7 +54,7 @@ interface HomeScreenContextValue {
    * (hero / continue / section) 都把对应标题预填到 Search. 测试可覆盖, 生产走 useNavigation.
    */
   onSelectTitle?: (title: string) => void;
-  onSelectHistory?: (entry: WatchHistoryItem) => void;
+  onSelectHistory?: (entry: LocalRecord<"watch">) => void;
 }
 
 /**
@@ -70,7 +71,7 @@ export const HomeScreenContext = createContext<HomeScreenContextValue | null>(nu
  *
  * 由 serverStore + authStore 构建默认 DoubanAPI.
  */
-function useDefaultDoubanAPI(): (DoubanAPI & WatchHistoryAPI) | null {
+function useDefaultDoubanAPI(): DoubanAPI | null {
   const serverURL = useServerStore((s) => s.serverURL);
   return useMemo(() => {
     if (!serverURL) return null;
@@ -79,7 +80,7 @@ function useDefaultDoubanAPI(): (DoubanAPI & WatchHistoryAPI) | null {
       getToken: () => useAuthStore.getState().token,
       onUnauthorized: () => useAuthStore.getState().handleAuthExpired(),
     });
-    return { ...createDoubanAPI(client), ...createWatchHistoryAPI(client) };
+    return createDoubanAPI(client);
   }, [serverURL]);
 }
 
@@ -122,21 +123,33 @@ function DefaultHomeScreen() {
     [navigation],
   );
   const onSelectHistory = useCallback(
-    (entry: WatchHistoryItem) => {
+    (entry: LocalRecord<"watch">) => {
+      const p = entry.payload;
       navigation.navigate("Search", {
-        initialQuery: entry.title,
+        initialQuery: p.title,
         resumeHint: {
-          title: entry.title,
-          sourceKey: entry.sourceKey,
-			videoId: entry.videoId,
-			coverHint: entry.cover,
-			groupIndex: entry.groupIndex,
-			episodeIndex: entry.episodeIndex,
-          episodeName: entry.episode,
+          title: p.title,
+          sourceKey: p.source_key,
+          videoId: p.video_id,
+          coverHint: p.cover,
+          groupIndex: p.group_index,
+          episodeIndex: p.episode_index,
+          episodeName: p.episode,
         },
       });
     },
     [navigation],
+  );
+
+  const sync = useSync();
+  const engine = sync.status === "ready" ? sync.engine : null;
+  // The home tab stays mounted, so sync on every focus instead of only on mount.
+  //
+  // 首页 tab 会一直挂载, 因此每次获得焦点都同步, 而不只是挂载时同步.
+  useFocusEffect(
+    useCallback(() => {
+      void engine?.requestSync("page");
+    }, [engine]),
   );
 
   if (!defaultAPI) {
@@ -163,63 +176,30 @@ function HomeScreenInner({
   onSelectTitle,
   onSelectHistory,
 }: {
-  api: DoubanAPI & Partial<WatchHistoryAPI>;
+  api: DoubanAPI;
   onSearch?: () => void;
   onSelectTitle?: (title: string) => void;
-  onSelectHistory?: (entry: WatchHistoryItem) => void;
+  onSelectHistory?: (entry: LocalRecord<"watch">) => void;
 }) {
   const { colors } = useTheme();
 	const { t } = useTranslation("home");
 	const serverURL = useServerStore((s) => s.serverURL) ?? "";
-	const userID = useAuthStore((s) => s.user?.id ?? 0);
 	const insets = useSafeAreaInsets();
 
-  // Local-first ordering mirrors HomeViewModel.load(): seed history from MMKV synchronously,
-  // then fire the remote query. The useState initializer runs before useDoubanHomeQuery
-  // is registered, so the first render already has local history visible.
+  const sync = useSync();
+  const watchRecords = useSyncList("watch");
+  // Continue watching shows the newest unfinished titles from the synced store.
   //
-  // 本地优先, 与 HomeViewModel.load() 一致: 先同步从 MMKV 读取历史, 再发起远端 query.
-  // useState 初始化器先于 useDoubanHomeQuery 注册, 首次渲染已经显示本地历史.
-	const [history, setHistory] = useState<WatchHistoryItem[]>(() =>
-		loadWatchHistory(serverURL, 10, userID).filter((item) => !item.completed));
+  // 继续观看显示同步存储中最新的未看完标题.
+  const history = useMemo(
+    () => watchRecords.filter((record) => !record.payload.completed).slice(0, CONTINUE_WATCHING_LIMIT),
+    [watchRecords],
+  );
   const query = useDoubanHomeQuery(api, serverURL);
 
-  // Re-read MMKV when serverURL changes (e.g. user switched server mid-session).
-  //
-  // 当 serverURL 切换时重新读取 MMKV (例如会话中切换 server).
-  useEffect(() => {
-		setHistory(loadWatchHistory(serverURL, 10, userID).filter((item) => !item.completed));
-		if (userID <= 0 || !api.listWatchHistory) return;
-    let cancelled = false;
-    void api.listWatchHistory(10)
-      .then((response) => {
-        if (cancelled) return;
-			const remote = response.items
-				.filter((item) => !item.completed)
-				.map(watchHistoryItemFromRemote);
-			clearWatchHistory(serverURL, userID);
-			for (const item of remote) {
-				recordPlayProgress(serverURL, item, userID);
-        }
-        setHistory(remote);
-      })
-      .catch(() => {
-			if (!cancelled) setHistory(loadWatchHistory(serverURL, 10, userID).filter((item) => !item.completed));
-      });
-    return () => { cancelled = true; };
-	}, [api, serverURL, userID]);
-
-	const handleClearHistory = useCallback(() => {
-		const clearLocal = () => {
-			clearWatchHistory(serverURL, userID);
-			setHistory([]);
-		};
-		if (userID <= 0 || !api.clearWatchHistory) {
-			clearLocal();
-			return;
-		}
-		void api.clearWatchHistory().then(clearLocal).catch(() => undefined);
-	}, [api, serverURL, userID]);
+  const handleClearHistory = useCallback(() => {
+    if (sync.status === "ready") sync.store.clear("watch");
+  }, [sync]);
 
   // Hero and section cards mirror iOS HomeView.navigateToSearch(SearchQuery(query: item.title, ...)).
   // Continue-watching cards also go through Search so stale sources are refreshed before Player opens.
@@ -235,12 +215,12 @@ function HomeScreenInner({
     [selectByTitle],
   );
   const selectHistoryItem = useCallback(
-    (entry: WatchHistoryItem) => {
+    (entry: LocalRecord<"watch">) => {
       if (onSelectHistory) {
         onSelectHistory(entry);
         return;
       }
-      selectByTitle(entry.title);
+      selectByTitle(entry.payload.title);
     },
     [onSelectHistory, selectByTitle],
   );
