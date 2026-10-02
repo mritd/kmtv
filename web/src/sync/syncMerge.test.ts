@@ -76,7 +76,7 @@ describe("collectChanges", () => {
   });
 
   it("stops at the byte budget but always takes the first change", () => {
-    const long = "中".repeat(400);
+    const long = "\u4e2d".repeat(400);
     const state = stateWith(
       rec("search", `a${long}`, 1, { dirty: true }),
       rec("search", `b${long}`, 2, { dirty: true }),
@@ -272,8 +272,8 @@ describe("caps and listing", () => {
   });
 
   it("breaks event-time ties by code point, like the server's byte order", () => {
-    const keys = ["\u{1F600}", "～", "b"].map((key) => rec("search", key, 1));
-    expect(keys.sort(compareRecords).map((r) => r.key)).toEqual(["b", "～", "\u{1F600}"]);
+    const keys = ["\u{1F600}", "\uFF5E", "b"].map((key) => rec("search", key, 1));
+    expect(keys.sort(compareRecords).map((r) => r.key)).toEqual(["b", "\uFF5E", "\u{1F600}"]);
   });
 
   it("never lists tombstones", () => {
