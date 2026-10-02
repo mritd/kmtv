@@ -100,6 +100,13 @@ final class PlayerViewModel {
     // 最后一集结束并写入最终检查点后置位; 已结束 item 之后的检查点不能用未看完的记录覆盖它.
     // seek 或开始新 item 时清除.
     private var endCheckpointWritten = false
+    // Set from the moment the selection starts to change until `startPlayer` attaches the new item.
+    // The outgoing AVPlayer item keeps reporting in that gap, and its time must not be saved under
+    // the new source, line, or episode.
+    //
+    // 从选择开始变化到 `startPlayer` 挂载新 item 之间置位. 这段时间旧的 AVPlayer item 仍在上报,
+    // 其时间不能被保存到新的来源, 线路或分集下.
+    private var detachedFromItem = false
 
     private let apiClient: any PlaybackDetailAPIProtocol
     private let modelContext: ModelContext
@@ -258,6 +265,7 @@ final class PlayerViewModel {
     private func startPlayer(with url: URL) {
         skipOutroTriggered = false
         endCheckpointWritten = false
+        detachedFromItem = false
         // Show loading feedback while AVPlayer resolves playlists and media segments.
         //
         // AVPlayer 解析播放列表和媒体片段期间先显示加载反馈.
@@ -409,6 +417,15 @@ final class PlayerViewModel {
         duration = total
         refreshTransportState(player?.timeControlStatus)
 
+        // Scrubbing back out of the finished zone after the last episode ended is a rewatch; record it.
+        // Late ticks near the end stay blocked so they cannot overwrite the finished record.
+        //
+        // 最后一集结束后拖回片尾区之外属于重看, 需要记录; 片尾附近迟到的时间更新仍被拦截,
+        // 以免覆盖已看完的记录.
+        if endCheckpointWritten && total.isFinite && !playbackCompleted(current: current, duration: total) {
+            endCheckpointWritten = false
+        }
+
         if abs(current - lastSaveTime) >= 5 {
             lastSaveTime = current
             saveProgress(current: current, duration: total)
@@ -457,7 +474,7 @@ final class PlayerViewModel {
         // A non-finite time or duration never becomes a checkpoint.
         //
         // 非有限的时间或时长不会成为检查点.
-        guard current.isFinite, duration.isFinite, current > 0, !endCheckpointWritten else { return }
+        guard current.isFinite, duration.isFinite, current > 0, !endCheckpointWritten, !detachedFromItem else { return }
         guard let detail else { return }
         guard let ep = currentEpisode else { return }
         let videoId = selection.sourceVideoID()
@@ -504,11 +521,21 @@ final class PlayerViewModel {
 
     // MARK: - Switching
 
+    /// Saves and pushes the outgoing position, then stops the outgoing item from writing progress
+    /// until the next item is attached.
+    ///
+    /// 保存并推送当前位置, 然后在下一个 item 挂载之前禁止旧 item 写入进度.
+    private func detachOutgoingItem() {
+        checkpoint()
+        detachedFromItem = true
+        isPlaying = false
+    }
+
     func switchSource(_ sourceKey: String) async {
         // Save and push the outgoing position before the selection changes.
         //
         // 在切换之前保存并推送当前位置.
-        checkpoint()
+        detachOutgoingItem()
         let prevEpName = currentEpisode?.name ?? ""
 
         currentSourceKey = sourceKey
@@ -536,14 +563,14 @@ final class PlayerViewModel {
     }
 
     func switchLine(_ index: Int) {
-        checkpoint()
+        detachOutgoingItem()
         currentLineIndex = index
         currentEpisodeIndex = 0
         startPlayback()
     }
 
     func switchEpisode(_ index: Int) {
-        checkpoint()
+        detachOutgoingItem()
         currentEpisodeIndex = index
         startPlayback()
     }
@@ -568,8 +595,17 @@ final class PlayerViewModel {
     ///
     /// 处理播放失败: 优先尝试下一条 CDN 线路, 再尝试下一个视频源.
     func handlePlaybackError() async {
+        // An error on the last episode at or past the finished threshold counts as its end, so the
+        // fallback does not restart it and overwrite the finished record.
+        //
+        // 最后一集在已看完阈值之后出错视为播放结束, 避免回退逻辑重新播放并覆盖已看完的记录.
+        if currentEpisodeIndex == episodes.count - 1, playbackCompleted(current: currentTime, duration: duration) {
+            handlePlaybackEnded()
+            return
+        }
         let nextLine = currentLineIndex + 1
         if nextLine < allLines.count {
+            detachOutgoingItem()
             currentLineIndex = nextLine
             startPlayback()
         } else {
