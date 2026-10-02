@@ -3,6 +3,8 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -261,5 +263,201 @@ func TestDeleteUserRemovesSyncData(t *testing.T) {
 		if count != 0 {
 			t.Fatalf("%s keeps %d rows of a deleted user", table, count)
 		}
+	}
+}
+
+func TestPushSyncClearRejectsOlderWrites(t *testing.T) {
+	s := newTestStore(t)
+	user := newSyncTestUser(t, s, "sync_clear")
+	pushOne(t, s, user, syncSearch("Alpha", 1000))
+	pushOne(t, s, user, syncDelete(model.SyncKindSearch, "Gone", 1200))
+	pushOne(t, s, user, syncSearch("Beta", 3000))
+
+	res := pushOne(t, s, user, syncClear(model.SyncKindSearch, 2000))
+	if res.Status != model.SyncStatusApplied || res.Clear == nil || res.Clear.ClearedAtMS != 2000 {
+		t.Fatalf("clear: %+v", res)
+	}
+	page, err := s.PullSyncChanges(user, 0, 100)
+	if err != nil {
+		t.Fatalf("PullSyncChanges: %v", err)
+	}
+	if len(page.Records) != 1 || page.Records[0].Key != "beta" {
+		t.Fatalf("only the row newer than the clear may remain, tombstones included: %+v", page.Records)
+	}
+	res = pushOne(t, s, user, syncSearch("Alpha", 1500))
+	if res.Status != model.SyncStatusStale || res.Record != nil {
+		t.Fatalf("write before the clear must be stale with no row: %+v", res)
+	}
+	res = pushOne(t, s, user, syncClear(model.SyncKindSearch, 1800))
+	if res.Status != model.SyncStatusStale || res.Clear == nil || res.Clear.ClearedAtMS != 2000 {
+		t.Fatalf("older clear must be stale and return the current clear: %+v", res)
+	}
+}
+
+func TestPushSyncTrimsSearchAndWatch(t *testing.T) {
+	s := newTestStore(t)
+	user := newSyncTestUser(t, s, "sync_trim")
+	changes := make([]model.SyncChange, 0, SyncMaxSearchRecords+1)
+	for i := range SyncMaxSearchRecords + 1 {
+		changes = append(changes, syncSearch(fmt.Sprintf("q%03d", i), int64(1000+i)))
+	}
+	if _, _, err := s.PushSyncChanges(user, changes, syncTestNow); err != nil {
+		t.Fatalf("PushSyncChanges: %v", err)
+	}
+	page, err := s.PullSyncChanges(user, 0, 1000)
+	if err != nil {
+		t.Fatalf("PullSyncChanges: %v", err)
+	}
+	live := map[string]bool{}
+	trimmed := map[string]bool{}
+	for _, r := range page.Records {
+		if r.Deleted {
+			trimmed[r.Key] = true
+		} else {
+			live[r.Key] = true
+		}
+	}
+	if len(live) != SyncMaxSearchRecords || live["q000"] || !trimmed["q000"] {
+		t.Fatalf("expected the oldest search trimmed into a tombstone, live=%d trimmed=%v", len(live), trimmed)
+	}
+	res := pushOne(t, s, user, syncSearch("too old", 10))
+	if res.Status != model.SyncStatusStale || res.Record == nil || !res.Record.Deleted || res.Record.EventTimeMS != 10 {
+		t.Fatalf("an incoming row that is trimmed at once must be stale with its tombstone: %+v", res)
+	}
+	if res := pushOne(t, s, user, syncSearch("too old", 9)); res.Status != model.SyncStatusStale {
+		t.Fatalf("an older replay of a trimmed row must stay stale: %+v", res)
+	}
+
+	watch := make([]model.SyncChange, 0, SyncMaxWatchRecords+1)
+	for i := range SyncMaxWatchRecords + 1 {
+		watch = append(watch, syncWatch(fmt.Sprintf("t%03d", i), int64(5000+i)))
+	}
+	if _, _, err := s.PushSyncChanges(user, watch, syncTestNow); err != nil {
+		t.Fatalf("PushSyncChanges watch: %v", err)
+	}
+	var count int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sync_records WHERE user_id = ? AND kind = 'watch' AND deleted = 0`, user).Scan(&count); err != nil {
+		t.Fatalf("count watch: %v", err)
+	}
+	if count != SyncMaxWatchRecords {
+		t.Fatalf("watch rows = %d, want %d", count, SyncMaxWatchRecords)
+	}
+}
+
+func TestPushSyncConcurrentWritersOnFileDB(t *testing.T) {
+	// In-memory stores use one connection, so only a file database shows lock upgrades.
+	//
+	// 内存存储只使用一个连接, 只有文件数据库才能暴露锁升级问题.
+	s, err := New(filepath.Join(t.TempDir(), "sync.db"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	users := []int64{newSyncTestUser(t, s, "sync_conc_a"), newSyncTestUser(t, s, "sync_conc_b")}
+
+	errCh := make(chan error, 400)
+	var wg sync.WaitGroup
+	for g := range 4 {
+		wg.Go(func() {
+			user := users[g%2]
+			for i := range 100 {
+				change := syncSearch(fmt.Sprintf("g%d-%03d", g, i), int64(1000+g*1000+i))
+				if _, _, err := s.PushSyncChanges(user, []model.SyncChange{change}, syncTestNow); err != nil {
+					errCh <- err
+				}
+			}
+		})
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Fatalf("concurrent push: %v", err)
+	}
+	if _, err := s.PurgeSyncTombstones(syncTestNow.Add(time.Hour)); err != nil {
+		t.Fatalf("PurgeSyncTombstones: %v", err)
+	}
+}
+
+func TestPullSyncPagesInRevOrder(t *testing.T) {
+	s := newTestStore(t)
+	user := newSyncTestUser(t, s, "sync_pull")
+	if _, _, err := s.PushSyncChanges(user, []model.SyncChange{
+		syncWatch("A", 1000),
+		syncSearch("q", 1001),
+		syncClear(model.SyncKindFavorite, 1002),
+		syncWatch("B", 1003),
+	}, syncTestNow); err != nil {
+		t.Fatalf("PushSyncChanges: %v", err)
+	}
+
+	page, err := s.PullSyncChanges(user, 0, 2)
+	if err != nil {
+		t.Fatalf("pull 1: %v", err)
+	}
+	if !page.HasMore || page.Rev != 2 || len(page.Records) != 2 || len(page.Clears) != 0 ||
+		page.Records[0].Key != "a" || page.Records[1].Key != "q" {
+		t.Fatalf("page 1: %+v", page)
+	}
+	page, err = s.PullSyncChanges(user, page.Rev, 2)
+	if err != nil {
+		t.Fatalf("pull 2: %v", err)
+	}
+	if page.HasMore || page.Rev != 4 || len(page.Clears) != 1 || page.Clears[0].Kind != model.SyncKindFavorite ||
+		len(page.Records) != 1 || page.Records[0].Key != "b" {
+		t.Fatalf("page 2: %+v", page)
+	}
+	page, err = s.PullSyncChanges(user, 4, 2)
+	if err != nil {
+		t.Fatalf("pull 3: %v", err)
+	}
+	if page.HasMore || page.Reset || page.Rev != 4 || len(page.Records) != 0 || page.Records == nil || page.Clears == nil {
+		t.Fatalf("empty page must keep the cursor and use empty slices: %+v", page)
+	}
+}
+
+func TestPullSyncResetsWhenCursorIsAhead(t *testing.T) {
+	s := newTestStore(t)
+	user := newSyncTestUser(t, s, "sync_ahead")
+	pushOne(t, s, user, syncWatch("A", 1000))
+
+	page, err := s.PullSyncChanges(user, 5, 100)
+	if err != nil {
+		t.Fatalf("PullSyncChanges: %v", err)
+	}
+	if !page.Reset || page.Rev != 1 {
+		t.Fatalf("a cursor beyond the server rev must reset and report the current rev: %+v", page)
+	}
+	page, err = s.PullSyncChanges(newSyncTestUser(t, s, "sync_new"), 0, 100)
+	if err != nil || page.Reset {
+		t.Fatalf("a brand-new user pulling from 0 must not reset: %+v, %v", page, err)
+	}
+}
+
+func TestPurgeSyncTombstonesRaisesMinRev(t *testing.T) {
+	s := newTestStore(t)
+	user := newSyncTestUser(t, s, "sync_gc")
+	pushOne(t, s, user, syncFavorite("Keep", 1000))
+	pushOne(t, s, user, syncDelete(model.SyncKindFavorite, "gone", 1001))
+
+	purged, err := s.PurgeSyncTombstones(syncTestNow)
+	if err != nil || purged != 0 {
+		t.Fatalf("tombstones written at the cutoff must stay: purged=%d err=%v", purged, err)
+	}
+	purged, err = s.PurgeSyncTombstones(syncTestNow.Add(time.Millisecond))
+	if err != nil || purged != 1 {
+		t.Fatalf("expected one purged tombstone, got %d (err %v)", purged, err)
+	}
+
+	page, err := s.PullSyncChanges(user, 1, 100)
+	if err != nil || !page.Reset || page.Rev != 2 {
+		t.Fatalf("since below min_rev must reset and report the current rev: %+v, %v", page, err)
+	}
+	page, err = s.PullSyncChanges(user, 2, 100)
+	if err != nil || page.Reset {
+		t.Fatalf("since at min_rev must not reset: %+v, %v", page, err)
+	}
+	page, err = s.PullSyncChanges(user, 0, 100)
+	if err != nil || page.Reset || len(page.Records) != 1 || page.Records[0].Key != "keep" {
+		t.Fatalf("full pull after GC: %+v, %v", page, err)
 	}
 }

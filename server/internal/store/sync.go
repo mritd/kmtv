@@ -410,3 +410,134 @@ func getSyncClear(q syncQuerier, userID int64, kind model.SyncKind) (*model.Sync
 	}
 	return &watermark, nil
 }
+
+// PullSyncChanges returns up to limit records and clears with rev > since, ordered by rev.
+// It asks for a resync (Reset) when since is below the GC floor or above the user's rev, and
+// then reports the current rev so the client can tell the two cases apart.
+//
+// PullSyncChanges 返回最多 limit 条 rev > since 的记录和清空事件, 按 rev 排序.
+// since 低于回收下限或高于用户当前 rev 时要求客户端重同步 (Reset), 并返回当前 rev,
+// 让客户端区分这两种情况.
+func (s *Store) PullSyncChanges(userID, since int64, limit int) (*model.SyncPullPage, error) {
+	if userID <= 0 || since < 0 || limit <= 0 {
+		return nil, errs.ErrInvalidRequest
+	}
+	page := &model.SyncPullPage{Rev: since, Clears: []model.SyncClear{}, Records: []model.SyncRecord{}}
+
+	// One read transaction keeps the GC floor check and the page on the same snapshot.
+	//
+	// 用一个读事务让回收下限检查和本页数据处于同一快照.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin sync pull: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var rev, minRev int64
+	err = tx.QueryRow(`SELECT rev, min_rev FROM sync_users WHERE user_id = ?`, userID).Scan(&rev, &minRev)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("read sync state: %w", err)
+	}
+	if since > rev || (since > 0 && since < minRev) {
+		page.Reset = true
+		page.Rev = rev
+		return page, nil
+	}
+
+	rows, err := tx.Query(
+		`SELECT item_type, kind, record_key, payload, event_time_ms, deleted, rev FROM (
+			SELECT 'record' AS item_type, kind, record_key, payload, event_time_ms, deleted, rev
+			FROM sync_records WHERE user_id = ? AND rev > ?
+			UNION ALL
+			SELECT 'clear' AS item_type, kind, '' AS record_key, '{}' AS payload, cleared_at_ms AS event_time_ms, 0 AS deleted, rev
+			FROM sync_clears WHERE user_id = ? AND rev > ?
+		) ORDER BY rev LIMIT ?`,
+		userID, since, userID, since, limit+1,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("pull sync changes: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	seen := 0
+	for rows.Next() {
+		var (
+			itemType, kind, key, payload string
+			eventTime, itemRev           int64
+			deleted                      bool
+		)
+		if err := rows.Scan(&itemType, &kind, &key, &payload, &eventTime, &deleted, &itemRev); err != nil {
+			return nil, fmt.Errorf("scan sync change: %w", err)
+		}
+		seen++
+		if seen > limit {
+			page.HasMore = true
+			break
+		}
+		if itemType == "clear" {
+			page.Clears = append(page.Clears, model.SyncClear{Kind: model.SyncKind(kind), ClearedAtMS: eventTime, Rev: itemRev})
+		} else {
+			page.Records = append(page.Records, model.SyncRecord{
+				Kind:        model.SyncKind(kind),
+				Key:         key,
+				Payload:     json.RawMessage(payload),
+				EventTimeMS: eventTime,
+				Deleted:     deleted,
+				Rev:         itemRev,
+			})
+		}
+		page.Rev = itemRev
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sync changes: %w", err)
+	}
+	return page, nil
+}
+
+// PurgeSyncTombstones deletes tombstones last written before the cutoff and raises each
+// affected user's min_rev, so clients with an older cursor are told to resync.
+//
+// PurgeSyncTombstones 删除最后写入时间早于 cutoff 的删除标记, 并提高受影响用户的 min_rev,
+// 让游标更旧的客户端收到全量重同步指示.
+func (s *Store) PurgeSyncTombstones(before time.Time) (int64, error) {
+	cutoff := before.UnixMilli()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("begin sync purge: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// The DELETE is the first statement so the transaction holds the write lock from the start.
+	//
+	// DELETE 是第一条语句, 让事务从一开始就持有写锁.
+	rows, err := tx.Query(
+		`DELETE FROM sync_records WHERE deleted = 1 AND updated_at_ms < ? RETURNING user_id, rev`,
+		cutoff,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("purge sync tombstones: %w", err)
+	}
+	floors := map[int64]int64{}
+	var purged int64
+	for rows.Next() {
+		var userID, rev int64
+		if err := rows.Scan(&userID, &rev); err != nil {
+			_ = rows.Close()
+			return 0, fmt.Errorf("scan purged tombstone: %w", err)
+		}
+		purged++
+		floors[userID] = max(floors[userID], rev)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, fmt.Errorf("close purged tombstones: %w", err)
+	}
+	for userID, rev := range floors {
+		if _, err := tx.Exec(`UPDATE sync_users SET min_rev = MAX(min_rev, ?) WHERE user_id = ?`, rev, userID); err != nil {
+			return 0, fmt.Errorf("raise sync min_rev: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit sync purge: %w", err)
+	}
+	return purged, nil
+}
