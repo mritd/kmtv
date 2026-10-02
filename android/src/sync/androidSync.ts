@@ -159,13 +159,14 @@ export function createSyncTransport(client: Pick<APIClient, "get" | "post">, ide
       checkIdentity();
       return client.post<SyncPushResponse>("/sync/push", body);
     },
-    pull: async ({ since, epoch, limit }) => {
+    pull: async ({ since, epoch, limit, full }) => {
       checkIdentity();
       // Build the query from a record: React Native's URLSearchParams lacks set().
       //
       // 用对象构造查询参数: React Native 的 URLSearchParams 没有 set().
       const query: Record<string, string> = { since: String(since), limit: String(limit) };
       if (epoch) query.epoch = epoch;
+      if (full) query.full = "1";
       return client.get<SyncPullResponse>(`/sync/pull?${new URLSearchParams(query).toString()}`);
     },
   };

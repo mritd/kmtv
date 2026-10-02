@@ -12,6 +12,7 @@ import {
   SYNC_RETRY_MAX_MS,
   createSyncEngine,
   type SyncErrorKind,
+  type SyncPullParams,
 } from "./syncEngine";
 import { createSyncStore, syncScopeKey, type SyncStorage } from "./syncStore";
 import type { SyncPullResponse, SyncPushRequest, SyncPushResponse } from "./types";
@@ -60,7 +61,7 @@ function setup(pulls: Array<SyncPullResponse | Error> = [], username = "alice", 
     return applied(body);
   });
   const queue = [...pulls];
-  const pull = vi.fn(async (): Promise<SyncPullResponse> => {
+  const pull = vi.fn(async (_params: SyncPullParams): Promise<SyncPullResponse> => {
     const next = queue.shift() ?? pullPage();
     if (next instanceof Error) throw next;
     return next;
@@ -175,6 +176,80 @@ describe("createSyncEngine", () => {
     expect(push.mock.calls[1]![0].changes.map((change) => change.kind).sort()).toEqual(["favorite", "search"]);
     expect(store.get("favorite", "Kept")).toMatchObject({ dirty: false, synced: true });
     expect(store.state()).toMatchObject({ epoch: "e1", cursor: 5 });
+    engine.stop();
+  });
+
+  it("drops another user's data on a same-epoch restore instead of re-uploading it", async () => {
+    // The server was restored from a copy without bob, and carol was given bob's user ID.
+    //
+    // 服务端从没有 bob 的旧副本恢复, carol 获得了 bob 的用户 ID.
+    const { store, engine, push } = setup([pullPage({ reset: true, rev: 0 }), pullPage({ rev: 2 })], "carol");
+    store.upsert("favorite", { ...favorite, title: "Bob Secret" });
+    store.update((state) => ({
+      ...state,
+      username: "bob",
+      epoch: "e1",
+      cursor: 120,
+      pendingClears: { search: 7 },
+      records: Object.fromEntries(Object.entries(state.records).map(([id, r]) => [id, { ...r, dirty: false, synced: true }])),
+    }));
+    push.mockRejectedValueOnce(new FakeSyncError("conflict"));
+
+    await engine.requestSync("launch");
+
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(push.mock.calls[0]![0]).toMatchObject({ epoch: "e1", cursor: 120 });
+    expect(store.list("favorite")).toEqual([]);
+    expect(store.state()).toMatchObject({ username: "carol", epoch: "e1", cursor: 2, pendingClears: {} });
+    engine.stop();
+  });
+
+  it("re-uploads on a same-epoch restore when the stored username matches", async () => {
+    const { store, engine, pushes } = setup([pullPage({ reset: true, rev: 0 }), pullPage({ rev: 1 })], "alice");
+    store.upsert("favorite", { ...favorite, title: "Mine" });
+    store.update((state) => ({
+      ...state,
+      username: "alice",
+      epoch: "e1",
+      cursor: 120,
+      records: Object.fromEntries(Object.entries(state.records).map(([id, r]) => [id, { ...r, dirty: false, synced: true }])),
+    }));
+
+    await engine.requestSync("launch");
+
+    expect(pushes).toHaveLength(1);
+    expect(pushes[0]!.body).toMatchObject({ epoch: "e1", cursor: 0 });
+    expect(pushes[0]!.body.changes).toMatchObject([{ kind: "favorite", op: "upsert", payload: { title: "Mine" } }]);
+    expect(store.state()).toMatchObject({ username: "alice", epoch: "e1", cursor: 1 });
+    engine.stop();
+  });
+
+  it("asks for a full pull on every page of a chain from cursor 0, and not on delta pulls", async () => {
+    const { engine, pull } = setup([pullPage({ rev: 2, has_more: true }), pullPage({ rev: 3 }), pullPage({ rev: 4 })]);
+
+    await engine.requestSync("launch");
+    await engine.requestSync("foreground");
+
+    expect(pull.mock.calls.map(([params]) => params)).toEqual([
+      { since: 0, epoch: "", limit: 500, full: true },
+      { since: 2, epoch: "e1", limit: 500, full: true },
+      { since: 3, epoch: "e1", limit: 500 },
+    ]);
+    engine.stop();
+  });
+
+  it("asks for a full pull on every page of a full resync", async () => {
+    const { store, engine, pull } = setup([pullPage({ reset: true, rev: 9 }), pullPage({ rev: 5, has_more: true }), pullPage({ rev: 9 })]);
+    store.update((state) => ({ ...state, epoch: "e1", cursor: 1 }));
+
+    await engine.requestSync("launch");
+
+    expect(pull.mock.calls.map(([params]) => params)).toEqual([
+      { since: 1, epoch: "e1", limit: 500 },
+      { since: 0, epoch: "e1", limit: 500, full: true },
+      { since: 5, epoch: "e1", limit: 500, full: true },
+    ]);
+    expect(store.state().cursor).toBe(9);
     engine.stop();
   });
 
@@ -461,7 +536,7 @@ describe("createSyncEngine", () => {
     const { store, engine, push, pull } = setup([], "alice", { start: false });
     store.upsert("search", { query: "before start" });
     await vi.advanceTimersByTimeAsync(SYNC_CHANGE_DEBOUNCE_MS);
-    await engine.requestSync("launch");
+    void engine.requestSync("player");
     await engine.flushNow();
     await engine.flushNow({ keepalive: true });
     expect(push).not.toHaveBeenCalled();
@@ -476,6 +551,52 @@ describe("createSyncEngine", () => {
     await vi.advanceTimersByTimeAsync(SYNC_CHANGE_DEBOUNCE_MS);
     expect(push).toHaveBeenCalledTimes(2);
     engine.stop();
+  });
+
+  it("settles a sync requested before the first start with the first cycle after start", async () => {
+    const { engine, pull } = setup([], "alice", { start: false });
+    let settled = false;
+    const early = engine.requestSync("player").then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(settled).toBe(false);
+
+    engine.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(false);
+    await engine.requestSync("launch");
+    await early;
+
+    expect(settled).toBe(true);
+    expect(pull).toHaveBeenCalledTimes(1);
+    engine.stop();
+  });
+
+  it("settles a sync requested before the first start when the engine stops instead", async () => {
+    const { engine, pull } = setup([], "alice", { start: false });
+    const early = engine.requestSync("player");
+    engine.stop();
+    await early;
+    expect(pull).not.toHaveBeenCalled();
+  });
+
+  it("resolves syncs at once on an engine stopped before it ever started", async () => {
+    const { engine, pull } = setup([], "alice", { start: false });
+    engine.stop();
+    let settled = false;
+    void engine.requestSync("player").then(() => (settled = true));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(true);
+    expect(pull).not.toHaveBeenCalled();
+  });
+
+  it("does not wait for a restart once the engine has been stopped", async () => {
+    const { engine, pull } = setup();
+    await engine.requestSync("launch");
+    engine.stop();
+    await engine.requestSync("player");
+    expect(pull).toHaveBeenCalledTimes(1);
   });
 
   it("ignores a flush response that arrives after stop and start", async () => {

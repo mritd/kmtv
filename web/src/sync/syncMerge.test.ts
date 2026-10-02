@@ -14,7 +14,7 @@ import {
   compareRecords,
   finishFullResync,
   listLive,
-  resetForNewEpoch,
+  resetForServerLoss,
 } from "./syncMerge";
 import {
   emptySyncState,
@@ -248,16 +248,23 @@ describe("full resync and epoch reset", () => {
     expect(Object.keys(next.records).sort()).toEqual(["search|dirty", "search|kept", "search|local-only"]);
   });
 
-  it("marks every record for re-upload on a new epoch", () => {
-    const next = resetForNewEpoch({ ...stateWith(rec("favorite", "x", 1)), cursor: 9 }, "e9", "alice");
+  it("marks every record for re-upload when the server lost data", () => {
+    const next = resetForServerLoss({ ...stateWith(rec("favorite", "x", 1)), cursor: 9 }, "e9", "alice");
     expect(next).toMatchObject({ epoch: "e9", cursor: 0, username: "alice" });
     expect(next.records["favorite|x"]).toMatchObject({ dirty: true, synced: false });
   });
 
-  it("drops the data on a new epoch when it belongs to another username", () => {
-    const state = { ...stateWith(rec("favorite", "x", 1)), cursor: 9, pendingClears: { search: 3 } };
-    const next = resetForNewEpoch(state, "e9", "bob");
-    expect(next).toMatchObject({ username: "bob", epoch: "e9", cursor: 0, records: {}, pendingClears: {} });
+  it("drops the data on a server loss when it belongs to another username", () => {
+    const state = { ...stateWith(rec("favorite", "x", 1)), cursor: 9, clockOffsetMs: 42, pendingClears: { search: 3 } };
+    const next = resetForServerLoss(state, "e9", "bob");
+    expect(next).toMatchObject({ username: "bob", epoch: "e9", cursor: 0, clockOffsetMs: 42, records: {}, pendingClears: {} });
+  });
+
+  it("keeps the epoch and re-uploads on a same-epoch loss under the same username", () => {
+    const state = { ...stateWith(rec("favorite", "x", 1)), epoch: "e1", cursor: 9 };
+    const next = resetForServerLoss(state, "e1", state.username);
+    expect(next).toMatchObject({ epoch: "e1", cursor: 0, username: state.username });
+    expect(next.records["favorite|x"]).toMatchObject({ dirty: true, synced: false });
   });
 });
 

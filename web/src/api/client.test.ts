@@ -548,6 +548,8 @@ describe("APIClient", () => {
     await client.syncPush({ epoch: "e1", cursor: 4, changes: [] }, { keepalive: true });
     await client.syncPull({ since: 4, epoch: "e1" });
     await client.syncPull({ since: 0, epoch: "", limit: 20 });
+    await client.syncPull({ since: 3, epoch: "e1", limit: 20, full: true });
+    await client.syncPull({ since: 3, epoch: "e1", limit: 20, full: false });
 
     expect(calls[0]!.url).toBe("/api/v1/sync/push");
     expect(calls[0]!.init.method).toBe("POST");
@@ -557,9 +559,11 @@ describe("APIClient", () => {
     expect(calls[0]!.init.body).toBe(JSON.stringify({ epoch: "e1", cursor: 4, changes: [] }));
     expect(calls[1]!.url).toBe("/api/v1/sync/pull?since=4&limit=500&epoch=e1");
     expect(calls[2]!.url).toBe("/api/v1/sync/pull?since=0&limit=20");
+    expect(calls[3]!.url).toBe("/api/v1/sync/pull?since=3&limit=20&epoch=e1&full=1");
+    expect(calls[4]!.url).toBe("/api/v1/sync/pull?since=3&limit=20&epoch=e1");
 
     const anonymous = createAPIClient({ tokenStore: createMemoryTokenStore(), fetcher: fetcher as typeof fetch });
     await expect(anonymous.syncPull({ since: 0, epoch: "" })).rejects.toMatchObject({ status: 401 });
-    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher).toHaveBeenCalledTimes(5);
   });
 });

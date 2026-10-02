@@ -123,15 +123,18 @@ export function SyncProvider({
     //
     // 在服务器检查之前登记引擎, 检查期间退出登录会清除登记, 引擎也就不会启动.
     setActiveSyncEngine(engine);
-    // A server older than MIN_SYNC_SERVER_VERSION has no sync endpoints: keep the data local.
+    // A server older than MIN_SYNC_SERVER_VERSION has no sync endpoints: keep the data local, and
+    // stop the never-started engine so syncs requested while waiting for it settle at once.
     //
-    // 低于 MIN_SYNC_SERVER_VERSION 的服务器没有同步接口: 数据只保存在本机.
+    // 低于 MIN_SYNC_SERVER_VERSION 的服务器没有同步接口: 数据只保存在本机, 并停止这个从未启动的
+    // 引擎, 让等待它的同步请求立即结束.
     void Promise.resolve()
       .then(() => checkServerRef.current(serverURL))
       .catch(() => true)
       .then((compatible) => {
         if (!active || !isActiveSyncEngine(engine)) return;
         if (!compatible) {
+          engine.stop();
           onIncompatibleRef.current?.();
           return;
         }

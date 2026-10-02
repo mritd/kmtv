@@ -43,9 +43,13 @@ describe("androidSync", () => {
     await transport.push({ epoch: "e1", cursor: 4, changes: [] }, { keepalive: true });
     await transport.pull({ since: 4, epoch: "e1", limit: 500 });
     await transport.pull({ since: 0, epoch: "", limit: 20 });
+    await transport.pull({ since: 3, epoch: "e1", limit: 20, full: true });
+    await transport.pull({ since: 3, epoch: "e1", limit: 20, full: false });
     expect(post).toHaveBeenCalledWith("/sync/push", { epoch: "e1", cursor: 4, changes: [] });
     expect(get).toHaveBeenNthCalledWith(1, "/sync/pull?since=4&limit=500&epoch=e1");
     expect(get).toHaveBeenNthCalledWith(2, "/sync/pull?since=0&limit=20");
+    expect(get).toHaveBeenNthCalledWith(3, "/sync/pull?since=3&limit=20&epoch=e1&full=1");
+    expect(get).toHaveBeenNthCalledWith(4, "/sync/pull?since=3&limit=20&epoch=e1");
   });
 
   it("refuses to send once the signed-in user is no longer the scope's user", async () => {

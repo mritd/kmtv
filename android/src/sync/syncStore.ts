@@ -122,10 +122,11 @@ export interface SyncStoreOptions {
 /**
  * createSyncStore opens the store of one scope. `username` is the current name of the scope's user;
  * state saved under an older name is kept (a rename), and the engine drops it only when the server
- * epoch changes too (see resetForNewEpoch).
+ * also lost data (a new epoch or a restore; see resetForServerLoss).
  *
  * createSyncStore 打开某个作用域的存储. username 是该作用域用户当前的用户名; 旧用户名下保存的
- * 状态会保留 (改名), 只有服务端 epoch 也变化时引擎才会丢弃它 (见 resetForNewEpoch).
+ * 状态会保留 (改名), 只有服务端同时丢失了数据 (新 epoch 或从旧副本恢复) 时引擎才会丢弃它
+ * (见 resetForServerLoss).
  */
 export function createSyncStore(options: SyncStoreOptions): SyncStore {
   const { storage, scopeKey, username } = options;

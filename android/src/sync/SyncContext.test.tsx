@@ -15,6 +15,7 @@ import { SyncProvider, useSync, useSyncList } from "./SyncContext";
 import type { SyncEngine, SyncTransport } from "./syncEngine";
 import type { SyncStore } from "./syncStore";
 import type { SyncPullResponse, SyncPushRequest } from "./types";
+import { PLAYER_SYNC_WAIT_MS, useWatchResume } from "./useWatchResume";
 
 let readyStore: SyncStore | null = null;
 let readyEngine: SyncEngine | null = null;
@@ -48,6 +49,11 @@ function emptyPull(): SyncPullResponse {
   return { epoch: "e1", server_time_ms: Date.now(), rev: 0, reset: false, has_more: false, clears: [], records: [] };
 }
 
+function GateProbe() {
+  const { pending } = useWatchResume("Demo Show");
+  return <Text testID="gate">{pending ? "pending" : "ready"}</Text>;
+}
+
 const compatible = async () => true;
 
 function signIn(id: number, username: string) {
@@ -63,6 +69,7 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.restoreAllMocks();
+  jest.useRealTimers();
 });
 
 describe("SyncProvider", () => {
@@ -159,6 +166,64 @@ describe("SyncProvider", () => {
     expect(transport.pull).not.toHaveBeenCalled();
     expect(transport.push).not.toHaveBeenCalled();
     expect(screen.getByTestId("searches")).toHaveTextContent("local");
+  });
+
+  it("stops queueing sync waiters once the server is too old", async () => {
+    signIn(5, "alice");
+    const transport = fakeTransport();
+    const onIncompatibleServer = jest.fn();
+    render(
+      <SyncProvider checkServer={async () => false} onIncompatibleServer={onIncompatibleServer} createTransport={() => transport}>
+        <Probe />
+      </SyncProvider>,
+    );
+    await waitFor(() => expect(onIncompatibleServer).toHaveBeenCalledTimes(1));
+    let settled = false;
+    await act(async () => {
+      void readyEngine!.requestSync("player").then(() => (settled = true));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(settled).toBe(true);
+    expect(transport.pull).not.toHaveBeenCalled();
+  });
+
+  it("keeps a player gate opened during the server check waiting for the launch sync", async () => {
+    signIn(5, "alice");
+    let answer: (compatible: boolean) => void = () => undefined;
+    const checkServer = jest.fn(() => new Promise<boolean>((resolve) => (answer = resolve)));
+    let finishPull: (page: SyncPullResponse) => void = () => undefined;
+    const transport = fakeTransport(() => new Promise<SyncPullResponse>((resolve) => (finishPull = resolve)));
+    render(<SyncProvider checkServer={checkServer} createTransport={() => transport}><GateProbe /></SyncProvider>);
+    await waitFor(() => expect(checkServer).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(screen.getByTestId("gate")).toHaveTextContent("pending");
+
+    await act(async () => {
+      answer(true);
+    });
+    await waitFor(() => expect(transport.pull).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId("gate")).toHaveTextContent("pending");
+    await act(async () => {
+      finishPull(emptyPull());
+    });
+    expect(screen.getByTestId("gate")).toHaveTextContent("ready");
+    expect(transport.pull).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds the wait of a player gate when the server check never answers", async () => {
+    jest.useFakeTimers();
+    signIn(5, "alice");
+    const checkServer = jest.fn(() => new Promise<boolean>(() => undefined));
+    const transport = fakeTransport();
+    render(<SyncProvider checkServer={checkServer} createTransport={() => transport}><GateProbe /></SyncProvider>);
+    expect(screen.getByTestId("gate")).toHaveTextContent("pending");
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(PLAYER_SYNC_WAIT_MS);
+    });
+    expect(screen.getByTestId("gate")).toHaveTextContent("ready");
+    expect(transport.pull).not.toHaveBeenCalled();
   });
 
   it("stops the engine before logout waits for the server", async () => {

@@ -149,11 +149,13 @@ export interface APIClient {
   //
   // 将本地变更发送到 POST /sync/push; keepalive 让页面隐藏时的补写能够完成.
   syncPush(body: SyncPushRequest, options?: { keepalive?: boolean }): Promise<SyncPushResponse>;
-  // syncPull reads one page of changes after a revision cursor.
+  // syncPull reads one page of changes after a revision cursor; `full` marks a page of a pull chain
+  // that began at revision 0, so the server skips its tombstone-GC reset.
   // syncPull
   //
-  // 读取某个版本游标之后的一页变更.
-  syncPull(params: { since: number; epoch: string; limit?: number }): Promise<SyncPullResponse>;
+  // 读取某个版本游标之后的一页变更; full 表示该页属于从版本 0 开始的拉取链, 服务端因此跳过墓碑
+  // 清理触发的 reset.
+  syncPull(params: { since: number; epoch: string; limit?: number; full?: boolean }): Promise<SyncPullResponse>;
   listSources(): Promise<SourcesResponse>;
   createSource(source: SourcePayload): Promise<Source>;
   updateSource(id: number, source: SourcePayload): Promise<void>;
@@ -423,9 +425,10 @@ export function createAPIClient(options: APIClientOptions): APIClient {
         keepalive: pushOptions.keepalive,
         signal: AbortSignal.timeout(SYNC_REQUEST_TIMEOUT_MS),
       }),
-    syncPull: ({ since, epoch, limit = 500 }) => {
+    syncPull: ({ since, epoch, limit = 500, full = false }) => {
       const params = new URLSearchParams({ since: String(since), limit: String(limit) });
       if (epoch) params.set("epoch", epoch);
+      if (full) params.set("full", "1");
       return request<SyncPullResponse>(`/sync/pull?${params.toString()}`, {
         requiresAuth: true,
         signal: AbortSignal.timeout(SYNC_REQUEST_TIMEOUT_MS),

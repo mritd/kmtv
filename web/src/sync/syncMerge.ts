@@ -329,14 +329,18 @@ export function markForReupload(state: SyncState): SyncState {
 }
 
 /**
- * resetForNewEpoch handles a server database reset. If the local data belongs to another username,
- * the user ID was reused by someone else and the data is dropped. Otherwise every record is marked
- * for re-upload.
+ * resetForServerLoss handles a server that lost data this device has: a new epoch (a database
+ * reset), or a restore from an older copy within the same epoch. If the local data belongs to
+ * another username, the user ID was reused by someone else and the data is dropped, keeping only the
+ * clock offset. Otherwise every record is marked for re-upload. Either way the scope records the
+ * current username and the given epoch.
  *
- * resetForNewEpoch 处理服务端数据库重置. 如果本地数据属于其他用户名, 说明该用户 ID 已被他人
- * 复用, 本地数据会被丢弃. 否则所有记录都标记为需要重新上传.
+ * resetForServerLoss 处理服务端丢失本设备已有数据的情况: 新 epoch (数据库重置), 或同一 epoch
+ * 内从旧副本恢复. 如果本地数据属于其他用户名, 说明该用户 ID 已被他人复用, 本地数据会被丢弃,
+ * 只保留时钟偏移. 否则所有记录都标记为需要重新上传. 两种情况下作用域都记录当前用户名和
+ * 给定的 epoch.
  */
-export function resetForNewEpoch(state: SyncState, epoch: string, username: string): SyncState {
+export function resetForServerLoss(state: SyncState, epoch: string, username: string): SyncState {
   if (state.username !== "" && state.username !== username) {
     return { ...emptySyncState(username), epoch, clockOffsetMs: state.clockOffsetMs };
   }

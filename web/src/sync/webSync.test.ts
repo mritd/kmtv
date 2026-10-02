@@ -36,8 +36,10 @@ describe("webSync", () => {
     const transport = createWebSyncTransport({ syncPush, syncPull }, { userID: 7, currentUserID: () => 7 });
     await transport.push({ epoch: "e", cursor: 3, changes: [] }, { keepalive: true });
     await transport.pull({ since: 3, epoch: "e", limit: 10 });
+    await transport.pull({ since: 0, epoch: "", limit: 10, full: true });
     expect(syncPush).toHaveBeenCalledWith({ epoch: "e", cursor: 3, changes: [] }, { keepalive: true });
-    expect(syncPull).toHaveBeenCalledWith({ since: 3, epoch: "e", limit: 10 });
+    expect(syncPull).toHaveBeenNthCalledWith(1, { since: 3, epoch: "e", limit: 10 });
+    expect(syncPull).toHaveBeenNthCalledWith(2, { since: 0, epoch: "", limit: 10, full: true });
   });
 
   it("refuses to send once the live token belongs to another user or is gone", async () => {

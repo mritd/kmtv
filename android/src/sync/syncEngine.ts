@@ -21,8 +21,7 @@ import {
   applyPushResults,
   collectChanges,
   finishFullResync,
-  markForReupload,
-  resetForNewEpoch,
+  resetForServerLoss,
   type CollectOptions,
   type PushInvalid,
 } from "./syncMerge";
@@ -51,7 +50,22 @@ export type SyncErrorKind = "unauthorized" | "conflict" | "retry";
  */
 export interface SyncTransport {
   push(body: SyncPushRequest, options: { keepalive: boolean }): Promise<SyncPushResponse>;
-  pull(params: { since: number; epoch: string; limit: number }): Promise<SyncPullResponse>;
+  pull(params: SyncPullParams): Promise<SyncPullResponse>;
+}
+
+/**
+ * SyncPullParams is one pull page request. `full` is set on every page of a pull chain that began
+ * at revision 0 (a first sync or a full resync); the server then skips its tombstone-GC reset,
+ * because such a chain already rebuilds the whole state.
+ *
+ * SyncPullParams 是一次分页拉取的请求参数. 从版本 0 开始的拉取链 (首次同步或全量重同步) 的每一页
+ * 都设置 full; 服务端随后跳过墓碑清理触发的 reset, 因为这样的拉取链本来就会重建全部状态.
+ */
+export interface SyncPullParams {
+  since: number;
+  epoch: string;
+  limit: number;
+  full?: boolean;
 }
 
 /**
@@ -148,6 +162,14 @@ export interface SyncEngineOptions {
  * createSyncEngine 创建的引擎在 start() 之前保持空闲: 不发送请求, 也不响应本地修改. start()
  * 启用引擎 (已启用时无操作), stop() 使其回到空闲. stop() 之前开始的工作不会再写入存储, 即使
  * 它完成前又调用了 start().
+ *
+ * A sync requested before the first start() waits for the first cycle after it (the launch sync),
+ * so a caller mounted before the platform starts the engine still sees fresh data; stop() settles
+ * it too. After a stop() the engine is idle again and requestSync resolves at once.
+ *
+ * 首次 start() 之前请求的同步会等待其后的第一轮同步 (启动同步), 因此在平台启动引擎之前挂载的
+ * 调用方仍能看到最新数据; stop() 也会结束这种等待. stop() 之后引擎重新空闲, requestSync 立即
+ * 返回.
  */
 export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
   const { transport, store, classifyError } = options;
@@ -173,6 +195,22 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
   let retryDelay = SYNC_RETRY_MIN_MS;
   let pushCount = 0;
   let unsubscribe: (() => void) | null = null;
+  // startWaiters settle syncs requested before the first start(): the first cycle after start()
+  // settles them, or stop() does. Callers such as the player gate bound their own wait. The first
+  // start() or stop() ends the waiting phase, so an engine a platform decides never to start (an old
+  // server) stops queueing waiters once it is stopped.
+  //
+  // startWaiters 用于结束首次 start() 之前请求的同步: start() 之后的第一轮同步结束它们, 或由
+  // stop() 结束. 播放器等待逻辑等调用方自行限制等待时长. 首次 start() 或 stop() 结束等待阶段,
+  // 因此平台决定不启动的引擎 (服务端过旧) 在被停止后不再累积等待者.
+  let waitForStart = true;
+  let startWaiters: Array<() => void> = [];
+
+  function settleStartWaiters(): void {
+    const waiters = startWaiters;
+    startWaiters = [];
+    for (const settle of waiters) settle();
+  }
 
   function clearTimers(): void {
     if (pushTimer !== null) clearTimeout(pushTimer);
@@ -275,12 +313,14 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
 
   // pullAll returns false after the server lost data this device has (a new epoch, or a same-epoch
   // reset whose rev is below the cursor: a restore from an older copy); the records are re-marked
-  // and the cycle pushes them. Any other same-epoch reset is a full resync that may drop unseen
-  // records; a first pull from cursor 0 must keep records this device just pushed.
+  // and the cycle pushes them, unless they belong to another username (see resetForServerLoss).
+  // Any other same-epoch reset is a full resync that may drop unseen records; a first pull from
+  // cursor 0 must keep records this device just pushed.
   //
   // 服务端丢失本设备已有数据时 (新 epoch, 或同 epoch 且 rev 低于游标的 reset, 即从旧副本恢复),
-  // pullAll 重新标记记录并返回 false, 由本轮流程推送. 其他同 epoch 的 reset 是可以删除未出现记录
-  // 的全量重同步; 从游标 0 开始的首次拉取必须保留本设备刚推送的记录.
+  // pullAll 重新标记记录并返回 false, 由本轮流程推送; 记录属于其他用户名时则丢弃 (见
+  // resetForServerLoss). 其他同 epoch 的 reset 是可以删除未出现记录的全量重同步; 从游标 0 开始的
+  // 首次拉取必须保留本设备刚推送的记录.
   //
   // A full resync keeps its cursor in memory and saves it only together with finishFullResync. If a
   // later page fails, the saved cursor stays below min_rev, so the next cycle is reset again and
@@ -294,20 +334,23 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
     let full = false;
     let fullCursor = 0;
     let resets = 0;
+    const fromZero = store.state().cursor === 0;
     for (;;) {
       const state = store.state();
       const since = full ? fullCursor : state.cursor;
       const sentAt = now();
-      const page = await transport.pull({ since, epoch: state.epoch, limit: SYNC_PULL_LIMIT });
+      const params: SyncPullParams = { since, epoch: state.epoch, limit: SYNC_PULL_LIMIT };
+      if (full || fromZero) params.full = true;
+      const page = await transport.pull(params);
       checkStopped(started);
       store.clock.observe(page.server_time_ms, sentAt, now());
       if (page.reset) {
         if (state.epoch !== "" && page.epoch !== state.epoch) {
-          store.update((current) => resetForNewEpoch(current, page.epoch, store.username));
+          store.update((current) => resetForServerLoss(current, page.epoch, store.username));
           return false;
         }
         if (page.rev < state.cursor) {
-          store.update((current) => markForReupload(current));
+          store.update((current) => resetForServerLoss(current, current.epoch, store.username));
           return false;
         }
         resets += 1;
@@ -361,7 +404,10 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
   }
 
   function requestSync(reason: SyncReason): Promise<void> {
-    if (stopped) return Promise.resolve();
+    if (stopped) {
+      if (!waitForStart) return Promise.resolve();
+      return new Promise((resolve) => startWaiters.push(resolve));
+    }
     // A page entry joins a running cycle instead of queueing another one.
     //
     // 页面进入时若已有同步在运行, 直接复用它, 不再排队新的一轮.
@@ -378,8 +424,11 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
         await runExclusive(cycle);
       } while (rerun && !stopped);
     };
+    const waiters = startWaiters;
+    startWaiters = [];
     running = loop().finally(() => {
       running = null;
+      for (const settle of waiters) settle();
     });
     return running;
   }
@@ -458,6 +507,7 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
   function start(): void {
     if (!stopped) return;
     stopped = false;
+    waitForStart = false;
     generation += 1;
     retryDelay = SYNC_RETRY_MIN_MS;
     unsubscribe = store.onLocalChange(schedulePush);
@@ -469,6 +519,8 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
     clearTimers();
     unsubscribe?.();
     unsubscribe = null;
+    waitForStart = false;
+    settleStartWaiters();
   }
 
   return { requestSync, flushNow, start, stop };
