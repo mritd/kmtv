@@ -42,9 +42,6 @@ import type {
   SubscriptionsResponse,
   UpdateUserPayload,
   User,
-  WatchHistoryItem,
-  WatchHistoryPayload,
-  WatchHistoryResponse,
   UsersResponse,
 } from "./types";
 import {
@@ -52,6 +49,13 @@ import {
   type SearchStreamOptions,
 } from "./searchStream";
 import type { TokenStore } from "./tokenStore";
+import type { SyncPullResponse, SyncPushRequest, SyncPushResponse } from "@/sync/types";
+
+// SYNC_REQUEST_TIMEOUT_MS bounds one sync request, so a stalled connection cannot hold the sync
+// lock and block every later cycle.
+//
+// SYNC_REQUEST_TIMEOUT_MS 限制单个同步请求的时长, 避免卡住的连接一直占用同步锁, 阻塞后续同步.
+const SYNC_REQUEST_TIMEOUT_MS = 15_000;
 
 /**
  * APIError is thrown for every non-2xx HTTP response.
@@ -140,11 +144,18 @@ export interface APIClient {
     filter: DoubanRecommendFilter,
   ): Promise<DoubanListResponse>;
   playbackURL(url: string, source: string): Promise<PlaybackURLResponse>;
-  listWatchHistory(limit?: number): Promise<WatchHistoryResponse>;
-  getWatchHistory(title: string): Promise<WatchHistoryItem>;
-  saveWatchHistory(payload: WatchHistoryPayload): Promise<WatchHistoryItem>;
-  deleteWatchHistory(title: string): Promise<void>;
-  clearWatchHistory(eventTimeMS: number): Promise<void>;
+  // syncPush sends local changes to POST /sync/push; keepalive lets a page-hide flush finish.
+  // syncPush
+  //
+  // 将本地变更发送到 POST /sync/push; keepalive 让页面隐藏时的补写能够完成.
+  syncPush(body: SyncPushRequest, options?: { keepalive?: boolean }): Promise<SyncPushResponse>;
+  // syncPull reads one page of changes after a revision cursor; `full` marks a page of a pull chain
+  // that began at revision 0, so the server skips its tombstone-GC reset.
+  // syncPull
+  //
+  // 读取某个版本游标之后的一页变更; full 表示该页属于从版本 0 开始的拉取链, 服务端因此跳过墓碑
+  // 清理触发的 reset.
+  syncPull(params: { since: number; epoch: string; limit?: number; full?: boolean }): Promise<SyncPullResponse>;
   listSources(): Promise<SourcesResponse>;
   createSource(source: SourcePayload): Promise<Source>;
   updateSource(id: number, source: SourcePayload): Promise<void>;
@@ -244,10 +255,10 @@ export function createAPIClient(options: APIClientOptions): APIClient {
     // 避免旧 token 的延迟 401 抹掉更新的登录状态.
     const sentAccessToken = snapshot?.accessToken ?? null;
 
-    // Watch-history endpoints require a real user. Refuse locally when no token exists
+    // Sync endpoints require a real user. Refuse locally when no token exists
     // so anonymous playback cannot create a repeating stream of guaranteed 401 requests.
     //
-    // 观看历史端点要求真实用户. 没有 token 时在本地拒绝,
+    // 同步端点要求真实用户. 没有 token 时在本地拒绝,
     // 避免匿名播放持续发送必然返回 401 的请求.
     if (requiresAuth && !sentAccessToken) {
       throw new APIError(401, undefined, "Authentication required");
@@ -406,41 +417,21 @@ export function createAPIClient(options: APIClientOptions): APIClient {
         method: "POST",
         bodyJSON: { url, source },
       }),
-    listWatchHistory: (limit = 10) => {
-      const params = new URLSearchParams({
-        limit: String(limit),
-        completed: "false",
-      });
-      return request<WatchHistoryResponse>(`/history?${params.toString()}`, {
+    syncPush: (body, pushOptions = {}) =>
+      request<SyncPushResponse>("/sync/push", {
+        method: "POST",
+        bodyJSON: body,
         requiresAuth: true,
-      });
-    },
-    getWatchHistory: (title) => {
-      const params = new URLSearchParams({ title });
-      return request<WatchHistoryItem>(`/history/item?${params.toString()}`, {
-        requiresAuth: true,
-      });
-    },
-    saveWatchHistory: (payload) =>
-      request<WatchHistoryItem>("/history", {
-        method: "PUT",
-        bodyJSON: payload,
-        requiresAuth: true,
+        keepalive: pushOptions.keepalive,
+        signal: AbortSignal.timeout(SYNC_REQUEST_TIMEOUT_MS),
       }),
-    async deleteWatchHistory(title) {
-      const params = new URLSearchParams({ title });
-      await request<MessageResponse>(`/history/item?${params.toString()}`, {
-        method: "DELETE",
+    syncPull: ({ since, epoch, limit = 500, full = false }) => {
+      const params = new URLSearchParams({ since: String(since), limit: String(limit) });
+      if (epoch) params.set("epoch", epoch);
+      if (full) params.set("full", "1");
+      return request<SyncPullResponse>(`/sync/pull?${params.toString()}`, {
         requiresAuth: true,
-      });
-    },
-    async clearWatchHistory(eventTimeMS) {
-      const params = new URLSearchParams({
-        event_time_ms: String(eventTimeMS),
-      });
-      await request<MessageResponse>(`/history?${params.toString()}`, {
-        method: "DELETE",
-        requiresAuth: true,
+        signal: AbortSignal.timeout(SYNC_REQUEST_TIMEOUT_MS),
       });
     },
     listSources: () => request<SourcesResponse>("/admin/sources"),

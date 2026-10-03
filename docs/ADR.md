@@ -224,6 +224,8 @@ Durable architectural decisions for the KMTV Go backend, native Apple clients, a
 
 ## ADR-015: User-Scoped Watch History With Ordered Events
 
+**Status:** Superseded by ADR-016.
+
 **Context:**
 - Watch history is synchronized across Web, Android, iOS, and tvOS while retaining a local offline cache.
 - Playback checkpoints can arrive out of order, and anonymous viewers do not have a server user row.
@@ -240,3 +242,24 @@ Durable architectural decisions for the KMTV Go backend, native Apple clients, a
 - Logout/login and server switching cannot reuse another identity's local playback cache.
 - Clear operations need an event timestamp and must finish remotely before clients report success locally.
 - Playback startup must resolve remote history before selecting an initial episode or consuming a one-shot seek.
+
+## ADR-016: Unified Offline-First Sync
+
+**Context:**
+- Watch history, favorites, and search history must converge across Web, Android, iOS, and tvOS, including changes made offline.
+- ADR-015 synchronized only watch history, wrote online-only, and overwrote local caches from the server, which lost offline progress.
+- The server can run on an in-memory database whose data disappears on restart.
+
+**Decision:**
+- One protocol, `POST /api/v1/sync/push` and `GET /api/v1/sync/pull`, carries every kind (`watch`, `favorite`, `search`) as keyed records with an event time, a tombstone flag, and a per-user revision.
+- Records are keyed by the normalized title or query. A strictly newer event time wins; writes at or before a kind's clear watermark are rejected; deletes leave tombstones for 90 days.
+- The server clamps event times more than one second in the future to its own clock and returns `server_time_ms` so clients align their clocks.
+- A random database epoch lets clients detect a reset and re-upload local data instead of discarding it. Push also carries the client's pull cursor, so a same-epoch restore from an older copy is detected before the push raises the revision; the pull reset then reports the current revision, and a client whose cursor is above it re-uploads its data as well.
+- Cap overflow becomes tombstones with a new revision, so devices that were offline learn about trims.
+- Each client keeps an offline-first local store per `(server, user)` and runs one sync engine (push, then pull) with a small adapter per kind. Anonymous users use the same store without an engine and are never merged into an account.
+
+**Consequences:**
+- Screens read only local data; only the sync engine calls the sync endpoints.
+- Accepted limits: an offline device that returns after tombstones are purged (90 days) can bring deleted items back, and an epoch reset brings back deletions that other devices had already acknowledged. A restore is detected only if the restored device pushes or pulls before others raise the revision past its cursor.
+- Adding a synchronized collection means adding a kind on the server and an adapter per client.
+- Clients older than this ADR cannot sync.

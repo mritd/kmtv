@@ -6,7 +6,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -15,9 +15,12 @@ import type { APIClient } from "@/api/client";
 import { APIProvider } from "@/api/context";
 import type { SearchResult, SearchStreamEvent } from "@/api/types";
 import { detailRoutePath } from "@/storage/detailRoute";
-import { favoritesKey, makeFavorite } from "@/storage/favorites";
 import { sourceBundleStorageKey } from "@/storage/sourceBundles";
 import { searchStore } from "@/store/searchStore";
+import { SyncValueProvider } from "@/sync/SyncContext";
+import type { SyncStore } from "@/sync/syncStore";
+import { favoriteFromSearchResult } from "@/sync/kinds";
+import { openSyncStore } from "@/test/syncFixtures";
 import { createTestAPI } from "@/test/testAPI";
 
 import { SearchPage } from "./SearchPage";
@@ -27,9 +30,11 @@ type TestSearchStream = APIClient["searchStream"];
 function renderSearch({
   initialEntry = "/search?q=Movie",
   searchStream,
+  store = openSyncStore(0, ""),
 }: {
   initialEntry?: string;
   searchStream?: TestSearchStream;
+  store?: SyncStore;
 } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const api = createTestAPI({
@@ -43,17 +48,19 @@ function renderSearch({
   render(
     <APIProvider value={api}>
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={[initialEntry]}>
-          <Routes>
-            <Route path="/search" element={<SearchPage />} />
-            <Route path="/detail/:token" element={<LocationProbe />} />
-          </Routes>
-        </MemoryRouter>
+        <SyncValueProvider value={{ status: "ready", store, engine: null }}>
+          <MemoryRouter initialEntries={[initialEntry]}>
+            <Routes>
+              <Route path="/search" element={<SearchPage />} />
+              <Route path="/detail/:token" element={<LocationProbe />} />
+            </Routes>
+          </MemoryRouter>
+        </SyncValueProvider>
       </QueryClientProvider>
     </APIProvider>,
   );
 
-  return api;
+  return { api, store };
 }
 
 function LocationProbe() {
@@ -124,7 +131,7 @@ describe("SearchPage", () => {
 
   it("treats null streamed source lists as unavailable results", async () => {
     const user = userEvent.setup();
-    renderSearch({
+    const { store } = renderSearch({
       searchStream: async (_query: string, onEvent: (event: SearchStreamEvent) => void) => {
         // Runtime payloads can contain null sources from upstream aggregation.
         //
@@ -137,7 +144,7 @@ describe("SearchPage", () => {
     expect(screen.getByRole("button", { name: "暂无来源" })).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: "收藏" }));
-    expect(window.localStorage.getItem(favoritesKey)).toBeNull();
+    expect(store.get("favorite", "Unsafe Movie")).toBeNull();
   });
 
   it("aborts pending streams and ignores stale events after query changes", async () => {
@@ -194,7 +201,7 @@ describe("SearchPage", () => {
 
   it("preserves playback navigation and favorite behavior for streamed results", async () => {
     const user = userEvent.setup();
-    renderSearch({
+    const { store } = renderSearch({
       searchStream: async (_query: string, onEvent: (event: SearchStreamEvent) => void) => {
         onEvent({ type: "result", response: { results: [result("Playable Movie")] } });
       },
@@ -207,7 +214,7 @@ describe("SearchPage", () => {
     expect(screen.getByLabelText("Current path")).toHaveTextContent(detailRoutePath("source-b", "video-2"));
     expect(screen.getByLabelText("Navigation state")).toHaveTextContent("source-b");
     expect(window.localStorage.getItem(sourceBundleStorageKey)).toContain("source-b");
-    expect(window.localStorage.getItem(favoritesKey)).toContain("Playable Movie");
+    expect(store.get("favorite", "Playable Movie")).not.toBeNull();
   });
 
   it("opens the fastest source by default", async () => {
@@ -292,23 +299,70 @@ describe("SearchPage", () => {
     expect(stored).not.toContain("Sep In ID");
   });
 
-  it("renders existing favorites and toggles favorite state immediately", async () => {
+  it("renders existing favorites by title and toggles them through the sync store", async () => {
     const user = userEvent.setup();
     const item = result("Saved Movie");
-    window.localStorage.setItem(favoritesKey, JSON.stringify([makeFavorite(item, item.sources[0])]));
-
+    const store = openSyncStore(0, "");
+    store.upsert("favorite", { ...favoriteFromSearchResult(item), source_key: "old-source", video_id: "old-id" });
     renderSearch({
+      store,
       searchStream: async (_query: string, onEvent: (event: SearchStreamEvent) => void) => {
         onEvent({ type: "result", response: { results: [item] } });
       },
     });
 
     expect(await screen.findByRole("button", { name: "取消收藏" })).toHaveClass("ui-button-danger");
-
     await user.click(screen.getByRole("button", { name: "取消收藏" }));
-
     expect(await screen.findByRole("button", { name: "收藏" })).toBeInTheDocument();
-    expect(window.localStorage.getItem(favoritesKey)).not.toContain("Saved Movie");
+    expect(store.get("favorite", "saved movie")).toBeNull();
+  });
+
+  it("records submitted queries and shows recent searches before a query is active", async () => {
+    const user = userEvent.setup();
+    const store = openSyncStore(0, "");
+    store.upsert("search", { query: "Older Query" });
+    renderSearch({ store, initialEntry: "/search" });
+
+    expect(screen.getByRole("region", { name: "最近搜索" })).toBeInTheDocument();
+    await user.type(screen.getByRole("textbox", { name: "搜索关键词" }), "  New Query ");
+    await user.click(screen.getByRole("button", { name: "搜索" }));
+
+    await waitFor(() => expect(store.list("search").map((r) => r.payload.query)).toEqual(["New Query", "Older Query"]));
+    expect(screen.queryByRole("region", { name: "最近搜索" })).toBeNull();
+  });
+
+  it("does not record a search opened from a link or a reload", async () => {
+    const store = openSyncStore(0, "");
+    renderSearch({ store, initialEntry: "/search?q=Linked%20Title" });
+    expect(await screen.findByRole("heading", { name: "Movie" })).toBeInTheDocument();
+    expect(store.list("search")).toEqual([]);
+  });
+
+  it("searches again and moves the query to the top when a recent search chip is clicked", async () => {
+    const user = userEvent.setup();
+    let now = 1_790_000_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => (now += 1_000));
+    const store = openSyncStore(0, "");
+    store.upsert("search", { query: "Chip Query" });
+    store.upsert("search", { query: "Newer Query" });
+    const searchStream = vi.fn<TestSearchStream>(async () => undefined);
+    renderSearch({ store, initialEntry: "/search", searchStream });
+
+    await user.click(screen.getByRole("button", { name: "Chip Query" }));
+    await waitFor(() => expect(searchStream).toHaveBeenCalled());
+    expect(searchStream.mock.calls[0]![0]).toBe("Chip Query");
+    expect(store.list("search")[0]?.payload.query).toBe("Chip Query");
+  });
+
+  it("clears recent searches through the sync store", async () => {
+    const user = userEvent.setup();
+    const store = openSyncStore(0, "");
+    store.upsert("search", { query: "Forget Me" });
+    renderSearch({ store, initialEntry: "/search" });
+
+    await user.click(within(screen.getByRole("region", { name: "最近搜索" })).getByRole("button", { name: "清空" }));
+    expect(screen.queryByRole("region", { name: "最近搜索" })).toBeNull();
+    expect(store.state().pendingClears.search).toBeGreaterThan(0);
   });
 
   it("preserves an active SSE across route navigation and resumes display on return", async () => {
@@ -384,42 +438,5 @@ describe("SearchPage", () => {
     // 仍在运行的流可以送出结果, UI 会显示.
     act(() => onEventCapture?.({ type: "result", response: { results: [result("Returned Movie")] } }));
     expect(await screen.findByRole("heading", { name: "Returned Movie" })).toBeInTheDocument();
-  });
-
-  it("matches favorites by title and year when the saved source no longer appears", async () => {
-    const user = userEvent.setup();
-    const item: SearchResult = {
-      title: "世界的主人",
-      type: "剧情片",
-      year: "2025",
-      cover: "",
-      sources: [{ source_key: "other.example", source_name: "Other Source", video_id: "fresh-89201" }],
-    };
-    window.localStorage.setItem(
-      favoritesKey,
-      JSON.stringify([
-        {
-          title: "世界的主人",
-          type: "剧情片",
-          year: "2025",
-          cover: "https://pic3.yzzyimg.online/upload/vod/2026-04-24/202604241777027916.jpg",
-          desc: "珠仁17岁的时光",
-          source: { source_key: "1080zyk4.com", source_name: "🎬优质资源", video_id: "89201" },
-        },
-      ]),
-    );
-
-    renderSearch({
-      searchStream: async (_query: string, onEvent: (event: SearchStreamEvent) => void) => {
-        onEvent({ type: "result", response: { results: [item] } });
-      },
-    });
-
-    expect(await screen.findByRole("button", { name: "取消收藏" })).toHaveClass("ui-button-danger");
-
-    await user.click(screen.getByRole("button", { name: "取消收藏" }));
-
-    expect(await screen.findByRole("button", { name: "收藏" })).toBeInTheDocument();
-    expect(window.localStorage.getItem(favoritesKey)).not.toContain("世界的主人");
   });
 });

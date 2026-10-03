@@ -7,13 +7,12 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import type { DetailAPI } from "@/api/detail";
-import type { WatchHistoryAPI } from "@/api/history";
 import type { PlaybackAPI } from "@/api/playback";
 import type { PlayDestination, VideoDetail } from "@/api/types";
-import {
-  loadPlaybackSettings, savePlaybackSettings, type PlaybackSettings,
-} from "@/storage/playbackSettings";
-import { deleteWatchHistory, loadWatchHistory, recordPlayProgress, watchHistoryItemFromRemote, watchHistoryRequestFromItem } from "@/storage/watchHistory";
+import { loadPlaybackSettings, savePlaybackSettings } from "@/storage/playbackSettings";
+import { normalizeSyncKey } from "@/sync/normalizeKey";
+import type { WatchPayload } from "@/sync/types";
+import type { WatchResume } from "@/sync/useWatchResume";
 
 import { currentEpisode, episodes as selectEpisodes, sourceVideoID } from "./episodeSelection";
 import {
@@ -53,31 +52,46 @@ function matchEpisodeByName(state: PlayerState, prevName: string): number {
   return byDigits >= 0 ? byDigits : 0;
 }
 
+const NO_RESUME: WatchResume = { pending: false, item: null };
+
 /**
  * Inputs to usePlayer — everything wires through props so unit tests can substitute fakes.
+ * `resume` comes from useWatchResume; `saveWatch` writes checkpoints into the sync store, and
+ * `flushWatch` pushes them after the outgoing episode is saved on a source, line, or episode switch.
+ * `watchRecordFor` reads the local record of a title; checkpoints go under the detail title, so the
+ * resume position uses it once the detail title differs from the navigation title.
  *
  * usePlayer 的入参 — 一律通过 props 注入, 单测可替换为 fake.
+ * resume 来自 useWatchResume; saveWatch 将播放进度写入同步存储; 切换来源, 线路或剧集时保存
+ * 即将离开的剧集后, 由 flushWatch 推送. watchRecordFor 读取某个标题的本地记录; 进度保存在详情
+ * 标题下, 因此详情标题与导航标题不同时, 续播位置改用该记录.
  */
 export interface UsePlayerOptions {
-	serverURL: string;
-	userID?: number;
+  serverURL: string;
   destination: PlayDestination;
   detailAPI: DetailAPI;
   playbackAPI: PlaybackAPI;
-  historyAPI?: WatchHistoryAPI;
+  resume?: WatchResume;
+  saveWatch?: (payload: WatchPayload) => void;
+  flushWatch?: () => void;
+  watchRecordFor?: (title: string) => WatchPayload | null;
 }
 
 /**
  * Public surface returned by usePlayer. `playbackURL` is read from `state` so React re-renders
  * `<Video source={uri}/>` when the URL flips; `resumeStartSeconds` is the position to seek to on
- * the next `onLoad` (watch history + skipIntro merged).
+ * the next `onLoad` (watch record + skipIntro merged).
  *
  * usePlayer 对外返回的接口. `playbackURL` 直接从 state 取, 让 `<Video source={uri}/>` 在 URL 切换时
- * 重渲染. `resumeStartSeconds` 是下次 `onLoad` 后需要 seek 到的位置 (watchHistory + skipIntro 合并).
+ * 重渲染. `resumeStartSeconds` 是下次 `onLoad` 后需要 seek 到的位置 (观看记录 + skipIntro 合并).
  */
 export interface UsePlayerResult {
 	state: PlayerState;
-	/** True after remote history has succeeded or failed, so playback can initialize once. */
+  /**
+   * True once the watch record gate has opened, after a sync or its timeout, so playback can initialize once.
+   *
+   * 观看记录等待结束 (同步完成或超时) 后为 true, 此时播放才初始化一次.
+   */
 	historyReady: boolean;
   /** Position in seconds to seek to on the next onLoad. 下次 onLoad 后需要 seek 到的秒数. */
   resumeStartSeconds: number;
@@ -110,7 +124,9 @@ export interface UsePlayerResult {
  * usePlayer — 播放 hook. 挂载即加载详情, 维护 reducer + fallback, 暴露 PlayerScreen UI 与
  * imperative <Video /> 回调共用的 action.
  */
-export function usePlayer({ serverURL, userID = 0, destination, detailAPI, playbackAPI, historyAPI }: UsePlayerOptions): UsePlayerResult {
+export function usePlayer({
+  serverURL, destination, detailAPI, playbackAPI, resume = NO_RESUME, saveWatch, flushWatch, watchRecordFor,
+}: UsePlayerOptions): UsePlayerResult {
   const [state, dispatch] = useReducer(
     playerReducer,
     initialPlayerState(
@@ -124,6 +140,12 @@ export function usePlayer({ serverURL, userID = 0, destination, detailAPI, playb
   const stateRef = useRef(state);
   stateRef.current = state;
   const lastSavedTimeRef = useRef(0);
+  // lastCheckpointRef identifies the last checkpoint handed to saveWatch. A paused player that
+  // reports the same position again must not give old progress a newer event time.
+  //
+  // lastCheckpointRef 标识最近一次交给 saveWatch 的进度. 暂停的播放器重复报告同一位置时,
+  // 不能给旧进度新的事件时间.
+  const lastCheckpointRef = useRef("");
   const autoAdvanceKeyRef = useRef<string | null>(null);
   const autoAdvanceBlockedRef = useRef(false);
   const resumeStartRef = useRef(0);
@@ -135,18 +157,40 @@ export function usePlayer({ serverURL, userID = 0, destination, detailAPI, playb
   // resumeConsumed 是 state (而非 ref), flip 时触发重渲染, 下次读 resumeStartSeconds 才能取到 0.
   // 一旦置 true 在屏幕生命周期内不重置; 切线路/剧集/源时显式置回 false.
 	const [resumeConsumed, setResumeConsumed] = useState(false);
-	const [historyReady, setHistoryReady] = useState(historyAPI === undefined);
+  const [historyReady, setHistoryReady] = useState(false);
+  const resumeAppliedRef = useRef(false);
+  const watchItemRef = useRef(resume.item);
+  watchItemRef.current = resume.item;
+  const watchRecordForRef = useRef(watchRecordFor);
+  watchRecordForRef.current = watchRecordFor;
+  const destinationTitleRef = useRef(destination.title);
+  destinationTitleRef.current = destination.title;
 
+  // The watch record holds one position per title; it applies only to the exact source, line,
+  // and episode it was saved for. Checkpoints are saved under the detail title, so once the detail
+  // is loaded and its title is a different key, the record under the detail title holds the
+  // position (as on Apple); without one, the record under the navigation title still applies. The
+  // line and episode were already chosen from the gated record.
+  //
+  // 观看记录每个标题只保存一个位置; 只有来源, 线路和剧集完全一致时才使用. 进度保存在详情标题下,
+  // 因此详情加载后若其标题是另一个 key, 位置以详情标题下的记录为准 (与 Apple 一致); 没有该记录时
+  // 仍使用导航标题下的记录. 线路和剧集此前已按等待同步后的记录选定.
   const resumeStartFor = useCallback((input: PlayerState, episodeIndex = input.currentEpisodeIndex): number => {
-    const videoId = sourceVideoID(input);
-		const saved = loadWatchHistory(serverURL, 100, userID).find((h) =>
-      h.sourceKey === input.currentSourceKey
-      && h.videoId === videoId
-			&& h.groupIndex === input.currentLineIndex
-      && h.episodeIndex === episodeIndex,
-    );
-    return saved && saved.progress > 0 ? saved.progress : input.skipIntroSeconds;
-	}, [serverURL, userID]);
+    const detailTitle = input.detail?.title ?? "";
+    const detailKey = normalizeSyncKey(detailTitle);
+    const lookup = watchRecordForRef.current;
+    const byDetailTitle = lookup && detailKey !== "" && detailKey !== normalizeSyncKey(destinationTitleRef.current)
+      ? lookup(detailTitle)
+      : null;
+    const item = byDetailTitle ?? watchItemRef.current;
+    const matches = item !== null
+      && !item.completed
+      && item.source_key === input.currentSourceKey
+      && item.video_id === sourceVideoID(input)
+      && item.group_index === input.currentLineIndex
+      && item.episode_index === episodeIndex;
+    return matches && item.progress_sec > 0 ? item.progress_sec : input.skipIntroSeconds;
+  }, []);
 
   const setResumeStartFor = useCallback((input: PlayerState, episodeIndex = input.currentEpisodeIndex) => {
     const nextResumeStart = resumeStartFor(input, episodeIndex);
@@ -155,59 +199,34 @@ export function usePlayer({ serverURL, userID = 0, destination, detailAPI, playb
     setResumeConsumed(false);
   }, [resumeStartFor]);
 
-  // Seed skip-intro / skip-outro from MMKV, then compute resume position (watchHistory + skipIntro).
+  // Seed skip-intro / skip-outro from MMKV.
   //
-  // 由 MMKV 加载跳过设置, 再用 watchHistory + skipIntro 计算续播位置.
+  // 由 MMKV 加载跳过片头片尾设置.
   useEffect(() => {
-    const settings: PlaybackSettings = loadPlaybackSettings(serverURL, destination.title);
-    dispatch({ type: "loadSkipSettings", settings });
-		const history = loadWatchHistory(serverURL, 100, userID);
-    const saved = history.find((h) =>
-      h.sourceKey === destination.sourceKey
-      && h.videoId === destination.videoId
-			&& h.groupIndex === (destination.resumeIntent?.groupIndex ?? 0)
-      && h.episodeIndex === (destination.resumeIntent?.episodeIndex ?? 0),
-    );
-    resumeStartRef.current = saved && saved.progress > 0 ? saved.progress : settings.skipIntroSeconds;
-    lastSavedTimeRef.current = resumeStartRef.current;
-    setResumeConsumed(false);
-		let cancelled = false;
-		if (historyAPI) {
-			void historyAPI.watchHistory(destination.title)
-				.then((remote) => {
-					if (cancelled) return;
-					if (remote.completed) {
-						deleteWatchHistory(serverURL, destination.title, userID);
-						resumeStartRef.current = settings.skipIntroSeconds;
-						lastSavedTimeRef.current = settings.skipIntroSeconds;
-						return;
-					}
-					const item = watchHistoryItemFromRemote(remote);
-					recordPlayProgress(serverURL, item, userID);
-					const remoteSource = destination.sources.find((source) =>
-						source.source_key === item.sourceKey && source.video_id === item.videoId);
-					const matchesSeed = item.sourceKey === destination.sourceKey && item.videoId === destination.videoId;
-					if (remoteSource || matchesSeed) {
-						dispatch({ type: "switchSource", sourceKey: item.sourceKey });
-						dispatch({ type: "switchLine", index: item.groupIndex });
-						dispatch({ type: "switchEpisode", index: item.episodeIndex });
-						resumeStartRef.current = item.progress;
-						lastSavedTimeRef.current = item.progress;
-						setResumeConsumed(false);
-					}
-				})
-				.catch(() => undefined)
-				.finally(() => {
-					if (!cancelled) setHistoryReady(true);
-				});
-		}
-		return () => { cancelled = true; };
+    dispatch({ type: "loadSkipSettings", settings: loadPlaybackSettings(serverURL, destination.title) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-	// Load detail only after remote history has chosen the initial source/episode.
+  // Once the watch record gate opens, select the record's line and episode on the open source,
+  // whatever source the record was written on; detailLoaded clamps them to what that source has.
+  // A completed record selects nothing. Runs once per screen.
+  //
+  // 观看记录等待结束后, 在当前来源上选中记录的线路和剧集, 不论记录来自哪个来源; detailLoaded 会
+  // 把它们限制在该来源实际拥有的范围内. 已完成的记录不做选择. 每个屏幕只执行一次.
+  useEffect(() => {
+    if (resumeAppliedRef.current || resume.pending) return;
+    resumeAppliedRef.current = true;
+    const item = resume.item;
+    if (item && !item.completed) {
+      dispatch({ type: "switchLine", index: item.group_index });
+      dispatch({ type: "switchEpisode", index: item.episode_index });
+    }
+    setHistoryReady(true);
+  }, [resume.item, resume.pending]);
+
+	// Load detail only after the watch record gate has opened and chosen the initial line/episode.
 	//
-	// 等远端历史确定初始源与分集后再加载详情.
+	// 等观看记录确定初始线路与分集后再加载详情.
 	useEffect(() => {
 		if (!historyReady) return;
 		let cancelled = false;
@@ -218,13 +237,17 @@ export function usePlayer({ serverURL, userID = 0, destination, detailAPI, playb
 				const detail = await detailAPI.detail(sourceKey, videoId);
         if (cancelled) return;
         dispatch({ type: "detailLoaded", detail });
+        // The indices are final only after detailLoaded clamps them, so match the resume position now.
+        //
+        // 索引在 detailLoaded 限制范围后才最终确定, 因此此时再匹配续播位置.
+        setResumeStartFor(playerReducer(stateRef.current, { type: "detailLoaded", detail }));
       } catch (err) {
         if (cancelled) return;
         dispatch({ type: "error", message: err instanceof Error ? err.message : "load failed" });
       }
     })();
     return () => { cancelled = true; };
-	}, [destination.videoId, detailAPI, historyReady]);
+	}, [destination.videoId, detailAPI, historyReady, setResumeStartFor]);
 
   // Pure transition over (state, episode) → next state with either urlResolved or error.
   //
@@ -332,8 +355,18 @@ export function usePlayer({ serverURL, userID = 0, destination, detailAPI, playb
     const before = stateRef.current;
     const after = await playFrom(before);
     commitFinalState(before, after);
-    setResumeConsumed(false);
-  }, [commitFinalState, playFrom]);
+    // A startup fallback to another source, line, or episode matches the resume position again,
+    // so the record's position applies only to the exact episode it was saved for.
+    //
+    // 起播时回退到其他来源, 线路或剧集后重新匹配续播位置, 记录的位置只用于保存它的那一集.
+    if (after.currentSourceKey !== before.currentSourceKey
+        || after.currentLineIndex !== before.currentLineIndex
+        || after.currentEpisodeIndex !== before.currentEpisodeIndex) {
+      setResumeStartFor(after);
+    } else {
+      setResumeConsumed(false);
+    }
+  }, [commitFinalState, playFrom, setResumeStartFor]);
 
   const onError = useCallback(async (message: string) => {
     const before = playerReducer(stateRef.current, { type: "error", message });
@@ -343,9 +376,55 @@ export function usePlayer({ serverURL, userID = 0, destination, detailAPI, playb
 
   const markResumeConsumed = useCallback(() => { setResumeConsumed(true); }, []);
 
+  // Persist progress using either the latest reducer state (parameterless call from unmount /
+  // public action) OR an explicit time/duration pair passed by timeUpdate so we don't depend on
+  // a not-yet-committed dispatch.
+  //
+  // 持久化进度: 不带参数读 reducer 最新 state (卸载或外部调用); 带参数时直接使用 timeUpdate 传入
+  // 的 currentTime / duration, 避免依赖尚未 commit 的 dispatch.
+  const persistProgressNow = useCallback((current?: number, total?: number) => {
+    const ep = currentEpisode(stateRef.current);
+    const videoId = sourceVideoID(stateRef.current);
+    if (!ep || !videoId) return;
+    const { detail, currentSourceKey, currentEpisodeIndex } = stateRef.current;
+    const currentTime = current ?? stateRef.current.currentTime;
+    const duration = total ?? stateRef.current.duration;
+    if (!Number.isFinite(currentTime) || currentTime <= 0 || !Number.isFinite(duration)) return;
+    lastSavedTimeRef.current = currentTime;
+    const checkpoint = [currentSourceKey, videoId, stateRef.current.currentLineIndex, currentEpisodeIndex, Math.floor(currentTime)].join("|");
+    if (checkpoint === lastCheckpointRef.current) return;
+    lastCheckpointRef.current = checkpoint;
+    const list = selectEpisodes(stateRef.current);
+    const completed = currentEpisodeIndex === list.length - 1
+      && duration > 0
+      && (duration - currentTime <= 30 || currentTime / duration >= 0.95);
+    saveWatch?.({
+      title: detail?.title ?? destination.title,
+      cover: detail?.cover ?? destination.coverHint ?? "",
+      source_key: currentSourceKey,
+      video_id: videoId,
+      episode: ep.name,
+      group_index: stateRef.current.currentLineIndex,
+      episode_index: currentEpisodeIndex,
+      progress_sec: currentTime,
+      duration_sec: duration,
+      completed,
+    });
+  }, [destination.coverHint, destination.title, saveWatch]);
+
+  // checkpointOutgoing saves the episode being left and pushes it before a source, line, or
+  // episode switch, so another device resumes from the latest position.
+  //
+  // checkpointOutgoing 在切换来源, 线路或剧集前保存即将离开的剧集并推送, 让其他设备从最新位置继续.
+  const checkpointOutgoing = useCallback(() => {
+    persistProgressNow();
+    flushWatch?.();
+  }, [flushWatch, persistProgressNow]);
+
   const switchSource = useCallback(async (sourceKey: string) => {
     const source = stateRef.current.sources.find((s) => s.source_key === sourceKey);
     if (!source) return;
+    checkpointOutgoing();
     const before = stateRef.current;
     // Remember the current episode name so we can re-pick by name after the new source's episode
     // list lands (iOS PlayerViewModel.matchEpisode). Numeric matching falls back to episodeIndex.
@@ -372,9 +451,10 @@ export function usePlayer({ serverURL, userID = 0, destination, detailAPI, playb
     } catch (err) {
       dispatch({ type: "error", message: err instanceof Error ? err.message : "switch source failed" });
     }
-  }, [commitFinalState, detailAPI, playFrom, setResumeStartFor]);
+  }, [checkpointOutgoing, commitFinalState, detailAPI, playFrom, setResumeStartFor]);
 
   const switchLine = useCallback(async (index: number) => {
+    checkpointOutgoing();
     const before = stateRef.current;
     const seed = applyAll(before, [
       { type: "switchLine", index },
@@ -385,9 +465,20 @@ export function usePlayer({ serverURL, userID = 0, destination, detailAPI, playb
     setResumeStartFor(seed);
     const after = await playFrom(seed);
     commitFinalState(before, after);
-  }, [commitFinalState, playFrom, setResumeStartFor]);
+  }, [checkpointOutgoing, commitFinalState, playFrom, setResumeStartFor]);
 
   const switchEpisode = useCallback(async (index: number) => {
+    // Past the last episode nothing is left to play: save the finished episode and stop. Falling
+    // back to another line or source would replay content and overwrite the completed record.
+    //
+    // 超过最后一集时已没有可播放的内容: 保存已看完的剧集并停止. 回退到其他线路或来源会重播
+    // 内容, 并覆盖已完成的记录.
+    if (index >= selectEpisodes(stateRef.current).length) {
+      checkpointOutgoing();
+      dispatch({ type: "playState", value: false });
+      return;
+    }
+    checkpointOutgoing();
     const before = stateRef.current;
     const seed = applyAll(before, [
       { type: "switchEpisode", index },
@@ -397,7 +488,7 @@ export function usePlayer({ serverURL, userID = 0, destination, detailAPI, playb
     setResumeStartFor(seed);
     const after = await playFrom(seed);
     commitFinalState(before, after);
-  }, [commitFinalState, playFrom, setResumeStartFor]);
+  }, [checkpointOutgoing, commitFinalState, playFrom, setResumeStartFor]);
 
   const setRate = useCallback((rate: number) => {
     dispatch({ type: "setRate", rate });
@@ -422,42 +513,6 @@ export function usePlayer({ serverURL, userID = 0, destination, detailAPI, playb
       skipOutroSeconds: Math.max(0, Math.min(300, seconds)),
     });
   }, [destination.title, serverURL]);
-
-  // Persist progress using either the latest reducer state (parameterless call from unmount /
-  // public action) OR an explicit time/duration pair passed by timeUpdate so we don't depend on
-  // a not-yet-committed dispatch.
-  //
-  // 持久化进度: 不带参数读 reducer 最新 state (卸载或外部调用); 带参数时直接使用 timeUpdate 传入
-  // 的 currentTime / duration, 避免依赖尚未 commit 的 dispatch.
-  const persistProgressNow = useCallback((current?: number, total?: number) => {
-    const ep = currentEpisode(stateRef.current);
-    const videoId = sourceVideoID(stateRef.current);
-    if (!ep || !videoId) return;
-    const { detail, currentSourceKey, currentEpisodeIndex } = stateRef.current;
-    const currentTime = current ?? stateRef.current.currentTime;
-    const duration = total ?? stateRef.current.duration;
-    if (currentTime <= 0 || !Number.isFinite(duration)) return;
-		const list = selectEpisodes(stateRef.current);
-		const completed = currentEpisodeIndex === list.length - 1
-			&& duration > 0
-			&& (duration - currentTime <= 30 || currentTime / duration >= 0.95);
-		const item = {
-      id: `${currentSourceKey}:${videoId}:${currentEpisodeIndex}`,
-      sourceKey: currentSourceKey,
-      videoId,
-      title: detail?.title ?? destination.title,
-      cover: detail?.cover ?? destination.coverHint ?? "",
-			episode: ep.name,
-			groupIndex: stateRef.current.currentLineIndex,
-			episodeIndex: currentEpisodeIndex,
-      progress: currentTime,
-			duration,
-			completed,
-		};
-		recordPlayProgress(serverURL, item, userID);
-    void historyAPI?.saveWatchHistory(watchHistoryRequestFromItem(item)).catch(() => undefined);
-    lastSavedTimeRef.current = currentTime;
-	}, [destination.coverHint, destination.title, historyAPI, serverURL, userID]);
 
   const timeUpdate = useCallback((currentTime: number, duration: number) => {
     const ignoreProgress = shouldIgnoreProgressDuringPendingSeek(stateRef.current, currentTime);

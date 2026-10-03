@@ -711,6 +711,45 @@ func TestUpdateSettings(t *testing.T) {
 	}
 }
 
+func TestSyncEpochIsNotExposedOrWritableThroughSettings(t *testing.T) {
+	h, r := setupTestHandler(t)
+	disableAnonymousAccess(t, h)
+	createTestUser(t, h, "admin_epoch", "pw", "admin")
+	before, err := h.store.SyncEpoch()
+	if err != nil || before == "" {
+		t.Fatalf("SyncEpoch = %q, err = %v", before, err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil)
+	req.Header.Set("Authorization", adminBearer(t, h, "admin_epoch"))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	settingsMap, ok := decodeJSON(t, rec)["settings"].(map[string]any)
+	if !ok {
+		t.Fatal("expected settings to be a map")
+	}
+	if _, ok := settingsMap["sync_epoch"]; ok {
+		t.Error("sync_epoch must not be returned by GetSettings")
+	}
+
+	body, _ := json.Marshal(map[string]string{"sync_epoch": "forged"})
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", adminBearer(t, h, "admin_epoch"))
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	after, err := h.store.SyncEpoch()
+	if err != nil || after != before {
+		t.Fatalf("SyncEpoch changed: %q -> %q (err %v)", before, after, err)
+	}
+}
+
 func TestUpdateSettings_PublicBaseURLValidation(t *testing.T) {
 	h, r := setupTestHandler(t)
 	disableAnonymousAccess(t, h)

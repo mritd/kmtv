@@ -79,7 +79,7 @@ describe("createAPIClient", () => {
       onUnauthorized: () => {},
       fetcher,
     });
-    await expect(client.get("/x")).rejects.toEqual({ kind: "server", message: "boom" });
+    await expect(client.get("/x")).rejects.toEqual({ kind: "server", message: "boom", status: 500 });
   });
 
   it("rejects with kind=timeout when fetcher throws AbortError", async () => {

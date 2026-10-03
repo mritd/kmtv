@@ -1,4 +1,4 @@
-// ContinueWatchingRow renders a horizontal row of WatchHistoryItem cards with a progress bar overlay.
+// ContinueWatchingRow renders a horizontal row of watch record cards with a progress bar overlay.
 //
 // ContinueWatchingRow 渲染观看历史的水平行, 每张卡片带进度条遮罩.
 
@@ -9,13 +9,13 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { PosterImage } from "@/designSystem/PosterImage";
 import { sizes } from "@/designSystem/theme";
 import { useTheme } from "@/designSystem/useTheme";
-import type { WatchHistoryItem } from "@/storage/watchHistory";
+import type { LocalRecord } from "@/sync/types";
 
 interface Props {
   baseURL: string;
-  watchHistory: WatchHistoryItem[];
+  watchHistory: LocalRecord<"watch">[];
   onClear: () => void;
-  onSelect?: (item: WatchHistoryItem) => void;
+  onSelect?: (item: LocalRecord<"watch">) => void;
 }
 
 const baseStyles = StyleSheet.create({
@@ -39,7 +39,7 @@ function progressFill(color: string) {
 }
 
 /**
- * Continue Watching row — horizontal scroller of recent WatchHistoryItems with a progress overlay.
+ * Continue Watching row — horizontal scroller of recent watch records with a progress overlay.
  *
  * 继续观看行 — 最近观看历史的水平滚动条, 带进度遮罩.
  */
@@ -65,30 +65,31 @@ export function ContinueWatchingRow({ baseURL, watchHistory, onClear, onSelect }
       </View>
 
       {/* ScrollView + map renders every card up-front to match SectionRow's eager layout.
-          watchHistory is capped at 10 by loadWatchHistory, well under any virtualisation threshold.
+          watchHistory is capped at 10 by HomeScreen, well under any virtualisation threshold.
 
           ScrollView + map 与 SectionRow 一致, 一次性渲染全部卡片.
-          loadWatchHistory 已将 watchHistory 限制为 10 条, 远低于需要虚拟化的规模. */}
+          HomeScreen 已将 watchHistory 限制为 10 条, 远低于需要虚拟化的规模. */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={baseStyles.scrollerContent}>
         {watchHistory.map((entry) => {
-          const ratio = entry.duration > 0 ? Math.min(1, entry.progress / entry.duration) : 0;
+          const { cover, duration_sec: duration, progress_sec: progress, title } = entry.payload;
+          const ratio = duration > 0 ? Math.min(1, progress / duration) : 0;
           return (
             <Pressable
-              key={entry.id}
+              key={entry.key}
               onPress={() => onSelect?.(entry)}
               testID="continueCard"
               style={{ width: sizes.cardWidth, marginRight: 12 }}
             >
               <View style={{ width: sizes.cardWidth, height: posterHeight, borderRadius: sizes.radius.lg, overflow: "hidden" }}>
-                <PosterImage baseURL={baseURL} cover={entry.cover} style={{ width: "100%", height: "100%" }} />
+                <PosterImage baseURL={baseURL} cover={cover} style={{ width: "100%", height: "100%" }} />
               </View>
-              {entry.duration > 0 ? (
+              {duration > 0 ? (
                 <View style={progressTrack(colors.bgCard)} testID="continueProgressTrack">
                   <View style={[progressFill(colors.accent), { width: `${ratio * 100}%` }]} testID="continueProgressFill" />
                 </View>
               ) : null}
               <Text numberOfLines={1} style={{ color: colors.textPrimary, fontSize: 12, marginTop: 4 }}>
-                {entry.title}
+                {title}
               </Text>
             </Pressable>
           );

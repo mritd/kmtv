@@ -32,8 +32,9 @@ func TestNewStore(t *testing.T) {
 		"schema_migrations",
 		"auth_sessions",
 		"media_tokens",
-		"watch_history",
-		"watch_history_clear_state",
+		"sync_records",
+		"sync_clears",
+		"sync_users",
 	}
 	for _, table := range tables {
 		var name string
@@ -42,6 +43,13 @@ func TestNewStore(t *testing.T) {
 		).Scan(&name)
 		if err != nil {
 			t.Errorf("table %q not found: %v", table, err)
+		}
+	}
+	for _, dropped := range []string{"watch_history", "watch_history_clear_state"} {
+		var name string
+		err := s.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", dropped).Scan(&name)
+		if err == nil {
+			t.Errorf("table %q should have been dropped", dropped)
 		}
 	}
 }

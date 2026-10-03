@@ -29,6 +29,7 @@ import { APIProvider } from "@/api/context";
 import type { TokenStore } from "@/api/tokenStore";
 import { createLocalTokenStore } from "@/api/tokenStore";
 import { AuthProvider, useAuth } from "@/auth/AuthContext";
+import { SyncProvider } from "@/sync/SyncContext";
 import { ThemeProvider } from "@/theme/ThemeProvider";
 import { ToastContainer, useSessionExpiredToast } from "@/shared/ui/Toast";
 
@@ -106,13 +107,15 @@ export function AppShell({
       <APIProvider value={api}>
         <QueryClientProvider client={queryClient}>
           <AuthProvider api={api} tokenStore={tokenStore} queryClient={queryClient}>
-            <BrowserRouter>
-              <ScrollToTop />
-              <SessionExpiredBridge />
-              <BootGate>
-                <AppRoutes />
-              </BootGate>
-            </BrowserRouter>
+            <SyncProvider>
+              <BrowserRouter>
+                <ScrollToTop />
+                <SessionExpiredBridge />
+                <BootGate>
+                  <AppRoutes />
+                </BootGate>
+              </BrowserRouter>
+            </SyncProvider>
             <ToastContainer />
           </AuthProvider>
         </QueryClientProvider>

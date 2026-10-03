@@ -37,6 +37,8 @@
 | 1205 | `UnknownSetting`       | `unknown setting`                       |
 | 1206 | `LastAdmin`            | `cannot remove the last admin`          |
 | 1207 | `SelfDelete`           | `cannot delete your own account`        |
+| 1209 | `EpochMismatch`        | `sync epoch mismatch`                   |
+| 1210 | `SyncCursorAhead`      | `sync cursor ahead of server`           |
 | 1300 | `ServerError`          | `internal server error`                 |
 | 1301 | `MissingParam`         | `missing required parameter`            |
 | 1302 | `Blocked`              | `request blocked`                       |
@@ -390,127 +392,127 @@ data: {"message":"search failed"}
 
 常见错误: `400 MissingParam`, `404 NotFound`, `500 ServerError`.
 
-## Watch History
+## Sync
 
-观看历史接口要求真实登录用户. 当 `anonymous_access == "true"` 时, 匿名用户仍可浏览和播放,
-但这些接口会返回 `401 NotLoggedIn`, 因为没有可用于同步的用户记录.
+同步接口要求真实的登录用户. 当 `anonymous_access == "true"` 时, 匿名用户仍可浏览和播放,
+但这些接口返回 `401 NotLoggedIn`; 客户端将匿名数据保存在本地, 不得把这个 401 视为会话过期.
 
-观看历史按 `(user_id, normalized title)` 去重. 服务端通过 trim 空白并转小写生成归一化标题.
-`source_key` 和 `video_id` 只保存为最近观看源的 payload, 用于续播和重新搜索交接, 不作为数据库身份.
+每个同步条目都是一条由 `(kind, key)` 标识的记录:
 
-### `GET /history`
+| kind       | key                 | payload 字段 | 上限 |
+|------------|---------------------|--------------|------|
+| `watch`    | 归一化后的 `title`  | `title, cover, source_key, video_id, episode, group_index, episode_index, progress_sec, duration_sec, completed` | 保留最新 200 条 |
+| `favorite` | 归一化后的 `title`  | `title, cover, type, year, rate, desc, source_key, video_id` | 1000 条; 超出后新 key 返回 `limit` |
+| `search`   | 归一化后的 `query`  | `query` | 保留最新 50 条 |
 
-受保护接口. 返回当前用户最近观看历史, 最新在前.
+key 归一化: 按空白字符 (`\t \n \v \f \r`, 空格, U+0085, U+00A0, U+1680, U+2000-U+200A,
+U+2028, U+2029, U+202F, U+205F, U+3000) 切分, 用一个空格连接, 再转为小写. 以服务端计算的 key
+为准. 参考用例见 `testdata/sync-key-vectors.json`.
 
-查询参数:
+payload 长度限制 (按 Unicode 码点计): `title`, `episode` 和 `query` 512; `source_key` 和 `video_id`
+1024; `cover` 8192; `type`, `year` 和 `rate` 64; `desc` 2048. `group_index` 和 `episode_index`
+是非负整数; `progress_sec` 和 `duration_sec` 是非负有限数. 未知的 payload 字段会被丢弃, 文本会去掉首尾空白.
 
-| Name    | Required | Default | 说明                         |
-|---------|----------|---------|------------------------------|
-| `limit` | No       | `10`    | 正整数条数, 最大 `100`       |
-| `completed` | No   | 全部    | 可选 `true`/`false`, 在 `limit` 前过滤 |
+事件时间为 `t` 的写入, 只有当 `t` 严格大于已存记录的事件时间, 并且大于该类数据的清空时间时才会生效.
+比服务器时钟快超过 1 秒的事件时间会被压回服务器时间 (一批中出现这样的时间时, 该批中从 `now` 起的时间按原有先后依次重排为 `now, now+1, ...`). 删除会留下删除标记, 保留 90 天. `watch` 或
+`search` 超出上限时, 最旧的行会变成删除标记并分配新的 `rev`.
 
-成功 `200`:
+### `POST /sync/push`
+
+受保护. 在一个事务中应用最多 200 条变更. 请求体上限 256 KiB.
 
 ```json
 {
-  "items": [
-    {
-      "id": 1,
-      "source_key": "source.example",
-      "video_id": "123",
-      "title": "Movie",
-      "cover": "https://example.com/cover.jpg",
-      "episode": "Episode 1",
-      "group_index": 0,
-      "episode_index": 0,
-      "progress_sec": 120,
-      "duration_sec": 1800,
-	  "completed": false,
-	  "event_time_ms": 1783656000000,
-      "created_at": "2026-07-09T12:00:00Z",
-      "updated_at": "2026-07-09T12:05:00Z"
-    }
+  "epoch": "QJ4D...",
+  "cursor": 41,
+  "changes": [
+    {"kind": "watch", "op": "upsert", "event_time_ms": 1790000000000,
+     "payload": {"title": "Movie", "episode_index": 1, "progress_sec": 42, "duration_sec": 1800}},
+    {"kind": "favorite", "op": "delete", "key": "movie", "event_time_ms": 1790000000001},
+    {"kind": "search", "op": "clear", "event_time_ms": 1790000000002}
   ]
 }
 ```
 
-常见错误: `400 InvalidRequest`, `401 NotLoggedIn`, `500 ServerError`.
+客户端首次同步时 `epoch` 为空. `cursor` 是客户端的拉取游标 (尚未拉取时为 `0`). 非空且与服务端不一致的
+`epoch` 会让整个请求返回 `409`:
 
-### `PUT /history`
+```json
+{"code": 1209, "error": "sync epoch mismatch", "epoch": "<当前 epoch>"}
+```
 
-受保护接口. 按标题 upsert 最新播放状态. 同一用户再次写入相同归一化标题时,
-仅当 `event_time_ms` 更新才会覆盖原记录. 客户端只在最终一集达到完成阈值后发送
-`completed=true`; 服务端不会根据任意一集的播放位置推断整部标题已完成.
+`epoch` 一致时, `cursor` 大于该用户当前版本说明服务端从旧副本恢复. 请求在应用任何变更前失败:
 
-请求体最大 64 KiB. 标题最多 512 个 Unicode 字符, source key 与 video ID 最多 1024 个,
-分集名称最多 512 个, cover 值最多 8192 个.
+```json
+{"code": 1210, "error": "sync cursor ahead of server", "epoch": "<当前 epoch>"}
+```
 
-请求:
+客户端通过拉取处理这两种 `409`, 拉取会返回 `reset: true` (见 `GET /sync/pull`).
+
+成功 `200`:
 
 ```json
 {
-  "source_key": "source.example",
-  "video_id": "123",
-  "title": "Movie",
-  "cover": "https://example.com/cover.jpg",
-  "episode": "Episode 1",
-  "group_index": 0,
-  "episode_index": 0,
-  "progress_sec": 120,
-  "duration_sec": 1800,
-	"completed": false,
-	"event_time_ms": 1783656000000
+  "epoch": "QJ4D...",
+  "rev": 42,
+  "server_time_ms": 1790000000100,
+  "results": [
+    {"index": 0, "status": "applied", "record": {"kind": "watch", "key": "movie", "payload": {}, "event_time_ms": 1790000000000, "deleted": false, "rev": 41}},
+    {"index": 1, "status": "stale", "record": {"kind": "favorite", "key": "movie", "payload": {}, "event_time_ms": 1790000000050, "deleted": false, "rev": 39}},
+    {"index": 2, "status": "applied", "record": null, "clear": {"kind": "search", "cleared_at_ms": 1790000000002, "rev": 42}}
+  ]
 }
 ```
 
-成功 `200`: 返回一条观看历史, 形状同 `GET /history.items[]`.
+| status    | 含义 |
+|-----------|------|
+| `applied` | 已保存. `record` 是保存后的记录, 带规范 key 和实际保存的事件时间. |
+| `stale`   | 服务端已有更新的状态. `record` 是当前记录 (可能是删除标记, 包括本次写入被上限淘汰后生成的删除标记), 不存在时为 `null`. 清空操作则在 `clear` 中返回当前清空时间点. |
+| `invalid` | 未通过校验或无法解码, `reason` 说明原因. 同批其他变更照常应用. |
+| `limit`   | 收藏已达上限且该 key 没有有效记录 (包括复活已被删除标记的 key). |
 
-常见错误: `400 InvalidRequest`, `401 NotLoggedIn`, `409 StaleWrite`, `500 ServerError`.
+常见错误: `400 InvalidRequest`, `401 NotLoggedIn`, `409 EpochMismatch`, `409 SyncCursorAhead`, `500 ServerError`.
 
-### `GET /history/item`
+### `GET /sync/pull`
 
-受保护接口. 按标题返回一条观看历史.
+受保护. 返回某个版本游标之后的变更.
 
-查询参数:
-
-| Name    | Required | 说明     |
-|---------|----------|----------|
-| `title` | Yes      | 标题查询 |
-
-成功 `200`: 返回一条观看历史.
-
-常见错误: `400 MissingParam`, `401 NotLoggedIn`, `404 NotFound`, `500 ServerError`.
-
-### `DELETE /history/item`
-
-受保护接口. 按标题删除一条观看历史.
-
-查询参数同 `GET /history/item`.
+| 名称    | 必填 | 默认值 | 说明 |
+|---------|------|--------|------|
+| `since` | 否   | `0`    | 客户端已应用的最后一个 `rev` |
+| `epoch` | 否   | 空     | 客户端上次看到的 epoch |
+| `limit` | 否   | `500`  | 每页条数, 最大 `1000` |
+| `full`  | 否   | `false` | 布尔值 (`1` 或 `true`); 从 `since=0` 开始的拉取链每页都带上 |
 
 成功 `200`:
 
 ```json
-{"message": "watch history deleted"}
+{
+  "epoch": "QJ4D...",
+  "server_time_ms": 1790000000100,
+  "rev": 42,
+  "reset": false,
+  "has_more": false,
+  "clears": [{"kind": "search", "cleared_at_ms": 1790000000002, "rev": 42}],
+  "records": [{"kind": "watch", "key": "movie", "payload": {}, "event_time_ms": 1790000000000, "deleted": false, "rev": 41}]
+}
 ```
 
-常见错误: `400 MissingParam`, `401 NotLoggedIn`, `404 NotFound`, `500 ServerError`.
+记录和清空事件按 `rev` 排序. `has_more` 为 true 时, `rev` 是本页最大的 rev. 最后一页 (`has_more: false`)
+的 `rev` 是该用户当前版本; 最新的版本属于已清除的删除标记时, 它会大于本页最后一项的 rev. 本页读自同一快照,
+快照包含该版本以内的所有行, 不会漏项. 下次请求把 `rev` 作为 `since` 传回, `has_more` 为 true 时继续翻页.
+同一页内先应用清空事件, 再应用记录.
 
-### `DELETE /history`
+`reset: true` 时列表为空, `rev` 为该用户当前版本. 以下情况会返回它: `epoch` 与服务端不一致 (数据库被重置),
+`since` 大于 `rev` (数据库从旧副本恢复), 或 `since > 0`, 未设置 `full`, 且 `since` 低于 GC 下限 (`min_rev`,
+即已清除删除标记的最大版本). 前两种情况下服务端丢失了客户端已有的数据, 客户端把所有本地记录标记为待上传,
+再从 `since=0` 重新拉取; 但如果该作用域保存的用户名与当前用户名不同, 客户端改为丢弃该作用域的本地数据
+(该用户 ID 可能已属于另一个账号). 最后一种情况下客户端全量重同步: 从 `since=0` 拉取, 并删除服务端已不存在的
+已同步本地记录.
 
-受保护接口. 清空当前用户的全部观看历史.
-
-可选查询参数 `event_time_ms` 用于记录清空事件, 防止更旧的在途 PUT 重新创建已删除记录.
-当前客户端始终发送该参数.
-
-成功 `200`:
-
-```json
-{"message": "watch history cleared"}
-```
-
-`event_time_ms` 必须为正整数. 服务端会保留最多比自身时钟快 1 秒的值,
-确保同一客户端连续生成的事件仍保持顺序; 更大的未来值会被钳回服务端当前时间,
-避免客户端时钟走快导致该用户后续写入被拒绝.
+从 `since=0` 开始的拉取链 (首次同步或全量重同步) 每页都带 `full=1`. 这样的拉取链会从头构建客户端状态,
+因此服务端对它跳过 GC 下限检查: 拉取链中途被清除的删除标记只会隐藏一条记录, 而客户端在全量重同步结束时会删除
+未见到的记录. `since > rev` 检查和 epoch 检查仍然生效.
 
 常见错误: `400 InvalidRequest`, `401 NotLoggedIn`, `500 ServerError`.
 

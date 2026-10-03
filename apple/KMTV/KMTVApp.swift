@@ -7,9 +7,7 @@ struct KMTVApp: App {
 
     init() {
         do {
-            container = try ModelContainer(
-                for: Server.self, WatchHistoryItem.self, FavoriteItem.self, SearchHistoryItem.self, PlaybackSettings.self
-            )
+            container = try AppModelContainer.make()
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
         }
@@ -25,6 +23,7 @@ struct KMTVApp: App {
 
 struct RootView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @State private var appVM: AppViewModel?
 
     var body: some View {
@@ -37,6 +36,9 @@ struct RootView: View {
             let vm = AppViewModel(modelContext: modelContext)
             appVM = vm
             await vm.bootstrap()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            appVM?.handleScenePhase(phase)
         }
     }
 

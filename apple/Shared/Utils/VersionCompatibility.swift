@@ -1,7 +1,10 @@
 import Foundation
 
 enum VersionCompatibility {
-    static let minimumServerVersion = "v1.0.0"
+    /// The first server release with the sync endpoints.
+    ///
+    /// 第一个提供同步接口的服务端版本.
+    static let minimumServerVersion = "v1.1.0"
 
     /// Returns true when a server version satisfies the client minimum version.
     ///

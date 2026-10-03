@@ -5,7 +5,9 @@
 import { NavigationContainer } from "@react-navigation/native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StatusBar } from "expo-status-bar";
+import i18next from "i18next";
 import { useEffect, useState } from "react";
+import { ToastAndroid } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
@@ -15,6 +17,7 @@ import { initI18n } from "@/i18n";
 import { RootNavigator } from "@/navigation/RootNavigator";
 import { useI18nStore } from "@/store/i18nStore";
 import { useThemeStore } from "@/store/themeStore";
+import { SyncProvider } from "@/sync/SyncContext";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -53,9 +56,14 @@ export default function App() {
       <SafeAreaProvider>
         <ThemeProvider override={override}>
           <QueryClientProvider client={queryClient}>
-            <NavigationContainer>
-              <RootNavigator />
-            </NavigationContainer>
+            <SyncProvider
+              onLimit={() => ToastAndroid.show(i18next.t("favorites:full"), ToastAndroid.SHORT)}
+              onIncompatibleServer={() => ToastAndroid.show(i18next.t("common:sync.serverTooOld"), ToastAndroid.LONG)}
+            >
+              <NavigationContainer>
+                <RootNavigator />
+              </NavigationContainer>
+            </SyncProvider>
           </QueryClientProvider>
         </ThemeProvider>
         <StatusBar style="auto" />

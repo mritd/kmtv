@@ -4,6 +4,7 @@
 
 import type { AuthAPI } from "../api/auth";
 import { clearToken, saveToken } from "../storage/secureStore";
+import { setActiveSyncEngine } from "../sync/activeSyncEngine";
 import { useAuthStore } from "./authStore";
 import { useServerStore } from "./serverStore";
 
@@ -134,6 +135,13 @@ describe("authStore.logout", () => {
   it("resets state even when no server is set", async () => {
     await useAuthStore.getState().logout();
     expect(useAuthStore.getState().status).toBe("serverSetup");
+  });
+
+  it("stops the active sync engine first", async () => {
+    const engine = { stop: jest.fn() };
+    setActiveSyncEngine(engine);
+    await useAuthStore.getState().logout();
+    expect(engine.stop).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -10,9 +10,9 @@
  *
  *     — 元数据加载后执行一次持久化恢复 seek, 且不把该程序化 seek 再保存为新进度
  *
- *   - Checkpoint every 30 s and flush after manual seek, tab hide, or teardown
+ *   - Checkpoint every 5 s and flush after manual seek, pause, tab hide, or teardown
  *
- *     — 每 30 秒保存检查点, 并在手动 seek, tab 隐藏或组件卸载后立即补写
+ *     — 每 5 秒保存检查点, 并在手动 seek, 暂停, tab 隐藏或组件卸载后立即补写
  *
  *   - Surface HLS bundle-load / hls.js unsupported / fatal-error banners — 展示 HLS bundle 加载 / hls.js 不支持 / 致命错误横幅
  *   - Show placeholder when no URL is ready; resolving/idle copy differs — 无 URL 时显示占位符; resolving/idle 文案不同
@@ -54,13 +54,11 @@ import type { PlaybackState } from "./playbackState";
  *
  * POSITION_SAVE_INTERVAL_MS — 持久化播放进度的节流间隔.
  *
- * The player can report progress several times per second, but resume only needs a coarse checkpoint.
- * A 30-second interval bounds storage or API traffic; explicit lifecycle flushes capture newer progress.
+ * Checkpoints go to the local sync store, so a short interval is cheap; the sync engine throttles network pushes.
  *
- * 播放器每秒可多次报告进度, 但恢复播放只需要粗粒度检查点.
- * 30 秒间隔限制存储或 API 流量, 显式生命周期补写负责捕获更新的进度.
+ * 进度写入本地同步存储, 短间隔开销很小; 网络推送由同步引擎限频.
  */
-const POSITION_SAVE_INTERVAL_MS = 30_000;
+const POSITION_SAVE_INTERVAL_MS = 5_000;
 
 /**
  * RESUME_MIN_SEC — minimum persisted position required to apply an initial seek.
@@ -96,6 +94,13 @@ function stripEmoji(value: string | undefined): string {
 }
 
 /**
+ * PlaybackCheckpointReason says why PlaybackPanel reported a checkpoint.
+ *
+ * PlaybackCheckpointReason 说明 PlaybackPanel 报告检查点的原因.
+ */
+export type PlaybackCheckpointReason = "interval" | "flush" | "hidden" | "pagehide";
+
+/**
  * PlaybackPanel — renders the ArtPlayer host container + all playback-state UI overlays.
  *
  * PlaybackPanel — 渲染 ArtPlayer 宿主容器 + 所有播放状态 UI 覆盖层.
@@ -105,7 +110,7 @@ function stripEmoji(value: string | undefined): string {
  * @param onPlaying          — called when ArtPlayer fires "video:play" — ArtPlayer 触发 "video:play" 时调用
  * @param onRetry            — called when the user clicks any retry button — 用户点击任意重试按钮时调用
  * @param initialPositionSec — optional persisted resume position in seconds — 可选的持久化恢复位置, 单位为秒
- * @param onPositionChange   — receives (currentTime, duration) for each checkpoint flush — 每次检查点补写时接收 (currentTime, duration)
+ * @param onPositionChange   — receives (currentTime, duration, reason) for each checkpoint; reason is "interval" for timer ticks, "hidden" when the page becomes hidden, "pagehide" when it unloads, and "flush" for pause, seek, and teardown — 每次检查点接收 (currentTime, duration, reason); 定时器触发为 "interval", 页面隐藏为 "hidden", 页面卸载为 "pagehide", 暂停, 跳转和拆卸为 "flush"
  */
 export function PlaybackPanel({
   state,
@@ -120,7 +125,7 @@ export function PlaybackPanel({
   onPlaying(): void;
   onRetry(): void;
   initialPositionSec?: number;
-  onPositionChange?(positionSec: number, durationSec: number): void;
+  onPositionChange?(positionSec: number, durationSec: number, reason: PlaybackCheckpointReason): void;
 }) {
   const { t } = useTranslation("viewer");
   const playerRef = useRef<HTMLDivElement | null>(null);
@@ -189,22 +194,30 @@ export function PlaybackPanel({
     const artSlot: { player: import("artplayer").default | null } = { player: null };
 
     // Flush the latest readable position when the page becomes hidden or leaves the session.
-    // The parent callback chooses anonymous local storage or authenticated remote storage.
+    // The parent callback writes the active identity's sync store.
     //
-    // 页面隐藏或离开会补写最后可读进度. 父级回调决定写入匿名本地存储还是已认证远端存储.
-    function flushNow() {
+    // 页面隐藏或离开会补写最后可读进度. 父级回调写入当前身份的同步存储.
+    function flushNow(reason: PlaybackCheckpointReason = "flush") {
       const cb = onPositionChangeRef.current;
       const art = artSlot.player;
       if (!cb || !art) return;
       const currentTime = typeof art.currentTime === "number" ? art.currentTime : 0;
       const duration = typeof art.duration === "number" ? art.duration : 0;
-      if (currentTime > 0) cb(currentTime, duration);
+      if (currentTime > 0) cb(currentTime, duration, reason);
     }
     function onVisibility() {
-      if (document.visibilityState === "hidden") flushNow();
+      if (document.visibilityState === "hidden") flushNow("hidden");
     }
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("pagehide", flushNow);
+    function onPageHide() {
+      flushNow("pagehide");
+    }
+    // A capture listener on document runs before SyncProvider's bubbling one, so the final
+    // checkpoint is in the store when the provider's hidden flush collects dirty records.
+    //
+    // document 上的捕获监听器先于 SyncProvider 的冒泡监听器执行, 因此 SyncProvider 在页面隐藏
+    // 补写收集待推送记录时, 最后的检查点已经写入存储.
+    document.addEventListener("visibilitychange", onVisibility, { capture: true });
+    window.addEventListener("pagehide", onPageHide);
 
     void import("artplayer").then(({ default: ArtPlayer }) => {
       if (disposed) {
@@ -318,11 +331,11 @@ export function PlaybackPanel({
       });
       artSlot.player = art;
       art.on("video:play", () => onPlayingRef.current());
-      // Save completed manual seeks immediately instead of waiting for the 30-second timer.
+      // Save completed manual seeks immediately instead of waiting for the interval timer.
       // Ignore the one seek generated by resume restoration, then queue the callback after the
       // current player event finishes so storage work is not performed inside ArtPlayer's handler.
       //
-      // 手动 seek 完成后立即保存, 无需等待 30 秒定时器. 由恢复播放生成的首次 seek 会被忽略,
+      // 手动 seek 完成后立即保存, 无需等待定时器. 由恢复播放生成的首次 seek 会被忽略,
       // 其余保存回调排到当前播放器事件之后执行, 避免在 ArtPlayer handler 内直接处理存储工作.
       art.on("video:seeked", () => {
         if (pendingResumeSeekTarget !== null) {
@@ -357,13 +370,17 @@ export function PlaybackPanel({
           }
         }
       });
+      // Pausing is a natural stopping point; flush so another device can resume from here.
+      //
+      // 暂停是自然的停顿点; 立即补写, 让其他设备能从这里继续.
+      art.on("video:pause", () => flushNow());
       saveTimer = setInterval(() => {
         const cb = onPositionChangeRef.current;
         if (!cb) return;
         const currentTime = typeof art.currentTime === "number" ? art.currentTime : 0;
         const duration = typeof art.duration === "number" ? art.duration : 0;
         if (currentTime > 0) {
-          cb(currentTime, duration);
+          cb(currentTime, duration, "interval");
         }
       }, POSITION_SAVE_INTERVAL_MS);
       cleanupArtPlayer = () => {
@@ -376,7 +393,7 @@ export function PlaybackPanel({
         if (cb) {
           const currentTime = typeof art.currentTime === "number" ? art.currentTime : 0;
           const duration = typeof art.duration === "number" ? art.duration : 0;
-          if (currentTime > 0) cb(currentTime, duration);
+          if (currentTime > 0) cb(currentTime, duration, "flush");
         }
         // destroy(false) tears down ArtPlayer internals without removing the host DOM element,
         // since React owns the <div> and will handle its removal.
@@ -397,8 +414,8 @@ export function PlaybackPanel({
 
     return () => {
       disposed = true;
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("pagehide", flushNow);
+      document.removeEventListener("visibilitychange", onVisibility, { capture: true });
+      window.removeEventListener("pagehide", onPageHide);
       cleanupArtPlayer?.();
       artSlot.player = null;
     };

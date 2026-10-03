@@ -7,25 +7,32 @@ import React from "react";
 
 import { ThemeProvider } from "@/designSystem/ThemeProvider";
 import { initI18n } from "@/i18n";
-import type { WatchHistoryItem } from "@/storage/watchHistory";
+import type { LocalRecord, WatchPayload } from "@/sync/types";
 
 import { ContinueWatchingRow } from "./ContinueWatchingRow";
 
-function item(p: Partial<WatchHistoryItem> = {}): WatchHistoryItem {
+function item(p: Partial<WatchPayload> & { key?: string } = {}): LocalRecord<"watch"> {
+  const { key = "t", ...payload } = p;
   return {
-    id: "id",
-    sourceKey: "src",
-    videoId: "v",
-    title: "T",
-    cover: "/c.jpg",
-		episode: "EP1",
-		groupIndex: 0,
-		episodeIndex: 0,
-    progress: 250,
-		duration: 1000,
-		completed: false,
-    updatedAt: 1,
-    ...p,
+    kind: "watch",
+    key,
+    eventTimeMs: 1,
+    deleted: false,
+    dirty: false,
+    synced: true,
+    payload: {
+      title: "T",
+      cover: "/c.jpg",
+      source_key: "src",
+      video_id: "v",
+      episode: "EP1",
+      group_index: 0,
+      episode_index: 0,
+      progress_sec: 250,
+      duration_sec: 1000,
+      completed: false,
+      ...payload,
+    },
   };
 }
 
@@ -49,7 +56,7 @@ describe("ContinueWatchingRow", () => {
     const { getByText, getAllByTestId } = render(wrap(
       <ContinueWatchingRow
         baseURL="https://x"
-        watchHistory={[item({ id: "a", title: "Alpha" }), item({ id: "b", title: "Beta" })]}
+        watchHistory={[item({ key: "a", title: "Alpha" }), item({ key: "b", title: "Beta" })]}
         onClear={() => undefined}
       />,
     ));
@@ -70,7 +77,7 @@ describe("ContinueWatchingRow", () => {
     const { getAllByTestId } = render(wrap(
       <ContinueWatchingRow
         baseURL="https://x"
-        watchHistory={[item({ progress: 250, duration: 1000 })]}
+        watchHistory={[item({ progress_sec: 250, duration_sec: 1000 })]}
         onClear={() => undefined}
       />,
     ));
@@ -84,7 +91,7 @@ describe("ContinueWatchingRow", () => {
     const { getAllByTestId } = render(wrap(
       <ContinueWatchingRow
         baseURL="https://x"
-        watchHistory={[item({ progress: 2000, duration: 1000 })]}
+        watchHistory={[item({ progress_sec: 2000, duration_sec: 1000 })]}
         onClear={() => undefined}
       />,
     ));
@@ -98,7 +105,7 @@ describe("ContinueWatchingRow", () => {
     const { queryByTestId } = render(wrap(
       <ContinueWatchingRow
         baseURL="https://x"
-        watchHistory={[item({ progress: 0, duration: 0 })]}
+        watchHistory={[item({ progress_sec: 0, duration_sec: 0 })]}
         onClear={() => undefined}
       />,
     ));

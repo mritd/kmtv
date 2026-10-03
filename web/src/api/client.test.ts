@@ -141,121 +141,6 @@ describe("APIClient", () => {
     });
   });
 
-  it("builds watch history requests", async () => {
-    const historyItem = {
-      id: 1,
-      source_key: "source-a",
-      video_id: "video-a",
-      title: "Demo Show",
-      cover: "",
-      episode: "01",
-      group_index: 0,
-      episode_index: 0,
-      progress_sec: 90,
-      duration_sec: 1200,
-      completed: false,
-      event_time_ms: 1,
-      created_at: "",
-      updated_at: "",
-    };
-    const fetcher = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ items: [historyItem] }), { status: 200 }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(historyItem), { status: 200 }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(historyItem), { status: 200 }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ message: "watch history deleted" }), {
-          status: 200,
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ message: "watch history cleared" }), {
-          status: 200,
-        }),
-      );
-
-    const tokenStore = createMemoryTokenStore({
-      accessToken: "HistoryToken",
-      expiresAt: "2026-05-23T12:00:00Z",
-      user: { id: 1, username: "admin", role: "admin" },
-    });
-    const client = createAPIClient({ baseURL: "/", tokenStore, fetcher });
-
-    await client.listWatchHistory(12);
-    await client.getWatchHistory("Demo Show");
-    await client.saveWatchHistory({
-      source_key: "source-a",
-      video_id: "video-a",
-      title: "Demo Show",
-      cover: "",
-      episode: "01",
-      group_index: 0,
-      episode_index: 0,
-      progress_sec: 90,
-      duration_sec: 1200,
-      completed: false,
-      event_time_ms: 2,
-    });
-    await client.deleteWatchHistory("Demo Show");
-    await client.clearWatchHistory(12345);
-
-    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
-      "/api/v1/history?limit=12&completed=false",
-      "/api/v1/history/item?title=Demo+Show",
-      "/api/v1/history",
-      "/api/v1/history/item?title=Demo+Show",
-      "/api/v1/history?event_time_ms=12345",
-    ]);
-    expect((fetcher.mock.calls[2][1] as RequestInit).method).toBe("PUT");
-    expect((fetcher.mock.calls[3][1] as RequestInit).method).toBe("DELETE");
-    expect((fetcher.mock.calls[4][1] as RequestInit).method).toBe("DELETE");
-  });
-
-  it("does not send protected watch-history requests without an access token", async () => {
-    const fetcher = vi.fn(async () => new Response(null, { status: 401 }));
-    const client = createAPIClient({
-      baseURL: "/",
-      tokenStore: createMemoryTokenStore(),
-      fetcher,
-    });
-
-    await expect(client.listWatchHistory()).rejects.toMatchObject({
-      status: 401,
-    });
-    await expect(client.getWatchHistory("Demo Show")).rejects.toMatchObject({
-      status: 401,
-    });
-    await expect(
-      client.saveWatchHistory({
-        source_key: "source-a",
-        video_id: "video-a",
-        title: "Demo Show",
-        cover: "",
-        episode: "01",
-        group_index: 0,
-        episode_index: 0,
-        progress_sec: 90,
-        duration_sec: 1200,
-        completed: false,
-        event_time_ms: 1,
-      }),
-    ).rejects.toMatchObject({ status: 401 });
-    await expect(client.deleteWatchHistory("Demo Show")).rejects.toMatchObject({
-      status: 401,
-    });
-    await expect(client.clearWatchHistory(12345)).rejects.toMatchObject({
-      status: 401,
-    });
-
-    expect(fetcher).not.toHaveBeenCalled();
-  });
-
   it("clears tokens on unauthorized responses", async () => {
     const store = createMemoryTokenStore({
       accessToken: "Expired",
@@ -645,5 +530,40 @@ describe("APIClient", () => {
       "/api/v1/admin/users",
       "/api/v1/admin/settings",
     ]);
+  });
+
+  it("builds sync push and pull requests that require a token", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} });
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    const tokenStore = createMemoryTokenStore({
+      accessToken: "SyncToken",
+      expiresAt: "2099-01-01T00:00:00Z",
+      user: { id: 1, username: "admin", role: "admin" },
+    });
+    const client = createAPIClient({ tokenStore, fetcher: fetcher as typeof fetch });
+
+    await client.syncPush({ epoch: "e1", cursor: 4, changes: [] }, { keepalive: true });
+    await client.syncPull({ since: 4, epoch: "e1" });
+    await client.syncPull({ since: 0, epoch: "", limit: 20 });
+    await client.syncPull({ since: 3, epoch: "e1", limit: 20, full: true });
+    await client.syncPull({ since: 3, epoch: "e1", limit: 20, full: false });
+
+    expect(calls[0]!.url).toBe("/api/v1/sync/push");
+    expect(calls[0]!.init.method).toBe("POST");
+    expect(calls[0]!.init.keepalive).toBe(true);
+    expect(calls[0]!.init.signal).toBeDefined();
+    expect(calls[1]!.init.signal).toBeDefined();
+    expect(calls[0]!.init.body).toBe(JSON.stringify({ epoch: "e1", cursor: 4, changes: [] }));
+    expect(calls[1]!.url).toBe("/api/v1/sync/pull?since=4&limit=500&epoch=e1");
+    expect(calls[2]!.url).toBe("/api/v1/sync/pull?since=0&limit=20");
+    expect(calls[3]!.url).toBe("/api/v1/sync/pull?since=3&limit=20&epoch=e1&full=1");
+    expect(calls[4]!.url).toBe("/api/v1/sync/pull?since=3&limit=20&epoch=e1");
+
+    const anonymous = createAPIClient({ tokenStore: createMemoryTokenStore(), fetcher: fetcher as typeof fetch });
+    await expect(anonymous.syncPull({ since: 0, epoch: "" })).rejects.toMatchObject({ status: 401 });
+    expect(fetcher).toHaveBeenCalledTimes(5);
   });
 });

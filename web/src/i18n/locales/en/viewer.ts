@@ -6,6 +6,10 @@ const viewer = {
     placeholder: "Enter a movie or series title",
     submit: "Search",
     inputLabel: "Search query",
+    history: {
+      title: "Recent searches",
+      clear: "Clear",
+    },
     failed: "Search failed",
     failedDescription: "Please retry, or use a different keyword.",
     retry: "Retry",
@@ -78,7 +82,6 @@ const viewer = {
       clearConfirm: "Clear",
       clearPending: "Clearing",
       clearCancel: "Cancel",
-      clearErrorTitle: "Watch history could not be cleared",
     },
     rails: {
       "热门电影": "Popular Movies",
@@ -106,6 +109,7 @@ const viewer = {
     title: "Favorites",
     empty: "No favorites yet.",
     emptyTitle: "No favorites yet",
+    full: "Favorites are full. Remove some before adding more.",
     emptyDescription: "Favorites from search results show up here.",
     emptyAction: "Search",
     summary: "{{count}} saved",

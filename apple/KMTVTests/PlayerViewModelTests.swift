@@ -15,101 +15,606 @@ final class PlayerViewModelTests: XCTestCase {
             cover: "", desc: "", director: "", actor: "", area: "",
             episodes: [[Episode(name: "EP1", url: "https://cdn.example/video.m3u8")]]
         )
-		var savedHistoryRequests: [WatchHistoryRequest] = []
-		var remoteHistory: WatchHistoryResponseItem?
 
         func detail(sourceKey: String, videoId: String) async throws -> VideoDetail {
             detailResponse
         }
 
+        /// When set, replies carry a file URL named after the request, so a test can tell which item attached.
+        ///
+        /// 设置后, 响应携带以请求命名的文件地址, 测试据此判断挂载的是哪个 item.
+        var echoPlaybackURL = false
+        /// Holds the reply for a request URL until its gate opens.
+        ///
+        /// 让某个请求地址的响应等待, 直到其 gate 放行.
+        var playbackGates: [String: SyncTestGate] = [:]
+
         func playbackURL(url: String, source: String) async throws -> PlaybackURLResponse {
             playbackRequests.append((url: url, source: source))
+            if let gate = playbackGates[url] { await gate.wait() }
+            if echoPlaybackURL {
+                return PlaybackURLResponse(mode: "direct", url: "file:///tmp/" + (url.split(separator: "/").last.map(String.init) ?? url))
+            }
             return playbackResponse
         }
+    }
 
-        func listWatchHistory(limit: Int) async throws -> WatchHistoryResponse {
-            WatchHistoryResponse(items: [])
-        }
+    @MainActor
+    func testResumeFallsBackToTheDetailTitleRecord() async throws {
+        // The navigation title ("Show") normalizes differently from the detail title ("Show S1"),
+        // and the record is keyed by the detail title that checkpoints write under.
+        //
+        // 导航标题 ("Show") 与详情标题 ("Show S1") 归一化后不同, 而记录以检查点写入时使用的详情标题为键.
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        sync.upsert(.watch(WatchPayload(title: "Show S1", sourceKey: "s1", videoId: "video-1", episode: "EP3",
+                                        episodeIndex: 2, progressSec: 45, durationSec: 120)))
+        let playerAPI = FakePlayerAPI()
+        playerAPI.detailResponse = VideoDetail(
+            id: "video-1", title: "Show S1", type: "tv", year: "2026",
+            cover: "", desc: "", director: "", actor: "", area: "",
+            episodes: [(1...4).map { Episode(name: "EP\($0)", url: "https://cdn.example/\($0).m3u8") }]
+        )
+        let vm = PlayerViewModel(
+            apiClient: playerAPI, modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: nil,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Show"
+        )
 
-		func watchHistory(title: String) async throws -> WatchHistoryResponseItem {
-			if let remoteHistory { return remoteHistory }
-			throw APIError.serverError(404, 1204, "watch history not found")
-        }
+        await vm.prepareResume()
+        XCTAssertEqual(vm.currentEpisodeIndex, 0)
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
 
-        func saveWatchHistory(_ request: WatchHistoryRequest) async throws -> WatchHistoryResponseItem {
-            savedHistoryRequests.append(request)
-            return WatchHistoryResponseItem(
-                id: 1,
-                sourceKey: request.sourceKey,
-                videoId: request.videoId,
-                title: request.title,
-                cover: request.cover,
-                episode: request.episode,
-                groupIndex: request.groupIndex,
-                episodeIndex: request.episodeIndex,
-                progressSec: request.progressSec,
-                durationSec: request.durationSec,
-				completed: request.completed,
-				eventTimeMS: request.eventTimeMS,
-				createdAt: nil,
-                updatedAt: nil
-            )
-        }
+        XCTAssertEqual(vm.currentEpisodeIndex, 2)
+    }
 
-        func deleteWatchHistory(title: String) async throws {}
+    @MainActor
+    func testResumeByTheDetailTitleIgnoresACompletedRecord() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        sync.upsert(.watch(WatchPayload(title: "Show S1", sourceKey: "s1", videoId: "video-1", episode: "EP3",
+                                        episodeIndex: 2, progressSec: 118, durationSec: 120, completed: true)))
+        let playerAPI = FakePlayerAPI()
+        playerAPI.detailResponse = VideoDetail(
+            id: "video-1", title: "Show S1", type: "tv", year: "2026",
+            cover: "", desc: "", director: "", actor: "", area: "",
+            episodes: [(1...4).map { Episode(name: "EP\($0)", url: "https://cdn.example/\($0).m3u8") }]
+        )
+        let vm = PlayerViewModel(
+            apiClient: playerAPI, modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: nil,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Show"
+        )
 
-        func clearRemoteWatchHistory() async throws {}
-	}
+        await vm.prepareResume()
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
 
-	@MainActor
-	func testRemoteHistoryIsLoadedBeforePlaybackSelection() async throws {
-		let container = try ModelContainerFactory.makeInMemory()
-		let api = FakePlayerAPI()
-		api.detailResponse.episodes = [[
-			Episode(name: "EP1", url: "https://cdn.example/1.m3u8"),
-			Episode(name: "EP2", url: "https://cdn.example/2.m3u8")
-		]]
-		api.remoteHistory = WatchHistoryResponseItem(
-			id: 1,
-			sourceKey: "s1",
-			videoId: "video-1",
-			title: "Video",
-			cover: "",
-			episode: "EP2",
-			groupIndex: 0,
-			episodeIndex: 1,
-			progressSec: 45,
-			durationSec: 120,
-			completed: false,
-			eventTimeMS: 1,
-			createdAt: nil,
-			updatedAt: nil
-		)
-		let vm = PlayerViewModel(
-			apiClient: api,
-			modelContext: container.mainContext,
-			serverURL: "https://kmtv.example",
-			userID: 1,
-			sources: [SourceResult(
-				sourceKey: "s1", sourceName: "S1", videoId: "video-1",
-				durationMs: 0, episodes: []
-			)],
-			sourceKey: "s1",
-			videoId: "video-1",
-			title: "Video"
-		)
+        XCTAssertEqual(vm.currentEpisodeIndex, 0)
+    }
 
-		await vm.loadRemoteWatchHistory()
-		_ = await vm.loadDetail(sourceKey: vm.currentSourceKey, videoId: vm.currentVideoID)
+    @MainActor
+    func testPrepareResumePicksTheEpisodeButKeepsTheOpenSource() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        let api = FakeSyncAPI()
+        api.pulls = [.success(SyncPullResponse(epoch: "e1", rev: 1, records: [
+            SyncRecordWire(kind: .watch, key: "video",
+                           payload: .watch(WatchPayload(title: "Video", sourceKey: "s2", videoId: "video-2", episode: "EP2",
+                                                        episodeIndex: 1, progressSec: 45, durationSec: 120)),
+                           eventTimeMs: 1, rev: 1),
+        ]))]
+        let engine = SyncEngine(api: api, store: sync)
+        engine.start()
+        let playerAPI = FakePlayerAPI()
+        playerAPI.detailResponse.episodes = [[
+            Episode(name: "EP1", url: "https://cdn.example/1.m3u8"),
+            Episode(name: "EP2", url: "https://cdn.example/2.m3u8"),
+        ]]
+        let vm = PlayerViewModel(
+            apiClient: playerAPI, modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: engine,
+            sources: [
+                SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: []),
+                SourceResult(sourceKey: "s2", sourceName: "S2", videoId: "video-2", durationMs: 0, episodes: []),
+            ],
+            sourceKey: "s1", videoId: "video-1", title: "Video"
+        )
 
-		XCTAssertEqual(vm.currentEpisodeIndex, 1)
-		let cached = WatchHistoryItem.recent(
-			in: container.mainContext,
-			serverURL: "https://kmtv.example",
-			userID: 1
-		)
-		XCTAssertEqual(cached.first?.progress, 45)
-	}
+        await vm.prepareResume()
+        _ = await vm.loadDetail(sourceKey: vm.currentSourceKey, videoId: vm.currentVideoID)
+
+        XCTAssertEqual(vm.currentSourceKey, "s1")
+        XCTAssertEqual(vm.currentEpisodeIndex, 1)
+        engine.stop()
+    }
+
+    @MainActor
+    func testPrepareResumeClampsToTheLoadedDetail() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        sync.upsert(.watch(WatchPayload(title: "Video", sourceKey: "s1", videoId: "video-1", groupIndex: 3, episodeIndex: 7,
+                                        progressSec: 10)))
+        let playerAPI = FakePlayerAPI()
+        playerAPI.detailResponse.episodes = [[
+            Episode(name: "EP1", url: "https://cdn.example/1.m3u8"),
+            Episode(name: "EP2", url: "https://cdn.example/2.m3u8"),
+        ]]
+        let vm = PlayerViewModel(
+            apiClient: playerAPI, modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: nil,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Video"
+        )
+
+        await vm.prepareResume()
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+
+        XCTAssertEqual(vm.currentLineIndex, 0)
+        XCTAssertEqual(vm.currentEpisodeIndex, 1)
+    }
+
+    @MainActor
+    func testPrepareResumeIgnoresAFinishedRecord() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        sync.upsert(.watch(WatchPayload(title: "Video", sourceKey: "s1", videoId: "video-1", episodeIndex: 1,
+                                        progressSec: 119, durationSec: 120, completed: true)))
+        let vm = PlayerViewModel(
+            apiClient: FakePlayerAPI(), modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: nil,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Video"
+        )
+
+        await vm.prepareResume()
+
+        XCTAssertEqual(vm.currentEpisodeIndex, 0)
+    }
+
+    @MainActor
+    func testSwitchingSourcePushesPendingChanges() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        let api = FakeSyncAPI()
+        // The manual scheduler never fires, so only the switch itself can push.
+        //
+        // 手动调度器不会自动触发, 因此只有切换本身会推送.
+        let scheduler = FakeSyncScheduler()
+        let engine = SyncEngine(api: api, store: sync, schedule: scheduler.scheduler)
+        engine.start()
+        let vm = PlayerViewModel(
+            apiClient: FakePlayerAPI(), modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: engine,
+            sources: [
+                SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: []),
+                SourceResult(sourceKey: "s2", sourceName: "S2", videoId: "video-2", durationMs: 0, episodes: []),
+            ],
+            sourceKey: "s1", videoId: "video-1", title: "Video"
+        )
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+        sync.upsert(.watch(WatchPayload(title: "Video", sourceKey: "s1", videoId: "video-1", progressSec: 31, durationSec: 120)))
+
+        await vm.switchSource("s2")
+        await waitUntil { !api.pushes.isEmpty }
+
+        XCTAssertEqual(api.pushes.first?.changes.first?.kind, .watch)
+        engine.stop()
+    }
+
+    @MainActor
+    func testPrepareResumeGivesUpAfterTheWait() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        sync.upsert(.watch(WatchPayload(title: "Video", sourceKey: "s1", videoId: "video-1", episodeIndex: 2, progressSec: 10)))
+        let api = FakeSyncAPI()
+        api.hangPull = true
+        let engine = SyncEngine(api: api, store: sync)
+        engine.start()
+        let vm = PlayerViewModel(
+            apiClient: FakePlayerAPI(), modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: engine,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Video", playerSyncWait: .milliseconds(50)
+        )
+
+        await vm.prepareResume()
+
+        XCTAssertEqual(vm.currentEpisodeIndex, 2)
+        engine.stop()
+    }
+
+    @MainActor
+    func testCheckpointSavesAndFlushes() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        let api = FakeSyncAPI()
+        let engine = SyncEngine(api: api, store: sync)
+        engine.start()
+        let vm = PlayerViewModel(
+            apiClient: FakePlayerAPI(), modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: engine,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Video"
+        )
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+        vm.onTimeUpdate(current: 33, total: 120)
+
+        vm.checkpoint(current: 34, duration: 120)
+        await waitUntil { !api.pushes.isEmpty }
+
+        XCTAssertEqual(sync.watch(title: "Video")?.progressSec, 34)
+        XCTAssertEqual(api.pushes.first?.changes.first?.kind, .watch)
+        engine.stop()
+    }
+
+    @MainActor
+    func testAPauseTheAppDidNotAskForCheckpoints() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        let api = FakeSyncAPI()
+        // The manual scheduler never fires, so only the checkpoint can push.
+        //
+        // 手动调度器不会自动触发, 因此只有检查点会推送.
+        let scheduler = FakeSyncScheduler()
+        let engine = SyncEngine(api: api, store: sync, schedule: scheduler.scheduler)
+        engine.start()
+        let vm = PlayerViewModel(
+            apiClient: FakePlayerAPI(), modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: engine,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Video"
+        )
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+        sync.upsert(.watch(WatchPayload(title: "Video", sourceKey: "s1", videoId: "video-1", progressSec: 31, durationSec: 120)))
+
+        vm.refreshTransportState(.playing)
+        vm.refreshTransportState(.waitingToPlayAtSpecifiedRate)
+        // Give a wrongly triggered flush Task the chance to run before asserting.
+        //
+        // 断言前让误触发的补写 Task 有机会运行.
+        try? await Task.sleep(for: .milliseconds(50))
+        XCTAssertTrue(api.pushes.isEmpty)
+        vm.refreshTransportState(.playing)
+        vm.refreshTransportState(.paused)
+        await waitUntil { !api.pushes.isEmpty }
+
+        XCTAssertEqual(api.pushes.first?.changes.first?.kind, .watch)
+        engine.stop()
+    }
+
+    @MainActor
+    func testAnUnchangedPositionIsNotWrittenAgain() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeTickingSyncStore(container)
+        let vm = PlayerViewModel(
+            apiClient: FakePlayerAPI(), modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: nil,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Video"
+        )
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+
+        vm.checkpoint(current: 34.2, duration: 120)
+        let written = try XCTUnwrap(sync.record(.watch, key: "Video")?.eventTimeMs)
+        vm.checkpoint(current: 34.6, duration: 120)
+        XCTAssertEqual(sync.record(.watch, key: "Video")?.eventTimeMs, written)
+        vm.checkpoint(current: 35.1, duration: 120)
+        XCTAssertGreaterThan(try XCTUnwrap(sync.record(.watch, key: "Video")?.eventTimeMs), written)
+    }
+
+    @MainActor
+    func testANonFinitePositionWritesNoCheckpoint() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        let vm = PlayerViewModel(
+            apiClient: FakePlayerAPI(), modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: nil,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Video"
+        )
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+
+        vm.onTimeUpdate(current: .nan, total: 120)
+        vm.onTimeUpdate(current: .infinity, total: 120)
+        vm.onTimeUpdate(current: 10, total: .nan)
+
+        XCTAssertNil(sync.watch(title: "Video"))
+    }
+
+    @MainActor
+    func testEndOfTheLastEpisodeIsFinishedPushedAndNotOverwritten() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        let api = FakeSyncAPI()
+        // The manual scheduler never fires, so only the end of the episode can push.
+        //
+        // 手动调度器不会自动触发, 因此只有播放结束会推送.
+        let scheduler = FakeSyncScheduler()
+        let engine = SyncEngine(api: api, store: sync, schedule: scheduler.scheduler)
+        engine.start()
+        let vm = PlayerViewModel(
+            apiClient: FakePlayerAPI(), modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: engine,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Video"
+        )
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+        // The last checkpoint is well before the end, so it is not finished yet.
+        //
+        // 最近一次检查点离片尾很远, 因此尚未看完.
+        vm.onTimeUpdate(current: 100, total: 1000)
+        XCTAssertEqual(sync.watch(title: "Video")?.completed, false)
+
+        vm.handlePlaybackEnded()
+        await waitUntil { !api.pushes.isEmpty }
+
+        XCTAssertEqual(sync.watch(title: "Video")?.completed, true)
+        XCTAssertEqual(sync.watch(title: "Video")?.progressSec, 1000)
+        XCTAssertEqual(api.pushes.first?.changes.first?.kind, .watch)
+
+        // A late checkpoint from the ended item must not turn the record back into unfinished.
+        //
+        // 已结束 item 迟到的检查点不能把记录改回未看完.
+        vm.checkpoint(current: 100, duration: 1000)
+        vm.onTimeUpdate(current: 999, total: 1000)
+        XCTAssertEqual(sync.watch(title: "Video")?.completed, true)
+        engine.stop()
+    }
+
+    @MainActor
+    func testScrubbingBackAfterTheLastEpisodeEndedRecordsTheRewatch() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        let vm = PlayerViewModel(
+            apiClient: FakePlayerAPI(), modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: nil,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Video"
+        )
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+        vm.onTimeUpdate(current: 100, total: 1000)
+        vm.handlePlaybackEnded()
+        XCTAssertEqual(sync.watch(title: "Video")?.completed, true)
+
+        vm.onTimeUpdate(current: 200, total: 1000)
+
+        XCTAssertEqual(sync.watch(title: "Video")?.completed, false)
+        XCTAssertEqual(sync.watch(title: "Video")?.progressSec, 200)
+    }
+
+    @MainActor
+    func testTheOutgoingItemDoesNotCheckpointUnderTheNewEpisode() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        let api = FakePlayerAPI()
+        api.detailResponse.episodes = [[
+            Episode(name: "EP1", url: "https://cdn.example/1.m3u8"),
+            Episode(name: "EP2", url: "https://cdn.example/2.m3u8"),
+        ]]
+        let vm = PlayerViewModel(
+            apiClient: api, modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: nil,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Video"
+        )
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+        vm.onTimeUpdate(current: 100, total: 2700)
+
+        // No suspension point follows, so the new item has not been attached yet.
+        //
+        // 之后没有挂起点, 因此新 item 尚未挂载.
+        vm.switchEpisode(1)
+        vm.onTimeUpdate(current: 2700, total: 2700)
+        vm.refreshTransportState(.playing)
+        vm.refreshTransportState(.paused)
+
+        XCTAssertEqual(sync.watch(title: "Video")?.episodeIndex, 0)
+        XCTAssertEqual(sync.watch(title: "Video")?.progressSec, 100)
+    }
+
+    @MainActor
+    private func makeSwitchFixture(episodes: Int = 3, skipOutroSeconds: Int = 0) async throws -> (PlayerViewModel, FakePlayerAPI, SyncStore) {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        let api = FakePlayerAPI()
+        api.echoPlaybackURL = true
+        api.detailResponse.episodes = [(1...episodes).map { Episode(name: "EP\($0)", url: "https://cdn.example/\($0).m3u8") }]
+        let vm = PlayerViewModel(
+            apiClient: api, modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: nil,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Video"
+        )
+        vm.skipOutroSeconds = skipOutroSeconds
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+        return (vm, api, sync)
+    }
+
+    @MainActor
+    func testTheOutgoingItemEnteringTheOutroDoesNotMoveThePick() async throws {
+        let (vm, _, _) = try await makeSwitchFixture(skipOutroSeconds: 30)
+
+        // No suspension point follows, so the new item has not been attached yet.
+        //
+        // 之后没有挂起点, 因此新 item 尚未挂载.
+        vm.switchEpisode(1)
+        vm.onTimeUpdate(current: 2680, total: 2700)
+
+        XCTAssertEqual(vm.currentEpisodeIndex, 1)
+    }
+
+    @MainActor
+    func testTheOutgoingItemEndingDoesNotMoveThePick() async throws {
+        let (vm, _, _) = try await makeSwitchFixture()
+
+        vm.switchEpisode(1)
+        vm.handleItemEnded()
+
+        XCTAssertEqual(vm.currentEpisodeIndex, 1)
+    }
+
+    @MainActor
+    func testTheOutgoingItemFailingDoesNotDropThePickedSource() async throws {
+        let (vm, _, _) = try await makeSwitchFixture(episodes: 2)
+
+        vm.switchEpisode(1)
+        await vm.handleItemError("outgoing item failed")
+
+        XCTAssertEqual(vm.currentEpisodeIndex, 1)
+        XCTAssertEqual(vm.currentLineIndex, 0)
+        XCTAssertEqual(vm.sources.map(\.sourceKey), ["s1"])
+        XCTAssertNil(vm.error)
+    }
+
+    @MainActor
+    func testAnItemErrorWithoutASwitchStillFallsBack() async throws {
+        let (vm, _, _) = try await makeSwitchFixture(episodes: 2)
+
+        await vm.handleItemError("load failed")
+
+        XCTAssertEqual(vm.error, "All sources failed")
+        XCTAssertTrue(vm.sources.isEmpty)
+    }
+
+    @MainActor
+    func testAStalePlaybackReplyNeverAttaches() async throws {
+        let (vm, api, _) = try await makeSwitchFixture()
+        let gate = SyncTestGate()
+        api.playbackGates["https://cdn.example/2.m3u8"] = gate
+
+        vm.switchEpisode(1)
+        await waitUntil { gate.waiting == 1 }
+        vm.switchEpisode(2)
+        await waitUntil { vm.player != nil }
+        let attached = (vm.player?.currentItem?.asset as? AVURLAsset)?.url.lastPathComponent
+        XCTAssertEqual(attached, "3.m3u8")
+
+        // The first pick's reply arrives last.
+        //
+        // 第一次选择的响应最后才到达.
+        gate.open()
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(vm.currentEpisodeIndex, 2)
+        XCTAssertEqual((vm.player?.currentItem?.asset as? AVURLAsset)?.url.lastPathComponent, "3.m3u8")
+    }
+
+    @MainActor
+    func testTheFirstTickOfANewItemDoesNotWriteACheckpoint() async throws {
+        let (vm, _, sync) = try await makeSwitchFixture()
+        vm.onTimeUpdate(current: 100, total: 2700)
+
+        vm.switchEpisode(1)
+        await waitUntil { vm.player != nil }
+        vm.onTimeUpdate(current: 1, total: 2700)
+
+        XCTAssertEqual(sync.watch(title: "Video")?.episodeIndex, 0)
+        XCTAssertEqual(sync.watch(title: "Video")?.progressSec, 100)
+    }
+
+    @MainActor
+    func testResumeLooksUpTheRecordByTheDetailTitle() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        sync.upsert(.watch(WatchPayload(title: "Detail Title", sourceKey: "s1", videoId: "video-1", groupIndex: 0,
+                                        episodeIndex: 1, progressSec: 45, durationSec: 120)))
+        let api = FakePlayerAPI()
+        api.detailResponse = VideoDetail(
+            id: "video-1", title: "Detail Title", type: "movie", year: "2026", cover: "", desc: "", director: "",
+            actor: "", area: "",
+            episodes: [[Episode(name: "EP1", url: "https://cdn.example/1.m3u8"),
+                        Episode(name: "EP2", url: "https://cdn.example/2.m3u8")]]
+        )
+        let vm = PlayerViewModel(
+            apiClient: api, modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: nil,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Navigation Title", initialEpisodeIndex: 1
+        )
+
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+
+        XCTAssertEqual(vm.startTimeForCurrentSelection(), 45)
+    }
+
+    @MainActor
+    func testAnErrorAfterTheLastEpisodeFinishedKeepsItFinished() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        let api = FakePlayerAPI()
+        api.detailResponse.episodes = [
+            [Episode(name: "EP1", url: "https://cdn.example/1.m3u8")],
+            [Episode(name: "EP1", url: "https://cdn.example/1b.m3u8")],
+        ]
+        let vm = PlayerViewModel(
+            apiClient: api, modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: nil,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Video"
+        )
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+        vm.onTimeUpdate(current: 990, total: 1000)
+
+        await vm.handlePlaybackError()
+
+        XCTAssertEqual(vm.currentLineIndex, 0)
+        XCTAssertEqual(sync.watch(title: "Video")?.completed, true)
+        XCTAssertEqual(sync.watch(title: "Video")?.progressSec, 1000)
+    }
+
+    @MainActor
+    func testLineFallbackPushesTheOutgoingPositionAndDetaches() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        let api = FakeSyncAPI()
+        let scheduler = FakeSyncScheduler()
+        let engine = SyncEngine(api: api, store: sync, schedule: scheduler.scheduler)
+        engine.start()
+        let playerAPI = FakePlayerAPI()
+        playerAPI.detailResponse.episodes = [
+            [Episode(name: "EP1", url: "https://cdn.example/1.m3u8")],
+            [Episode(name: "EP1", url: "https://cdn.example/1b.m3u8")],
+        ]
+        let vm = PlayerViewModel(
+            apiClient: playerAPI, modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: engine,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Video"
+        )
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+        vm.onTimeUpdate(current: 100, total: 1000)
+
+        await vm.handlePlaybackError()
+        vm.onTimeUpdate(current: 500, total: 1000)
+        await waitUntil { !api.pushes.isEmpty }
+
+        XCTAssertEqual(vm.currentLineIndex, 1)
+        XCTAssertEqual(sync.watch(title: "Video")?.groupIndex, 0)
+        XCTAssertEqual(sync.watch(title: "Video")?.progressSec, 100)
+        XCTAssertEqual(api.pushes.first?.changes.first?.kind, .watch)
+        engine.stop()
+    }
+
+    @MainActor
+    func testToggleFavoriteUsesTheSyncStore() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        let vm = PlayerViewModel(
+            apiClient: FakePlayerAPI(), modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: nil,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Video"
+        )
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+        XCTAssertFalse(vm.isFavorited)
+        vm.toggleFavorite()
+        XCTAssertTrue(vm.isFavorited)
+        XCTAssertEqual(sync.favoriteItems.first?.sourceKey, "s1")
+        vm.toggleFavorite()
+        XCTAssertFalse(vm.isFavorited)
+    }
 
 	@MainActor
     func testInitialPlaybackState() throws {
@@ -712,6 +1217,7 @@ final class PlayerViewModelTests: XCTestCase {
     @MainActor
     func testCoverHintFillsMissingDetailCoverForWatchHistory() async throws {
         let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
         let api = FakePlayerAPI()
         api.detailResponse = VideoDetail(
             id: "video-1", title: "Video", type: "show", year: "2026",
@@ -722,6 +1228,7 @@ final class PlayerViewModelTests: XCTestCase {
             apiClient: api,
             modelContext: container.mainContext,
             serverURL: "https://kmtv.example",
+            syncStore: sync,
             sources: [SourceResult(
                 sourceKey: "source-a",
                 sourceName: "Source A",
@@ -738,9 +1245,9 @@ final class PlayerViewModelTests: XCTestCase {
         let ok = await vm.loadDetail(sourceKey: "source-a", videoId: "video-1")
         vm.onTimeUpdate(current: 10, total: 120)
 
-        let history = WatchHistoryItem.recent(in: container.mainContext, serverURL: "https://kmtv.example")
+        let history = sync.watch(title: "Video")
         XCTAssertTrue(ok)
         XCTAssertEqual(vm.detail?.cover, "https://img.example/cover.jpg")
-        XCTAssertEqual(history.first?.cover, "https://img.example/cover.jpg")
+        XCTAssertEqual(history?.cover, "https://img.example/cover.jpg")
     }
 }

@@ -6,6 +6,10 @@ const viewer = {
     placeholder: "输入电影或剧集名称",
     submit: "搜索",
     inputLabel: "搜索关键词",
+    history: {
+      title: "最近搜索",
+      clear: "清空",
+    },
     failed: "搜索失败",
     failedDescription: "请稍后重试, 或换一个关键词.",
     retry: "重试",
@@ -78,7 +82,6 @@ const viewer = {
       clearConfirm: "清空",
       clearPending: "正在清空",
       clearCancel: "取消",
-      clearErrorTitle: "无法清空观看记录",
     },
     rails: {
       "热门电影": "热门电影",
@@ -106,6 +109,7 @@ const viewer = {
     title: "收藏",
     empty: "暂无收藏内容.",
     emptyTitle: "还没有收藏",
+    full: "收藏已满, 请先删除一些再添加.",
     emptyDescription: "从搜索结果中收藏影片后会出现在这里.",
     emptyAction: "去搜索",
     summary: "{{count}} 个保存内容",

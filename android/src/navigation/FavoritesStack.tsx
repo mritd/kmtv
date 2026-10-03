@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import { useTheme } from "@/designSystem/useTheme";
 import { FavoritesScreen } from "@/features/Favorites/FavoritesScreen";
 import { PlayerScreen } from "@/features/Playback/PlayerScreen";
+import { SearchScreen } from "@/features/Search/SearchScreen";
 
 import type { FavoritesStackParamList } from "./types";
 
@@ -30,6 +31,7 @@ export function FavoritesStack() {
       }}
     >
       <Stack.Screen name="FavoritesRoot" component={FavoritesScreen} options={{ title: t("title") }} />
+      <Stack.Screen name="Search" component={SearchScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Player" component={PlayerScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );

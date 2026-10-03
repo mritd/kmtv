@@ -7,6 +7,7 @@ struct PlayerView: View {
 
     @Environment(AppViewModel.self) private var appVM
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: PlayerViewModel?
     @State private var isDescExpanded = false
     @State private var showControls = false
@@ -34,14 +35,14 @@ struct PlayerView: View {
             if viewModel == nil, let client = appVM.apiClient {
                 let vm = PlayerViewModel(
 					apiClient: client, modelContext: modelContext, serverURL: appVM.serverURL,
-					userID: Int64(appVM.currentUser?.id ?? 0),
+					syncStore: appVM.sync?.store, syncEngine: appVM.sync?.engine,
                     sources: destination.sources, sourceKey: destination.sourceKey,
                     videoId: destination.videoId, title: destination.title,
                     coverHint: destination.coverHint,
                     initialEpisodeIndex: destination.resumeIntent?.episodeIndex
 				)
 				viewModel = vm
-				await vm.loadRemoteWatchHistory()
+				await vm.prepareResume()
 				let resumeVideoID = vm.currentVideoID.isEmpty ? destination.videoId : vm.currentVideoID
 				let ok = await vm.loadDetail(sourceKey: vm.currentSourceKey, videoId: resumeVideoID)
                 guard !Task.isCancelled else { return }
@@ -54,6 +55,12 @@ struct PlayerView: View {
         }
         .onAppear {
             viewModel?.resume()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Checkpoint before the app is suspended; the session flush may run before this one.
+            //
+            // 应用挂起前保存进度; 会话级补写可能先于这里执行.
+            if phase == .background { viewModel?.checkpoint() }
         }
         .onDisappear {
             hideControlsTask?.cancel()

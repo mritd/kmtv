@@ -1,26 +1,36 @@
 import Foundation
-import SwiftData
 
+/// Favorites screen state backed by the sync store.
+///
+/// 基于同步存储的收藏页状态.
 @Observable
 @MainActor
 final class FavoritesViewModel {
-    var favorites: [FavoriteItem] = []
+    private let syncStore: SyncStore?
+    private let syncEngine: SyncEngine?
 
-    private let modelContext: ModelContext
-    private let serverURL: String
+    /// Favorites, newest first.
+    ///
+    /// 收藏列表, 最新的在前.
+    var favorites: [FavoritePayload] { syncStore?.favoriteItems ?? [] }
 
-    init(modelContext: ModelContext, serverURL: String) {
-        self.modelContext = modelContext
-        self.serverURL = serverURL
+    init(syncStore: SyncStore?, syncEngine: SyncEngine?) {
+        self.syncStore = syncStore
+        self.syncEngine = syncEngine
     }
 
+    /// Requests a throttled page sync when the screen appears.
+    ///
+    /// 页面出现时请求一次限频的页面同步.
     func load() {
-        favorites = FavoriteItem.all(in: modelContext, serverURL: serverURL)
+        guard let syncEngine else { return }
+        Task { await syncEngine.requestSync(.page) }
     }
 
-    func remove(_ item: FavoriteItem) {
-        modelContext.delete(item)
-        try? modelContext.save()
-        load()
+    /// Removes a favorite on every device.
+    ///
+    /// 在所有设备上删除一个收藏.
+    func remove(_ item: FavoritePayload) {
+        syncStore?.remove(.favorite, key: item.title)
     }
 }

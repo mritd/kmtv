@@ -3132,3 +3132,50 @@ select:focus {
   width: 60%;
   height: 60%;
 }
+
+/* Recent searches reuse the category chip look under the search form. */
+.search-history {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  margin-top: 18px;
+}
+
+/* Lets long history chips shrink instead of widening the search column. */
+.search-panel {
+  min-width: 0;
+}
+
+.search-history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.search-history-heading h2 {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.search-history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.search-history-list .category-chip {
+  max-width: min(100%, 32rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.search-history-list > li {
+  min-width: 0;
+  max-width: 100%;
+}

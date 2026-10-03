@@ -5,6 +5,7 @@ const favorites = {
   title: "Favorites",
   empty: { title: "No Favorites", description: "Videos you favorite will appear here" },
   actions: { remove: "Remove" },
+  full: "Favorites are full. Remove some before adding more.",
   meta: { typeYear: "{{type}} | {{year}}" },
 } as const;
 

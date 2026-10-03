@@ -29,8 +29,16 @@ func TestMain(m *testing.M) {
 // and a gin.Engine with all routes registered.
 func setupTestHandler(t *testing.T) (*Handler, *gin.Engine) {
 	t.Helper()
+	return setupTestHandlerAt(t, ":memory:")
+}
 
-	s, err := store.New(":memory:")
+// setupTestHandlerAt builds a handler over a store opened at dsn.
+//
+// setupTestHandlerAt 基于在 dsn 打开的存储构建 handler.
+func setupTestHandlerAt(t *testing.T, dsn string) (*Handler, *gin.Engine) {
+	t.Helper()
+
+	s, err := store.New(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}

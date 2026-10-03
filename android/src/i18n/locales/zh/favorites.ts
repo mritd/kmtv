@@ -4,6 +4,7 @@ const favorites = {
   title: "收藏",
   empty: { title: "暂无收藏", description: "收藏的视频会显示在这里" },
   actions: { remove: "移除" },
+  full: "收藏已满, 请先删除一些再添加.",
   meta: { typeYear: "{{type}} | {{year}}" },
 } as const;
 

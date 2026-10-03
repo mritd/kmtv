@@ -4,7 +4,6 @@ import SkeletonUI
 
 struct SearchView: View {
     @Environment(AppViewModel.self) private var appVM
-    @Environment(\.modelContext) private var modelContext
     @State private var viewModel: SearchViewModel?
     @State private var coverHint = ""
     @State private var resumeIntent: EpisodeResumeIntent?
@@ -47,9 +46,9 @@ struct SearchView: View {
         #endif
         .task {
             if viewModel == nil, let client = appVM.apiClient {
-                let vm = SearchViewModel(apiClient: client, modelContext: modelContext, serverURL: appVM.serverURL)
+                let vm = SearchViewModel(apiClient: client, syncStore: appVM.sync?.store, syncEngine: appVM.sync?.engine)
                 viewModel = vm
-                vm.loadHistory()
+                vm.refreshHistory()
                 #if os(tvOS)
                 if let search = pendingSearch, !search.query.isEmpty {
                     pendingSearch = nil
@@ -60,6 +59,11 @@ struct SearchView: View {
                     await runSearch(initialSearch, with: vm)
                 }
                 #endif
+            } else {
+                // Every later visit requests another throttled page sync.
+                //
+                // 之后每次进入页面都会再请求一次限频的页面同步.
+                viewModel?.refreshHistory()
             }
         }
         #if os(tvOS)
@@ -119,7 +123,7 @@ struct TVSearchContentView: View {
         .onSubmit(of: .search) {
             coverHint = ""
             resumeIntent = nil
-            Task { await viewModel.search() }
+            Task { await viewModel.submitSearch() }
         }
     }
 
@@ -221,7 +225,7 @@ struct SearchContentView: View {
                     onSubmit: {
                         coverHint = ""
                         resumeIntent = nil
-                        Task { await viewModel.search() }
+                        Task { await viewModel.submitSearch() }
                     }
                 )
                 .frame(height: 22)
@@ -449,7 +453,7 @@ struct SearchContentView: View {
                         Button {
                             coverHint = ""
                             resumeIntent = nil
-                            Task { await viewModel.search(query: item.query) }
+                            Task { await viewModel.submitSearch(query: item.query) }
                         } label: {
                             Text(item.query)
                                 .font(.caption)

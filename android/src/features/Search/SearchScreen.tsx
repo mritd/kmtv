@@ -1,8 +1,8 @@
-// SearchScreen — input + SSE-driven streaming search + sync fallback + server-scoped history chips.
+// SearchScreen — input + SSE-driven streaming search + sync fallback + synced history chips.
 //
-// SearchScreen — 输入框 + SSE 流式搜索 + 同步回退 + 按服务器隔离的历史胶囊.
+// SearchScreen — 输入框 + SSE 流式搜索 + 同步回退 + 同步的历史胶囊.
 
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from "react";
@@ -24,11 +24,16 @@ import { useTheme } from "@/designSystem/useTheme";
 import type { HomeStackParamList, SearchResumeHint, SearchRouteParams } from "@/navigation/types";
 import { useAuthStore } from "@/store/authStore";
 import { useServerStore } from "@/store/serverStore";
-import {
-  addSearchHistory, clearSearchHistory, loadSearchHistory, type SearchHistoryItem,
-} from "@/storage/searchHistory";
+import { useSync, useSyncList } from "@/sync/SyncContext";
 
 import { SearchHistoryFlow } from "./SearchHistoryFlow";
+
+/**
+ * SEARCH_HISTORY_VISIBLE is the number of recent searches shown as chips.
+ *
+ * SEARCH_HISTORY_VISIBLE 是以胶囊形式显示的最近搜索数量.
+ */
+export const SEARCH_HISTORY_VISIBLE = 20;
 
 export interface SearchScreenContextValue {
   api: SearchAPI;
@@ -60,7 +65,6 @@ interface State {
   results: SearchResult[];
   progress: Partial<Record<"searching" | "probing", SearchProgress>>;
   errorMessage: string;
-  history: SearchHistoryItem[];
 }
 
 type Action =
@@ -69,7 +73,6 @@ type Action =
   | { type: "progress"; payload: SearchProgress }
   | { type: "success"; results: SearchResult[] }
   | { type: "error"; message: string }
-  | { type: "setHistory"; items: SearchHistoryItem[] }
   | { type: "reset"; query: string };
 
 function reducer(state: State, action: Action): State {
@@ -87,7 +90,6 @@ function reducer(state: State, action: Action): State {
     }
     case "success": return { ...state, status: "success", results: action.results };
     case "error": return { ...state, status: "error", errorMessage: action.message };
-    case "setHistory": return { ...state, history: action.items };
     default: return state;
   }
 }
@@ -164,8 +166,19 @@ function Inner({ api, serverURL, initialQuery, resumeHint }: InnerProps) {
     results: [],
     progress: {},
     errorMessage: "",
-    history: loadSearchHistory(serverURL),
   });
+  const sync = useSync();
+  const engine = sync.status === "ready" ? sync.engine : null;
+  useFocusEffect(
+    useCallback(() => {
+      void engine?.requestSync("page");
+    }, [engine]),
+  );
+  const recentSearches = useSyncList("search");
+  const historyItems = useMemo(
+    () => recentSearches.slice(0, SEARCH_HISTORY_VISIBLE).map((record) => ({ query: record.payload.query })),
+    [recentSearches],
+  );
   const controllerRef = useRef<AbortController | null>(null);
   const resumeKey = resumeHint
 		? `${resumeHint.title}:${resumeHint.sourceKey}:${resumeHint.videoId}:${resumeHint.groupIndex}:${resumeHint.episodeIndex}:${resumeHint.episodeName}`
@@ -178,8 +191,6 @@ function Inner({ api, serverURL, initialQuery, resumeHint }: InnerProps) {
     const controller = new AbortController();
     controllerRef.current = controller;
     dispatch({ type: "submit", query: trimmed });
-    addSearchHistory(serverURL, trimmed);
-    dispatch({ type: "setHistory", items: loadSearchHistory(serverURL) });
 
     try {
       const response = await api.searchStream(
@@ -207,7 +218,7 @@ function Inner({ api, serverURL, initialQuery, resumeHint }: InnerProps) {
         dispatch({ type: "error", message });
       }
     }
-  }, [api, serverURL, t]);
+  }, [api, t]);
 
   useEffect(() => {
     // Re-fire whenever the navigation search context changes. native-stack reuses the SAME Search
@@ -223,16 +234,25 @@ function Inner({ api, serverURL, initialQuery, resumeHint }: InnerProps) {
       dispatch({ type: "reset", query: "" });
     }
     return () => { controllerRef.current?.abort(); };
-    // runSearch is stable for the screen's lifetime (deps are api, serverURL, t); intentionally omitted.
+    // runSearch is stable for the screen's lifetime (deps are api, t); intentionally omitted.
     //
-    // runSearch 在该屏幕生命期内稳定 (deps 是 api, serverURL, t), 故意不放进依赖.
+    // runSearch 在该屏幕生命期内稳定 (deps 是 api, t), 故意不放进依赖.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuery, resumeKey]);
 
   const onClearHistory = useCallback(() => {
-    clearSearchHistory(serverURL);
-    dispatch({ type: "setHistory", items: [] });
-  }, [serverURL]);
+    if (sync.status === "ready") sync.store.clear("search");
+  }, [sync]);
+
+  // recordSearch saves a query the user submitted (the input or a history chip). A query that
+  // arrives through navigation (a poster, continue watching, a favorite) is searched but not recorded.
+  //
+  // recordSearch 保存用户主动提交的查询 (输入框或历史胶囊). 通过导航传入的查询 (海报, 继续观看,
+  // 收藏) 会执行搜索, 但不会记录.
+  const recordSearch = useCallback((raw: string) => {
+    const trimmed = raw.trim();
+    if (trimmed && sync.status === "ready") sync.store.upsert("search", { query: trimmed });
+  }, [sync]);
 
   const clearQuery = useCallback(() => {
     controllerRef.current?.abort();
@@ -241,12 +261,14 @@ function Inner({ api, serverURL, initialQuery, resumeHint }: InnerProps) {
 
   const onSelectHistory = useCallback((q: string) => {
     dispatch({ type: "setQuery", value: q });
+    recordSearch(q);
     void runSearch(q);
-  }, [runSearch]);
+  }, [recordSearch, runSearch]);
 
   const submitCurrentQuery = useCallback(() => {
+    recordSearch(state.query);
     void runSearch(state.query);
-  }, [runSearch, state.query]);
+  }, [recordSearch, runSearch, state.query]);
 
   const onResultPress = useCallback((result: SearchResult) => {
     const matchingResume = resumeHint && normalizeTitle(result.title) === normalizeTitle(resumeHint.title)
@@ -346,7 +368,7 @@ function Inner({ api, serverURL, initialQuery, resumeHint }: InnerProps) {
         </View>
       ) : null}
       {showHistory ? (
-        <SearchHistoryFlow history={state.history} onSelect={onSelectHistory} onClear={onClearHistory} />
+        <SearchHistoryFlow history={historyItems} onSelect={onSelectHistory} onClear={onClearHistory} />
       ) : null}
       {showResults ? (
         <FlatList

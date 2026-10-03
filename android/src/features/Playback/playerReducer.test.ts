@@ -75,6 +75,17 @@ test("switchSource sets sourceKey, resets lineIndex to 0", () => {
   expect(next.currentLineIndex).toBe(0);
 });
 
+test("switching the episode, line, or source resets the playback position", () => {
+  const playing = seed({ sources: [src("a"), src("b")], currentTime: 2699.5, duration: 2700 });
+  for (const action of [
+    { type: "switchEpisode", index: 1 },
+    { type: "switchLine", index: 1 },
+    { type: "switchSource", sourceKey: "b" },
+  ] as const) {
+    expect(playerReducer(playing, action)).toMatchObject({ currentTime: 0, duration: 0 });
+  }
+});
+
 test("removeSource drops the matching source, leaves currentSourceKey alone", () => {
   const next = playerReducer(
     seed({ sources: [src("a"), src("b"), src("c")] }),

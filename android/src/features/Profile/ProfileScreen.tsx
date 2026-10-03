@@ -5,13 +5,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import React, { createContext, useContext, useEffect, useMemo } from "react";
+import React, { createContext, useContext, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { createAuthAPI, type AuthAPI } from "@/api/auth";
 import { createAPIClient, type APIClient } from "@/api/client";
-import { createWatchHistoryAPI, type WatchHistoryAPI } from "@/api/history";
 import { useTheme } from "@/designSystem/useTheme";
 import type { ProfileStackParamList } from "@/navigation/types";
 import { useAuthStore } from "@/store/authStore";
@@ -31,7 +30,6 @@ import { useProfile } from "./useProfile";
 export interface ProfileScreenContextValue {
   apiClient: APIClient;
   auth: AuthAPI;
-  historyAPI?: WatchHistoryAPI;
 }
 
 /**
@@ -50,7 +48,7 @@ function useDefaultContext(): ProfileScreenContextValue | null {
       getToken: () => useAuthStore.getState().token,
       onUnauthorized: () => useAuthStore.getState().handleAuthExpired(),
     });
-    return { apiClient: client, auth: createAuthAPI(client), historyAPI: createWatchHistoryAPI(client) };
+    return { apiClient: client, auth: createAuthAPI(client) };
   }, [serverURL]);
 }
 
@@ -69,9 +67,7 @@ function ProfileInner({ ctx }: { ctx: ProfileScreenContextValue }) {
   const logout = useAuthStore((s) => s.logout);
   const serverURL = useServerStore((s) => s.serverURL) ?? "";
 
-  const profile = useProfile({ auth: ctx.auth, historyAPI: ctx.historyAPI, user, serverURL, onUserChanged: updateUser });
-
-  useEffect(() => { profile.refreshWatchCount(); }, [profile]);
+  const profile = useProfile({ auth: ctx.auth, user, onUserChanged: updateUser });
 
   const isAnonymous = !user || user.id === 0;
 

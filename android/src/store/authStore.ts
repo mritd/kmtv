@@ -9,6 +9,7 @@ import { createAuthAPI, type AuthAPI } from "../api/auth";
 import { createAPIClient, type APIClient } from "../api/client";
 import type { User } from "../api/types";
 import { clearToken, loadToken, saveToken } from "../storage/secureStore";
+import { stopActiveSyncEngine } from "../sync/activeSyncEngine";
 import { useServerStore } from "./serverStore";
 
 /**
@@ -142,6 +143,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
+    // Stop syncing before the server call, so no push runs with a token that is being revoked.
+    //
+    // 在请求服务端之前停止同步, 避免使用正在注销的 token 推送.
+    stopActiveSyncEngine();
     const baseURL = useServerStore.getState().serverURL;
     if (baseURL) {
       const client = makeClient(baseURL, () => get().token);

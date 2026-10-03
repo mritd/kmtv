@@ -5,7 +5,7 @@
  * PlaybackPanel 测试覆盖 ArtPlayer 生命周期, 进度检查点时机, 恢复 seek 抑制和延迟 HLS 初始化的拆卸竞争.
  */
 
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PlaybackState } from "./playbackState";
@@ -79,7 +79,7 @@ describe("PlaybackPanel", () => {
     expect(artplayerMock.instances[0]?.destroy).toHaveBeenCalledWith(false);
   });
 
-  it("persists playback position at most once per thirty seconds and flushes on teardown", async () => {
+  it("persists playback position every five seconds and flushes on teardown", async () => {
     vi.useFakeTimers();
     const onPositionChange = vi.fn();
     const instanceIndex = artplayerMock.instances.length;
@@ -101,7 +101,7 @@ describe("PlaybackPanel", () => {
     instance.duration = 120;
 
     act(() => {
-      vi.advanceTimersByTime(29_999);
+      vi.advanceTimersByTime(4_999);
     });
     expect(onPositionChange).not.toHaveBeenCalled();
 
@@ -109,10 +109,11 @@ describe("PlaybackPanel", () => {
       vi.advanceTimersByTime(1);
     });
     expect(onPositionChange).toHaveBeenCalledTimes(1);
+    expect(onPositionChange).toHaveBeenLastCalledWith(10, 120, "interval");
 
     instance.currentTime = 20;
     view.unmount();
-    expect(onPositionChange).toHaveBeenLastCalledWith(20, 120);
+    expect(onPositionChange).toHaveBeenLastCalledWith(20, 120, "flush");
   });
 
   it("persists playback position immediately after a manual seek completes", async () => {
@@ -145,7 +146,7 @@ describe("PlaybackPanel", () => {
     });
 
     expect(onPositionChange).toHaveBeenCalledTimes(1);
-    expect(onPositionChange).toHaveBeenCalledWith(75, 120);
+    expect(onPositionChange).toHaveBeenCalledWith(75, 120, "flush");
   });
 
   it("does not persist the programmatic resume seek as a new user checkpoint", async () => {
@@ -187,7 +188,52 @@ describe("PlaybackPanel", () => {
       onSeeked?.();
       await Promise.resolve();
     });
-    expect(onPositionChange).toHaveBeenCalledWith(75, 120);
+    expect(onPositionChange).toHaveBeenCalledWith(75, 120, "flush");
+  });
+
+  it("reports hidden and pagehide checkpoints from listeners it removes on unmount", async () => {
+    const onPositionChange = vi.fn();
+    const instanceIndex = artplayerMock.instances.length;
+    const addListener = vi.spyOn(document, "addEventListener");
+    const removeListener = vi.spyOn(document, "removeEventListener");
+    const view = render(<PlaybackPanel state={readyState} onPlaying={vi.fn()} onRetry={vi.fn()} onPositionChange={onPositionChange} />);
+    await waitFor(() => expect(artplayerMock.instances[instanceIndex]).toBeDefined());
+    const player = artplayerMock.instances[instanceIndex]!;
+    player.currentTime = 30;
+    player.duration = 100;
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    try {
+      document.dispatchEvent(new Event("visibilitychange"));
+      expect(onPositionChange).toHaveBeenLastCalledWith(30, 100, "hidden");
+      window.dispatchEvent(new Event("pagehide"));
+      expect(onPositionChange).toHaveBeenLastCalledWith(30, 100, "pagehide");
+
+      // Capture keeps it ahead of SyncProvider's bubbling listener; removal must match it.
+      //
+      // 捕获阶段使其先于 SyncProvider 的冒泡监听器执行; 移除时必须使用相同选项.
+      const added = addListener.mock.calls.find(([type]) => type === "visibilitychange");
+      expect(added?.[2]).toEqual({ capture: true });
+      view.unmount();
+      expect(removeListener).toHaveBeenCalledWith("visibilitychange", added?.[1], { capture: true });
+    } finally {
+      visibility.mockRestore();
+      addListener.mockRestore();
+      removeListener.mockRestore();
+    }
+  });
+
+  it("flushes playback checkpoints on pause", async () => {
+    const onPositionChange = vi.fn();
+    const instanceIndex = artplayerMock.instances.length;
+    render(<PlaybackPanel state={readyState} onPlaying={vi.fn()} onRetry={vi.fn()} onPositionChange={onPositionChange} />);
+    await waitFor(() => expect(artplayerMock.instances[instanceIndex]).toBeDefined());
+    const player = artplayerMock.instances[instanceIndex]!;
+    player.currentTime = 30;
+    player.duration = 100;
+    const pauseHandler = player.on.mock.calls.find(([event]) => event === "video:pause")?.[1] as (() => void) | undefined;
+    expect(pauseHandler).toBeDefined();
+    pauseHandler!();
+    expect(onPositionChange).toHaveBeenCalledWith(30, 100, "flush");
   });
 
   // ArtPlayer defers customType by a macrotask — its url setter awaits sleep() before

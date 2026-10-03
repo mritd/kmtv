@@ -3,16 +3,17 @@
 // APIError 判别式联合类型, 所有网络失败都会映射为其中一种.
 
 /**
- * Discriminated union representing every API failure surface.
+ * Discriminated union representing every API failure surface. `status` is the HTTP status of server
+ * errors; sync uses 409 to detect an epoch mismatch.
  *
- * 表示所有 API 失败类型的判别式联合.
+ * 表示所有 API 失败类型的判别式联合. status 是服务端错误的 HTTP 状态码; 同步用 409 判断 epoch 不一致.
  */
 export type APIError =
   | { kind: "unauthorized" }
   | { kind: "invalidURL" }
   | { kind: "network" }
   | { kind: "timeout" }
-  | { kind: "server"; message: string };
+  | { kind: "server"; message: string; status?: number };
 
 /**
  * Helper namespace for construction and message extraction.
@@ -37,7 +38,7 @@ export const APIError = {
       //
       // body 非 JSON, 保留状态码兜底.
     }
-    return { kind: "server", message };
+    return { kind: "server", message, status: res.status };
   },
 } as const;
 

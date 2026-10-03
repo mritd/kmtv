@@ -211,3 +211,6 @@
 "Yes" = "是";
 "No" = "否";
 "N/A" = "N/A";
+
+/* Sync */
+"Favorites are full" = "收藏已满";

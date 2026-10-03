@@ -111,6 +111,13 @@ export interface AuthContextValue {
   isAnonymous: boolean;
   isAuthenticated: boolean;
   lastClearReason: AuthClearReason | null;
+  // currentUserID reads the user ID of the live token snapshot (null without a token). It can run
+  // ahead of `status`, which changes only after React re-renders; sync uses it to bind requests to
+  // the scope's user.
+  //
+  // currentUserID 读取当前 token 快照中的用户 ID (没有 token 时为 null). 它可能领先于 status,
+  // 因为 status 要等 React 重新渲染后才变化; 同步模块用它把请求绑定到作用域的用户.
+  currentUserID(): number | null;
   login(username: string, password: string): Promise<void>;
   logout(): Promise<void>;
   updateUser(user: User): void;
@@ -254,6 +261,8 @@ export function AuthProvider({
 
   useEffect(() => cancelProbe, [cancelProbe]);
 
+  const currentUserID = useCallback(() => tokenStore.get()?.user.id ?? null, [tokenStore]);
+
   const value = useMemo<AuthContextValue>(() => {
     const user =
       status.kind === "authenticated" || status.kind === "anonymous" ? status.user : null;
@@ -263,6 +272,7 @@ export function AuthProvider({
       isAnonymous: status.kind === "anonymous",
       isAuthenticated: status.kind === "authenticated",
       lastClearReason: tokenStore.lastClearReason(),
+      currentUserID,
       async login(username, password) {
         cancelProbe();
         await api.login(username, password);
@@ -283,7 +293,7 @@ export function AuthProvider({
         tokenStore.set({ ...current, user });
       },
     };
-  }, [status, api, tokenStore, cancelProbe]);
+  }, [status, api, tokenStore, cancelProbe, currentUserID]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
