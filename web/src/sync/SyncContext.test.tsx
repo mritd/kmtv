@@ -5,6 +5,7 @@
  */
 import { QueryClient } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { APIClient } from "@/api/client";
@@ -16,6 +17,8 @@ import { seedSyncStore } from "@/test/syncFixtures";
 
 import { SyncProvider, useSync, useSyncList } from "./SyncContext";
 import type { SyncStore } from "./syncStore";
+import type { SyncPullResponse } from "./types";
+import { useWatchResume } from "./useWatchResume";
 
 let readyStore: SyncStore | null = null;
 
@@ -33,19 +36,26 @@ function Probe() {
   );
 }
 
-function renderProvider(api: APIClient, signedIn: boolean) {
+function GateProbe() {
+  const { pending } = useWatchResume("Demo Show");
+  return <span data-testid="gate">{pending ? "pending" : "ready"}</span>;
+}
+
+function renderProvider(api: APIClient, signedIn: boolean, options: { strict?: boolean; children?: ReactNode } = {}) {
   const tokenStore = createMemoryTokenStore(
     signedIn ? { accessToken: "T", expiresAt: "2099-01-01T00:00:00Z", user: { id: 5, username: "alice", role: "user" } } : null,
   );
-  return render(
+  const tree = (
     <APIProvider value={api}>
       <AuthProvider api={api} tokenStore={tokenStore} queryClient={new QueryClient()}>
         <SyncProvider>
           <Probe />
+          {options.children}
         </SyncProvider>
       </AuthProvider>
-    </APIProvider>,
+    </APIProvider>
   );
+  return render(options.strict ? <StrictMode>{tree}</StrictMode> : tree);
 }
 
 afterEach(() => {
@@ -72,6 +82,37 @@ describe("SyncProvider", () => {
     expect(screen.getByTestId("scope")).toHaveTextContent(":5");
     expect(screen.getByTestId("engine")).toHaveTextContent("on");
     await waitFor(() => expect(syncPull).toHaveBeenCalled());
+  });
+
+  it("keeps the player gate waiting for the launch sync under StrictMode's effect replay", async () => {
+    // The replayed effects stop and restart the engine, so the launch cycle can pull more than once;
+    // releasing answers every pull, including later ones.
+    //
+    // 重放的 effect 会停止并重新启动引擎, 启动同步可能拉取不止一次; 放行后所有拉取都会得到响应,
+    // 包括之后的拉取.
+    const empty: SyncPullResponse = {
+      epoch: "e1", server_time_ms: Date.now(), rev: 0, reset: false, has_more: false, clears: [], records: [],
+    };
+    let released = false;
+    const waiting: Array<() => void> = [];
+    const releasePull = () => {
+      released = true;
+      for (const resolve of waiting.splice(0)) resolve();
+    };
+    const syncPull = vi.fn(() => new Promise<SyncPullResponse>((resolve) => {
+      if (released) resolve(empty);
+      else waiting.push(() => resolve(empty));
+    }));
+    renderProvider(createTestAPI({ syncPull }), true, { strict: true, children: <GateProbe /> });
+    await waitFor(() => expect(syncPull).toHaveBeenCalled());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(screen.getByTestId("gate")).toHaveTextContent("pending");
+    await act(async () => {
+      releasePull();
+    });
+    await waitFor(() => expect(screen.getByTestId("gate")).toHaveTextContent("ready"));
   });
 
   it("flushes with keepalive when the page is hidden", async () => {

@@ -14,7 +14,7 @@
  *
  * ADR refs: ADR-016 (unified offline-first sync)
  */
-import { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useAPI } from "@/api/context";
@@ -84,6 +84,22 @@ export function SyncProvider({ children, storage }: { children: ReactNode; stora
     return { status: "ready", store, engine };
   }, [api, kind, userID, username, storage, currentUserID]);
 
+  // The engine runs in a layout effect: React runs layout effects before any child's passive
+  // effects in the same commit, and replays them in that order under StrictMode, so a child that
+  // requests a sync on mount (the player gate) always finds the engine running and waits for the
+  // launch cycle.
+  //
+  // 引擎在 layout effect 中运行: 同一次提交中 React 会先执行 layout effect, 再执行任何子组件的
+  // passive effect, StrictMode 重放时顺序也相同, 因此挂载时请求同步的子组件 (播放器等待) 总能
+  // 看到运行中的引擎, 并等待启动同步.
+  useLayoutEffect(() => {
+    if (value.status !== "ready") return;
+    const { engine } = value;
+    engine?.start();
+    void engine?.requestSync("launch");
+    return () => engine?.stop();
+  }, [value]);
+
   useEffect(() => {
     if (value.status !== "ready") return;
     const { store, engine } = value;
@@ -95,8 +111,6 @@ export function SyncProvider({ children, storage }: { children: ReactNode; stora
       if (event.key === store.scopeKey || event.key === null) store.reload();
     };
     window.addEventListener("storage", onStorage);
-    engine?.start();
-    void engine?.requestSync("launch");
     const onVisibility = () => {
       if (document.visibilityState === "hidden") void engine?.flushNow({ keepalive: true });
       else void engine?.requestSync("foreground");
@@ -108,7 +122,6 @@ export function SyncProvider({ children, storage }: { children: ReactNode; stora
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("online", onOnline);
       window.removeEventListener("storage", onStorage);
-      engine?.stop();
     };
   }, [value, storage]);
 
