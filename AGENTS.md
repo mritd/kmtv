@@ -13,6 +13,50 @@ Architectural decisions are recorded in [`docs/ADR.md`](docs/ADR.md). Read it be
 
 The full server API contract is in [`docs/server_api.md`](docs/server_api.md) (English) and [`docs/server_api_cn.md`](docs/server_api_cn.md) (Chinese).
 
+## Project Memory System
+
+This project maintains institutional knowledge in `docs/project_notes/` for consistency across sessions.
+
+### Memory Files
+
+- **bugs.md** - Bug log with dates, root causes, solutions, and prevention notes
+- **decisions.md** - Index of the ADRs in `docs/ADR.md` plus smaller implementation choices
+- **key_facts.md** - Project configuration, ports, limits, paths, and check commands (never secrets)
+- **issues.md** - Work log by branch, with status, open items, and follow-ups
+
+### Memory-Aware Protocols
+
+**Before proposing architectural changes:**
+- Check `docs/ADR.md` and `docs/project_notes/decisions.md` for existing decisions
+- Verify the proposed approach doesn't conflict with past choices
+- If it does conflict, acknowledge the existing decision and explain why a change is warranted
+
+**When encountering errors or bugs:**
+- Search `docs/project_notes/bugs.md` for similar issues
+- Apply known solutions if found
+- Document new bugs and solutions when resolved
+
+**When looking up project configuration:**
+- Check `docs/project_notes/key_facts.md` for ports, limits, paths, and commands
+- Prefer documented facts over assumptions
+
+**When completing work:**
+- Log completed work in `docs/project_notes/issues.md`
+- Include the branch, date, brief description, and any open items
+
+**When the user requests memory updates:**
+- Update the appropriate memory file (bugs, decisions, key_facts, or issues)
+- Follow the established format and style (bullet lists, dates, concise entries)
+
+### Style Guidelines for Memory Files
+
+- **Prefer bullet lists over tables** for simplicity and ease of editing
+- **Keep entries concise** (1-3 lines for descriptions)
+- **Always include dates** for temporal context
+- **Include links** to ADRs, docs, or pull requests where they exist
+- **Never store secrets** (passwords, tokens, keys)
+- **Manual cleanup** of old entries is expected (not automated)
+
 ## Build And Test
 
 | Task                    | Command       |
