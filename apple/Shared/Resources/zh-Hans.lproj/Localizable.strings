@@ -221,7 +221,6 @@
 "Downloading %lld%%" = "下载中 %lld%%";
 "Waiting for network" = "等待网络";
 "Waiting for WiFi" = "等待 WiFi";
-"Sign in to continue" = "登录后继续";
 "Not enough storage" = "空间不足";
 "Paused" = "已暂停";
 "Downloaded" = "已下载";

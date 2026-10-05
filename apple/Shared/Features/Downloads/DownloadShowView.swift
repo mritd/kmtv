@@ -28,9 +28,9 @@ struct DownloadShowView: View {
             let episodes = downloads.episodes(in: scope, showKey: showKey)
             List {
                 Section { header(show, episodes: episodes) }
-                ForEach(Array(Dictionary(grouping: episodes, by: \.sourceName).keys).sorted(), id: \.self) { source in
-                    Section(source) {
-                        ForEach(episodes.filter { $0.sourceName == source }, id: \.episodeKey) { ep in
+                ForEach(Dictionary(grouping: episodes, by: \.sourceKey).sorted { $0.key < $1.key }, id: \.key) { _, group in
+                    Section(group.first?.sourceName ?? "") {
+                        ForEach(group, id: \.episodeKey) { ep in
                             row(ep, show: show)
                                 .swipeActions {
                                     Button("Delete", role: .destructive) { Task { await downloads.delete(ep) } }

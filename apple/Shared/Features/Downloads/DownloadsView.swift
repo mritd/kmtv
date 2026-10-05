@@ -71,6 +71,7 @@ struct DownloadsView: View {
                     Button("Delete", role: .destructive) {
                         let doomed = shows.filter { selection.contains($0.showKey) }
                         selection = []
+                        editMode = .inactive
                         Task { for show in doomed { await downloads.deleteShow(show) } }
                     }
                 }
@@ -80,6 +81,9 @@ struct DownloadsView: View {
         //
         // 放在 `.toolbar` 之外, `EditButton` 与底部栏才能和列表读到同一个绑定.
         .environment(\.editMode, $editMode)
+        .onChange(of: shows.isEmpty) { _, empty in
+            if empty { editMode = .inactive }
+        }
         .navigationDestination(for: DownloadShowRoute.self) { route in
             DownloadShowView(showKey: route.showKey, mode: mode)
         }

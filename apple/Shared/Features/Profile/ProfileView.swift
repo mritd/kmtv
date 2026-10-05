@@ -41,7 +41,11 @@ struct ProfileView: View {
             userInfoSection(vm)
             navigationSection(vm)
             #if os(iOS)
-            if let downloads = appVM.downloadManager {
+            // A signed-in user's scope is nil until activation finishes; showing the section then
+            // would count their own downloads as another account's.
+            //
+            // 已登录用户的作用域在激活完成前为 nil; 此时显示会把其自己的下载算作其他账号的.
+            if let downloads = appVM.downloadManager, isAnonymous || downloads.activeScopeKey != nil {
                 DownloadsSettingsSection(downloads: downloads, scope: isAnonymous ? nil : downloads.activeScopeKey)
             }
             #endif
