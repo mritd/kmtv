@@ -25,14 +25,20 @@ final class SyncSession {
     ///
     /// `activeUserID` 返回应用当前登录的用户. 它与 `user` 不同时, 会话的请求会以未授权失败, 而不会
     /// 带着另一个账号的 token 发往服务端.
+    ///
+    /// `onScopeDropped` runs when a sync reset drops the scope's data because its user ID was reused.
+    ///
+    /// `onScopeDropped` 在同步重置因用户 ID 被复用而丢弃作用域数据时调用.
     init(context: ModelContext, serverURL: String, user: User, api: (any SyncAPIProtocol)?,
-         activeUserID: (@MainActor @Sendable () -> Int64?)? = nil) {
+         activeUserID: (@MainActor @Sendable () -> Int64?)? = nil,
+         onScopeDropped: (() -> Void)? = nil) {
         let userID = Int64(max(0, user.id))
         store = SyncStore(context: context, serverURL: serverURL, userID: userID,
                           username: userID > 0 ? user.username : "")
         if userID > 0, let api {
             let bound = UserBoundSyncAPI(base: api, userID: userID, activeUserID: activeUserID)
             let engine = SyncEngine(api: bound, store: store)
+            engine.onScopeDropped = onScopeDropped
             engine.onLimit = { _ in ToastManager.shared.show(String(localized: "Favorites are full")) }
             self.engine = engine
         } else {

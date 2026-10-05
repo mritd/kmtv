@@ -29,12 +29,28 @@ final class AppViewModel {
     private var authStore: AuthStore?
     private var authObserver: Any?
 
+    /// Download scope control; nil on tvOS and in tests that do not cover downloads.
+    ///
+    /// 下载作用域控制; 在 tvOS 以及不涉及下载的测试中为 nil.
+    private(set) var downloads: (any DownloadScopeControlling)?
+    private let identityStore: LastIdentityStore
+
+    #if os(iOS)
+    /// The concrete download manager for download screens.
+    ///
+    /// 供下载页面使用的具体下载管理器.
+    var downloadManager: DownloadManager? { downloads as? DownloadManager }
+    #endif
+
     /// `session` replaces the API client's URL session; tests pass a stubbed one.
     ///
     /// `session` 替换 API 客户端使用的 URL 会话; 测试会传入桩会话.
-    init(modelContext: ModelContext, session: URLSession? = nil) {
+    init(modelContext: ModelContext, session: URLSession? = nil,
+         downloads: (any DownloadScopeControlling)? = nil, identityStore: LastIdentityStore = LastIdentityStore()) {
         self.modelContext = modelContext
         self.session = session
+        self.downloads = downloads
+        self.identityStore = identityStore
         authObserver = NotificationCenter.default.addObserver(
             forName: .authExpired, object: nil, queue: .main
         ) { [weak self] notification in
@@ -93,6 +109,7 @@ final class AppViewModel {
             //
             // 认证成功后再检查服务端兼容性, 因为设置接口是尽力获取.
             await startSyncIfCompatible()
+            if case .authenticated = state { await activateDownloads(for: user) }
         } catch let error as URLError where error.code == .timedOut {
             prefillServerURL = server.url
             state = .serverSetup
@@ -148,6 +165,7 @@ final class AppViewModel {
             if let currentUser { openSync(for: currentUser) }
             state = .authenticated
             await startSyncIfCompatible()
+            if case .authenticated = state, let user = currentUser { await activateDownloads(for: user) }
         } catch {
             // Rollback
             //
@@ -174,6 +192,8 @@ final class AppViewModel {
         if let client = apiClient {
             _ = try? await client.logout(timeoutInterval: 3)
         }
+        identityStore.clear()
+        await downloads?.deactivate()
         resetToServerSetup()
     }
 
@@ -189,8 +209,27 @@ final class AppViewModel {
     /// `startSyncIfCompatible()` 之前保持空闲.
     private func openSync(for user: User) {
         sync?.stop()
+        let scopeKey = syncScopeKey(serverURL: serverURL, userID: Int64(max(0, user.id)))
         sync = SyncSession(context: modelContext, serverURL: serverURL, user: user, api: apiClient,
-                           activeUserID: { [weak self] in self?.currentUser.map { Int64(max(0, $0.id)) } })
+                           activeUserID: { [weak self] in self?.currentUser.map { Int64(max(0, $0.id)) } },
+                           onScopeDropped: { [weak self] in Task { await self?.downloads?.deleteScope(scopeKey) } })
+    }
+
+    /// Records the identity and activates its download scope; the anonymous user has no downloads.
+    ///
+    /// 记录身份并激活其下载作用域; 匿名用户没有下载.
+    private func activateDownloads(for user: User) async {
+        guard user.id > 0 else {
+            await downloads?.deactivate()
+            return
+        }
+        let userID = Int64(user.id)
+        identityStore.save(DownloadIdentity(serverURL: serverURL, userID: userID, username: user.username))
+        let client = APIClient(baseURL: serverURL, session: session, tokenProvider: { [accessTokenBox] in
+            accessTokenBox.get()
+        }, notifiesAuthExpired: false)
+        await downloads?.activate(scopeKey: syncScopeKey(serverURL: serverURL, userID: userID),
+                                  preparer: DownloadPreparer(api: client))
     }
 
     /// Checks the server version, then starts the sync engine. A server older than
@@ -261,6 +300,8 @@ final class AppViewModel {
         serverVersion = ""
         sync?.stop()
         sync = nil
+        let downloads = downloads
+        Task { await downloads?.deactivate() }
         Server.deleteAll(in: modelContext)
         state = .serverSetup
         if let error {

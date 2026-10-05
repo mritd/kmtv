@@ -2,8 +2,11 @@ import SwiftUI
 import SwiftData
 
 @main
+@MainActor
 struct KMTVApp: App {
     let container: ModelContainer
+    let downloads: DownloadManager
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         do {
@@ -11,17 +14,33 @@ struct KMTVApp: App {
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
         }
+        // Created before any view: a background relaunch for session events may never render one.
+        //
+        // 在任何视图之前创建: 因 session 事件触发的后台唤醒可能根本不会渲染视图.
+        let layout = (try? DownloadLayout.makeDefault())
+            ?? DownloadLayout(root: FileManager.default.temporaryDirectory.appending(path: "Downloads"))
+        downloads = DownloadManager(context: container.mainContext, layout: layout,
+                                    transport: BackgroundDownloadTransport(layout: layout),
+                                    network: DownloadNetworkMonitor())
     }
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            RootView(downloads: downloads)
                 .modelContainer(container)
+                .environment(downloads)
+        }
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            Task { await downloads.handleScenePhase(phase) }
+        }
+        .backgroundTask(.urlSession(BackgroundDownloadTransport.identifier)) {
+            await downloads.handleBackgroundWake()
         }
     }
 }
 
 struct RootView: View {
+    let downloads: DownloadManager
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @State private var appVM: AppViewModel?
@@ -33,7 +52,7 @@ struct RootView: View {
                 .allowsHitTesting(false)
         }
         .task {
-            let vm = AppViewModel(modelContext: modelContext)
+            let vm = AppViewModel(modelContext: modelContext, downloads: downloads)
             appVM = vm
             await vm.bootstrap()
         }

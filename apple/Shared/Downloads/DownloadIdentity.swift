@@ -53,3 +53,16 @@ struct LastIdentityStore {
         defaults.removeObject(forKey: Self.key)
     }
 }
+
+/// What the app view model needs from downloads, so it compiles on every platform and tests can
+/// use a fake.
+///
+/// App 视图模型需要的下载能力; 借此在所有平台上都能编译, 测试中也可以使用假实现.
+@MainActor
+protocol DownloadScopeControlling: AnyObject {
+    func activate(scopeKey: String, preparer: any DownloadPreparing) async
+    func openOffline(scopeKey: String)
+    func deactivate() async
+    func deleteScope(_ scopeKey: String) async
+    func hasCompleted(in scopeKey: String) -> Bool
+}

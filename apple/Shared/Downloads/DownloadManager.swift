@@ -1038,4 +1038,6 @@ final class DownloadManager {
         changeCount &+= 1
     }
 }
+
+extension DownloadManager: DownloadScopeControlling {}
 #endif

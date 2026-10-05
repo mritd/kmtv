@@ -74,6 +74,7 @@
 		4367D6F1D1606DD97FFF6121 /* PlaybackAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0813F85A4E42E3DC9F5F040D /* PlaybackAPI.swift */; };
 		43841BD09EFD72CAB1A46116 /* ServerSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5D37944AD470C4BE45A7418 /* ServerSetupView.swift */; };
 		4450A0CC58126B2FD2BA1963 /* ConnectingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3E9DCCB04D0358B55343345 /* ConnectingView.swift */; };
+		44FCF1B56D3B3A6871FBA889 /* BootstrapOfflineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9848E70D81148B748161F8 /* BootstrapOfflineTests.swift */; };
 		4587283CF62DC0DDFEF463A7 /* DownloadTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C122148627256B5B9554A4C /* DownloadTransport.swift */; };
 		49A9D2D0D65FC3FA8846BA02 /* SyncStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5693612EDA27FEF057B96A18 /* SyncStore.swift */; };
 		4A25499ED739C31261E839AD /* DisplayFormatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78E487980A8791F1F03B46DD /* DisplayFormatters.swift */; };
@@ -364,6 +365,7 @@
 		A717F89E215B7434B43E88BF /* TVSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSettingsView.swift; sourceTree = "<group>"; };
 		A9C02EF4595D41DFA11A717F /* PlayerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerUITests.swift; sourceTree = "<group>"; };
 		A9FA9BCF9C7FA3CE1E54CAB3 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AF9848E70D81148B748161F8 /* BootstrapOfflineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BootstrapOfflineTests.swift; sourceTree = "<group>"; };
 		AFC1542CABAF2ADDB1B55836 /* PlaybackProgressStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackProgressStore.swift; sourceTree = "<group>"; };
 		B0D5CC792E7FF89B425C057A /* KMTVTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = KMTVTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B377952B2ADB99FBFED7DC88 /* SSEClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEClient.swift; sourceTree = "<group>"; };
@@ -416,7 +418,7 @@
 		F67047529B99E093985086B2 /* SyncStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStoreTests.swift; sourceTree = "<group>"; };
 		FED59EBD06A929ADD79C3A2D /* LocalMediaServerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalMediaServerTests.swift; sourceTree = "<group>"; };
 		FFA58E9D501A18F5D34208B0 /* UtilsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UtilsTests.swift; sourceTree = "<group>"; };
-		"TEMP_4D657280-034E-4B68-8846-DDA708A9BA21" /* Signing.example.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.example.xcconfig; sourceTree = "<group>"; };
+		"TEMP_83D437D1-E030-4A63-B48A-2C631D5A1711" /* Signing.example.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.example.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -622,6 +624,7 @@
 				BB356AA8F5443E8A7D325D91 /* AppModelContainerTests.swift */,
 				4F7F6941E9FCE3C2A709E853 /* AppViewModelSyncTests.swift */,
 				7F8C547B2979A4689D6569F6 /* AuthStoreTests.swift */,
+				AF9848E70D81148B748161F8 /* BootstrapOfflineTests.swift */,
 				20D719EF25D777B070C27DF0 /* CategoriesViewModelTests.swift */,
 				CCD79A724E8F47F281E6E893 /* CustomSliderTests.swift */,
 				137034FB8A590352008CFE56 /* DownloadDisplayStateTests.swift */,
@@ -853,10 +856,10 @@
 			path = Categories;
 			sourceTree = "<group>";
 		};
-		"TEMP_46639056-EF77-4887-AABA-F90D1E2D63AE" /* apple */ = {
+		"TEMP_56B07AFD-94D1-4558-BB50-A47211100546" /* apple */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_4D657280-034E-4B68-8846-DDA708A9BA21" /* Signing.example.xcconfig */,
+				"TEMP_83D437D1-E030-4A63-B48A-2C631D5A1711" /* Signing.example.xcconfig */,
 			);
 			path = apple;
 			sourceTree = "<group>";
@@ -1163,6 +1166,7 @@
 				E0C9DB0A605E04F6FC3262BC /* AppModelContainerTests.swift in Sources */,
 				39FFBF1490E6FD8986F6BBA2 /* AppViewModelSyncTests.swift in Sources */,
 				02BBDF65EA6DF525C88E2D90 /* AuthStoreTests.swift in Sources */,
+				44FCF1B56D3B3A6871FBA889 /* BootstrapOfflineTests.swift in Sources */,
 				969BD46A99690193FF0449EA /* CategoriesViewModelTests.swift in Sources */,
 				EC60795B70D3B8670D293E57 /* CustomSliderTests.swift in Sources */,
 				32BD8F0624544D07493FE304 /* DownloadDisplayStateTests.swift in Sources */,
@@ -1383,7 +1387,7 @@
 		};
 		404316186796661E3A76C5F7 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_4D657280-034E-4B68-8846-DDA708A9BA21" /* Signing.example.xcconfig */;
+			baseConfigurationReference = "TEMP_83D437D1-E030-4A63-B48A-2C631D5A1711" /* Signing.example.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -1448,7 +1452,7 @@
 		};
 		70A604D8EAD9D69051F5191E /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_4D657280-034E-4B68-8846-DDA708A9BA21" /* Signing.example.xcconfig */;
+			baseConfigurationReference = "TEMP_83D437D1-E030-4A63-B48A-2C631D5A1711" /* Signing.example.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;

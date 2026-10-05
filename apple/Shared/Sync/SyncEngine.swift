@@ -80,6 +80,12 @@ final class SyncEngine {
     /// 请求返回未授权时调用一次; 此时引擎已停止.
     var onUnauthorized: (() -> Void)?
 
+    /// Called after a reset dropped the scope's data because the user ID was reused; downloads of
+    /// the scope are deleted with it.
+    ///
+    /// 因用户 ID 被复用而在重置中丢弃作用域数据后调用; 该作用域的下载会一并删除.
+    var onScopeDropped: (() -> Void)?
+
     private let api: any SyncAPIProtocol
     private let store: SyncStore
     private let now: @Sendable () -> Int64
@@ -404,11 +410,15 @@ final class SyncEngine {
             store.clock.observe(serverTimeMs: page.serverTimeMs, sentAtMs: sentAt, receivedAtMs: now())
             if page.reset {
                 if !state.epoch.isEmpty && page.epoch != state.epoch {
+                    let dropped = SyncMerge.dropsData(state, username: store.username)
                     store.update { SyncMerge.resetForNewEpoch($0, epoch: page.epoch, username: store.username) }
+                    if dropped { onScopeDropped?() }
                     return false
                 }
                 if page.rev < state.cursor {
+                    let dropped = SyncMerge.dropsData(state, username: store.username)
                     store.update { SyncMerge.resetForNewEpoch($0, epoch: $0.epoch, username: store.username) }
+                    if dropped { onScopeDropped?() }
                     return false
                 }
                 resets += 1
