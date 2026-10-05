@@ -58,6 +58,18 @@ final class DownloadManagerTests: XCTestCase {
         return transport.live.keys.filter { $0.episodeKey == key }.sorted { $0.entryIndex < $1.entryIndex }
     }
 
+    /// Enqueues episodes behind a closed gate and returns once the first prepare is in flight.
+    ///
+    /// 在闸门关闭时加入剧集, 并在第一次准备进行中时返回.
+    private func enqueueGated(_ indexes: [Int]) async throws -> PrepareGate {
+        let gate = PrepareGate()
+        preparer.gate = gate
+        _ = try manager.enqueue(show: info, episodes: indexes.map(request))
+        for _ in 0..<1000 where manager.preparingKeys.isEmpty { await Task.yield() }
+        XCTAssertFalse(manager.preparingKeys.isEmpty)
+        return gate
+    }
+
     private func enqueueAndSettle(_ indexes: [Int] = [0]) async throws {
         _ = try manager.enqueue(show: info, episodes: indexes.map(request))
         await manager.waitForIdle()
@@ -283,6 +295,54 @@ final class DownloadManagerTests: XCTestCase {
         let manifest = try XCTUnwrap(DownloadManifest.load(from: layout.manifestURL(episodeDir: dir)))
         try FileManager.default.removeItem(at: dir.appending(path: try XCTUnwrap(manifest.entries.last).fileName))
         XCTAssertFalse(manager.filesIntact(ep))
+    }
+
+    func testBackgroundDuringPrepareDefersTasksUntilForeground() async throws {
+        let gate = try await enqueueGated([0, 1])
+        await manager.handleScenePhase(.background)
+        gate.open()
+        await manager.waitForIdle()
+        XCTAssertTrue(transport.enqueued.isEmpty)
+        XCTAssertEqual(preparer.calls.count, 1)
+        let ep = try XCTUnwrap(episode(0))
+        XCTAssertEqual(ep.state, .downloading)
+        XCTAssertEqual(ep.totalEntries, 3)
+        let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
+        XCTAssertNotNil(DownloadManifest.load(from: layout.manifestURL(episodeDir: dir)))
+        XCTAssertEqual(episode(1)?.state, .queued)
+        await manager.handleScenePhase(.inactive)
+        await manager.waitForIdle()
+        XCTAssertEqual(liveIDs(0).map(\.entryIndex), [0, 1, 2])
+        XCTAssertEqual(liveIDs(1).count, 3)
+        XCTAssertEqual(preparer.calls.map(\.generation), [1, 1])
+    }
+
+    func testDeleteDuringPrepareEnqueuesNothing() async throws {
+        let gate = try await enqueueGated([0, 1])
+        let show = try XCTUnwrap(manager.shows(in: scope).first)
+        let showDir = layout.showDir(scopeHash: show.scopeHash, showDir: show.showDir)
+        await manager.deleteShow(show)
+        gate.open()
+        await manager.waitForIdle()
+        XCTAssertNil(episode(0))
+        XCTAssertNil(episode(1))
+        XCTAssertTrue(manager.shows(in: scope).isEmpty)
+        XCTAssertTrue(transport.enqueued.isEmpty)
+        XCTAssertEqual(preparer.calls.count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: showDir.path))
+    }
+
+    func testFailureOfDoneEntryIsIgnored() async throws {
+        try await enqueueAndSettle()
+        let id = liveIDs(0)[0]
+        await transport.finish(id, layout: layout)
+        // A redundant duplicate of a finished entry fails later.
+        //
+        // 已完成条目的一个多余副本稍后失败.
+        await transport.fail(id, code: .timedOut)
+        XCTAssertEqual(transport.enqueued.count, 3)
+        XCTAssertEqual(episode(0)?.state, .downloading)
+        XCTAssertEqual(episode(0)?.doneEntries, 1)
     }
 
     func testDeleteEpisodeRemovesEmptyShowAndMarkDamagedClearsFiles() async throws {

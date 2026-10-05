@@ -284,8 +284,8 @@ final class DownloadManager {
         }
         saveContext()
         bump()
-        await transport.cancel { $0.scopeHash == hash }
         inFlight = inFlight.filter { $0.scopeHash != hash }
+        await transport.cancel { $0.scopeHash == hash }
     }
 
     // MARK: - Commands
@@ -416,8 +416,12 @@ final class DownloadManager {
         let scopeKey = ep.scopeKey
         let showKey = ep.showKey
         ep.state = .paused
-        await transport.cancel { $0.episodeKey == key }
         inFlight = inFlight.filter { $0.episodeKey != key }
+        await transport.cancel { $0.episodeKey == key }
+        // A concurrent `deleteShow` or `deleteScope` may have deleted the row during the await.
+        //
+        // 等待期间, 并发的 `deleteShow` 或 `deleteScope` 可能已删除该行.
+        guard isLive(ep) else { return }
         removeEpisodeFiles(ep)
         context.delete(ep)
         saveContext()
@@ -443,8 +447,8 @@ final class DownloadManager {
     func deleteScope(_ scopeKey: String) async {
         let hash = DownloadPaths.scopeHash(scopeKey)
         for ep in episodes(in: scopeKey) { ep.state = .paused }
-        await transport.cancel { $0.scopeHash == hash }
         inFlight = inFlight.filter { $0.scopeHash != hash }
+        await transport.cancel { $0.scopeHash == hash }
         for ep in episodes(in: scopeKey) {
             manifests[ep.episodeKey] = nil
             unsaved[ep.episodeKey] = nil
@@ -510,8 +514,13 @@ final class DownloadManager {
         defaults.set(value, forKey: Self.cellularKey)
         guard let scope = activeScopeKey else { return }
         let hash = DownloadPaths.scopeHash(scope)
-        await transport.cancel { $0.scopeHash == hash }
-        inFlight = inFlight.filter { $0.scopeHash != hash }
+        // Only tasks created under the old policy; a pump running during the await adds tasks
+        // under the new one, which must survive.
+        //
+        // 只取消按旧策略创建的任务; 等待期间运行的队列推进会按新策略新增任务, 这些任务必须保留.
+        let old = inFlight.filter { $0.scopeHash == hash }
+        inFlight.subtract(old)
+        await transport.cancel { old.contains($0) }
         schedulePump()
     }
 
@@ -652,9 +661,11 @@ final class DownloadManager {
             .sorted { $0.queueOrder < $1.queueOrder }
         for (position, ep) in candidates.enumerated() {
             guard inFlight.count < outstandingLimit, activeScopeKey == scopeKey else { return }
-            // A row may have been deleted while the previous episode was preparing.
+            // The app may have gone to the background, or a row may have been deleted, while the
+            // previous episode was preparing.
             //
-            // 上一集准备期间, 某行可能已被删除.
+            // 上一集准备期间, App 可能已进入后台, 或某行可能已被删除.
+            guard isForeground || backgroundWake else { return }
             guard isLive(ep) else { continue }
             let priority: Float = position < 2 ? URLSessionTask.highPriority : URLSessionTask.defaultPriority
             if ep.state == .downloading {
@@ -665,25 +676,22 @@ final class DownloadManager {
                 ep.state = .queued
             }
             guard ep.state == .queued else { continue }
-            // The app may have gone to the background while the previous episode was preparing.
-            //
-            // 上一集准备期间 App 可能已进入后台.
-            guard isForeground || backgroundWake else { return }
+            let key = ep.episodeKey
             await prepare(ep, with: preparer, priority: priority)
             if self.preparer == nil || activeScopeKey != scopeKey { return }
-            if let current = episode(forKey: ep.episodeKey), current.pauseReason == .signedOut { return }
+            if let current = episode(forKey: key), current.pauseReason == .signedOut { return }
         }
     }
 
     private func prepare(_ ep: DownloadEpisode, with preparer: any DownloadPreparing, priority: Float) async {
         let key = ep.episodeKey
-        let existing = manifest(for: ep)
+        let generation = (manifest(for: ep)?.generation ?? 0) + 1
         preparingKeys.insert(key)
         bump()
         let result: Result<DownloadManifest, Error>
         do {
             result = .success(try await preparer.prepare(episodeURL: ep.episodeURL, sourceKey: ep.sourceKey,
-                                                         generation: (existing?.generation ?? 0) + 1))
+                                                         generation: generation))
         } catch {
             result = .failure(error)
         }
@@ -693,7 +701,10 @@ final class DownloadManager {
         switch result {
         case .success(let fresh):
             var next = fresh
-            if let existing {
+            // Read after the await: a delete and re-queue meanwhile removed the old files.
+            //
+            // 在 await 之后读取: 期间若被删除并重新加入队列, 旧文件已被移除.
+            if let existing = manifest(for: current) {
                 if existing.matches(fresh) {
                     next = existing.adopting(urlsFrom: fresh)
                 } else {
@@ -708,9 +719,14 @@ final class DownloadManager {
             current.state = .downloading
             saveContext()
             bump()
+            // When the app went to the background during the prepare, tasks created now would be
+            // discretionary; the next foreground pump enqueues them from the saved manifest.
+            //
+            // 若 App 在准备期间已进入后台, 此时创建的任务会被视为 discretionary; 由下一次前台推进依据
+            // 已保存的 manifest 提交.
             if next.isComplete {
                 await complete(current, next)
-            } else {
+            } else if isForeground || backgroundWake {
                 enqueueMissing(current, next, priority: priority)
             }
         case .failure(let error):
@@ -816,7 +832,7 @@ final class DownloadManager {
     private func apply(_ outcome: EntryOutcome, to id: DownloadTaskID) async {
         guard let ep = episode(forKey: id.episodeKey), ep.state == .downloading,
               var manifest = manifest(for: ep), manifest.generation == id.generation,
-              manifest.entries.indices.contains(id.entryIndex) else { return }
+              manifest.entries.indices.contains(id.entryIndex), !manifest.entries[id.entryIndex].done else { return }
         switch outcome {
         case .accept:
             return
@@ -852,8 +868,8 @@ final class DownloadManager {
         saveContext()
         bump()
         let key = ep.episodeKey
-        await transport.cancel { $0.episodeKey == key && $0.generation <= generation }
         inFlight = inFlight.filter { !($0.episodeKey == key && $0.generation <= generation) }
+        await transport.cancel { $0.episodeKey == key && $0.generation <= generation }
         schedulePump()
     }
 
@@ -911,8 +927,8 @@ final class DownloadManager {
 
     private func cancelTasks(of ep: DownloadEpisode) async {
         let key = ep.episodeKey
-        await transport.cancel { $0.episodeKey == key }
         inFlight = inFlight.filter { $0.episodeKey != key }
+        await transport.cancel { $0.episodeKey == key }
     }
 
     private func manifest(for ep: DownloadEpisode) -> DownloadManifest? {

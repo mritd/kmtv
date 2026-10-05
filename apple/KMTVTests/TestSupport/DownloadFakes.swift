@@ -60,10 +60,15 @@ final class FakeDownloadTransport: DownloadTransport {
 final class FakePreparer: DownloadPreparing, @unchecked Sendable {
     var segments: [String: Int] = [:]
     var errors: [String: DownloadPrepareError] = [:]
+    /// When set, every prepare suspends until the test opens the gate.
+    ///
+    /// 设置后, 每次准备都会挂起, 直到测试打开该闸门.
+    var gate: PrepareGate?
     private(set) var calls: [(episodeURL: String, generation: Int)] = []
 
     func prepare(episodeURL: String, sourceKey: String, generation: Int) async throws -> DownloadManifest {
         calls.append((episodeURL, generation))
+        if let gate { await gate.wait() }
         if let error = errors[episodeURL] { throw error }
         var text = "#EXTM3U\n#EXT-X-TARGETDURATION:2\n"
         for index in 0..<(segments[episodeURL] ?? 3) {
@@ -74,5 +79,41 @@ final class FakePreparer: DownloadPreparing, @unchecked Sendable {
             throw DownloadPrepareError.format(.notHLS)
         }
         return DownloadManifest.build(from: media, generation: generation)
+    }
+}
+
+/// A one-shot gate: `wait()` suspends until `open()` is called, and returns at once afterwards.
+///
+/// 一次性闸门: 调用 `open()` 之前 `wait()` 会挂起, 之后立即返回.
+final class PrepareGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Suspends until the gate is open.
+    ///
+    /// 挂起直到闸门打开.
+    func wait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let resumeNow = lock.withLock {
+                if isOpen { return true }
+                waiters.append(continuation)
+                return false
+            }
+            if resumeNow { continuation.resume() }
+        }
+    }
+
+    /// Opens the gate and releases every waiter.
+    ///
+    /// 打开闸门并放行所有等待者.
+    func open() {
+        let released = lock.withLock {
+            isOpen = true
+            let released = waiters
+            waiters = []
+            return released
+        }
+        released.forEach { $0.resume() }
     }
 }
