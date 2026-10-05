@@ -255,7 +255,7 @@ struct PlayerView: View {
                                                                      type: detail.type, year: detail.year,
                                                                      coverURL: coverURL(detail.cover)),
                                               episodes: requests)
-            ToastManager.shared.show(String(localized: "Added \(added) episodes to downloads"))
+            ToastManager.shared.show(String(localized: "Added \(added) episodes to downloads"), style: .success)
         } catch DownloadEnqueueError.notEnoughSpace {
             ToastManager.shared.show(String(localized: "Not enough storage"))
         } catch {

@@ -115,6 +115,7 @@ final class DownloadManager {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let freeSpace: () -> Int64
     @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private let coverFetcher: @Sendable (URL) async -> Data?
     @ObservationIgnored private let outstandingLimit: Int
     @ObservationIgnored private var preparer: (any DownloadPreparing)?
     @ObservationIgnored private var manifests: [String: DownloadManifest] = [:]
@@ -132,7 +133,8 @@ final class DownloadManager {
     init(context: ModelContext, layout: DownloadLayout, transport: any DownloadTransport,
          defaults: UserDefaults = .standard, freeSpace: @escaping () -> Int64 = DownloadManager.deviceFreeSpace,
          now: @escaping () -> Date = Date.init, outstandingLimit: Int = 3000,
-         network: DownloadNetworkMonitor? = nil) {
+         network: DownloadNetworkMonitor? = nil,
+         coverFetcher: @escaping @Sendable (URL) async -> Data? = DownloadManager.fetchCoverData) {
         self.context = context
         self.layout = layout
         self.transport = transport
@@ -142,8 +144,18 @@ final class DownloadManager {
         self.outstandingLimit = outstandingLimit
         self.allowsCellular = defaults.bool(forKey: Self.cellularKey)
         self.network = network
+        self.coverFetcher = coverFetcher
         transport.onEvent = { [weak self] event in await self?.process(event) }
         network?.onRestore = { [weak self] in self?.schedulePump() }
+    }
+
+    /// Downloads cover image bytes; nil on any failure or non-200 response.
+    ///
+    /// 下载封面图片数据; 失败或响应非 200 时返回 nil.
+    nonisolated static func fetchCoverData(from url: URL) async -> Data? {
+        guard let (data, response) = try? await URLSession.shared.data(from: url),
+              (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty else { return nil }
+        return data
     }
 
     /// Free space for important data on the app's volume.
@@ -308,6 +320,32 @@ final class DownloadManager {
         bump()
         await reconcile()
         schedulePump()
+        retryMissingCovers(scopeKey: scopeKey)
+    }
+
+    /// Re-fetches covers that never arrived or vanished from disk, without blocking activation.
+    ///
+    /// 重新获取从未下载成功或已从磁盘丢失的封面, 不阻塞激活流程.
+    private func retryMissingCovers(scopeKey: String) {
+        let pending = shows(in: scopeKey).filter { show in
+            guard coverRemoteURL(for: show) != nil else { return false }
+            guard let file = coverFileURL(for: show) else { return true }
+            return !FileManager.default.fileExists(atPath: file.path)
+        }.map(\.showKey)
+        guard !pending.isEmpty else { return }
+        Task {
+            for showKey in pending {
+                guard activeScopeKey == scopeKey, let show = show(scopeKey: scopeKey, showKey: showKey),
+                      let url = coverRemoteURL(for: show) else { continue }
+                await fetchCover(scopeKey: scopeKey, showKey: showKey, from: url)
+            }
+        }
+    }
+
+    private func coverRemoteURL(for show: DownloadShow) -> URL? {
+        if !show.coverURLString.isEmpty { return URL(string: show.coverURLString) }
+        guard show.cover.hasPrefix("http") else { return nil }
+        return URL(string: show.cover)
     }
 
     /// Shows a scope offline: rows and playback only, no preparation.
@@ -390,6 +428,10 @@ final class DownloadManager {
         }
         saveContext()
         bump()
+        if show.coverURLString.isEmpty, let coverURL = info.coverURL {
+            show.coverURLString = coverURL.absoluteString
+            saveContext()
+        }
         if show.coverFile.isEmpty, let coverURL = info.coverURL {
             Task { await fetchCover(scopeKey: scopeKey, showKey: showKey, from: coverURL) }
         }
@@ -1015,8 +1057,7 @@ final class DownloadManager {
     }
 
     private func fetchCover(scopeKey: String, showKey: String, from url: URL) async {
-        guard let (data, response) = try? await URLSession.shared.data(from: url),
-              (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty,
+        guard let data = await coverFetcher(url),
               let show = show(scopeKey: scopeKey, showKey: showKey) else { return }
         let dir = layout.showDir(scopeHash: show.scopeHash, showDir: show.showDir)
         do {

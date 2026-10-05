@@ -85,7 +85,7 @@ struct TVRootView: View {
     private var tvToastBanner: some View {
         let toast = ToastManager.shared
         if let message = toast.currentMessage {
-            ToastView(message: message)
+            ToastView(message: message, style: toast.currentStyle)
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .opacity(toast.isVisible ? 1 : 0)

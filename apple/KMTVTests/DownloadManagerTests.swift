@@ -21,6 +21,7 @@ final class DownloadManagerTests: XCTestCase {
     private var manager: DownloadManager!
     private var freeSpace: Int64 = 50_000_000_000
     private var nowValue = Date(timeIntervalSince1970: 1_000)
+    private let covers = CoverFetchRecorder()
 
     override func setUp() async throws {
         root = FileManager.default.temporaryDirectory.appending(path: "dm-\(UUID().uuidString)")
@@ -40,7 +41,7 @@ final class DownloadManagerTests: XCTestCase {
     private func makeManager() -> DownloadManager {
         DownloadManager(context: container.mainContext, layout: layout, transport: transport, defaults: defaults,
                         freeSpace: { [unowned self] in self.freeSpace }, now: { [unowned self] in self.nowValue },
-                        outstandingLimit: 100)
+                        outstandingLimit: 100, coverFetcher: { [covers] url in covers.fetch(url) })
     }
 
     private func request(_ index: Int) -> DownloadEpisodeRequest {
@@ -73,6 +74,30 @@ final class DownloadManagerTests: XCTestCase {
     private func enqueueAndSettle(_ indexes: [Int] = [0]) async throws {
         _ = try manager.enqueue(show: info, episodes: indexes.map(request))
         await manager.waitForIdle()
+    }
+
+    func testActivateRetriesMissingCoverOnly() async throws {
+        let coverURL = URL(string: "https://img.example/c.jpg")
+        let withCover = DownloadShowInfo(title: "Show", cover: "https://img.example/c.jpg", type: "tv", year: "2026",
+                                         coverURL: coverURL)
+        _ = try manager.enqueue(show: withCover, episodes: [request(0)])
+        for _ in 0..<1000 where covers.count < 1 { await Task.yield() }
+        XCTAssertEqual(covers.count, 1)
+        let show = try XCTUnwrap(manager.show(scopeKey: scope, showKey: normalizeSyncKey("Show")))
+        XCTAssertEqual(show.coverFile, "")
+
+        // The first fetch failed, so activation retries it once the network works.
+        covers.data = Data([1, 2, 3])
+        await manager.activate(scopeKey: scope, preparer: preparer)
+        for _ in 0..<1000 where show.coverFile.isEmpty { await Task.yield() }
+        XCTAssertEqual(show.coverFile, "cover.jpg")
+        XCTAssertEqual(covers.count, 2)
+        XCTAssertNotNil(manager.coverFileURL(for: show))
+
+        // A present cover is not fetched again.
+        await manager.activate(scopeKey: scope, preparer: preparer)
+        for _ in 0..<50 { await Task.yield() }
+        XCTAssertEqual(covers.count, 2)
     }
 
     func testEnqueueRequiresSignedInScopeAndSpace() async throws {
@@ -357,5 +382,28 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertEqual(manager.shows(in: scope).count, 1)
         await manager.delete(try XCTUnwrap(episode(1)))
         XCTAssertTrue(manager.shows(in: scope).isEmpty)
+    }
+}
+
+
+/// Records cover fetches and returns canned bytes (nil simulates a failed download).
+///
+/// 记录封面获取次数并返回预设数据 (nil 表示下载失败).
+private final class CoverFetchRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _count = 0
+    private var _data: Data?
+
+    var count: Int { lock.withLock { _count } }
+    var data: Data? {
+        get { lock.withLock { _data } }
+        set { lock.withLock { _data = newValue } }
+    }
+
+    func fetch(_ url: URL) -> Data? {
+        lock.withLock {
+            _count += 1
+            return _data
+        }
     }
 }

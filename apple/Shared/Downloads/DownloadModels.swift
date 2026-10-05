@@ -89,6 +89,7 @@ final class DownloadShow {
     var title: String
     var cover: String
     var coverFile: String = ""
+    var coverURLString: String = ""
     var type: String = ""
     var year: String = ""
     var createdAt: Date
