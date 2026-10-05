@@ -1,0 +1,224 @@
+import Foundation
+
+/// Per-episode download plan and progress, saved as `manifest.json`: one entry per file to fetch
+/// (keys, init maps, segments) and one line per playlist segment to write on completion.
+///
+/// 每集的下载计划与进度, 保存为 `manifest.json`: 每个待下载文件 (key, init map, 分片) 一个条目,
+/// 下载完成时写入的 playlist 每个分片一行.
+struct DownloadManifest: Codable, Equatable, Sendable {
+    /// What an entry holds.
+    ///
+    /// 条目的类型.
+    enum Kind: String, Codable, Sendable {
+        case segment
+        case key
+        case map
+    }
+
+    /// One file to download.
+    ///
+    /// 一个待下载的文件.
+    struct Entry: Codable, Equatable, Sendable {
+        let index: Int
+        let kind: Kind
+        var remoteURL: URL
+        let fileName: String
+        let duration: Double
+        var done: Bool
+        var bytes: Int64
+        var attempts: Int
+    }
+
+    /// One segment line of the local playlist, pointing at entries by index.
+    ///
+    /// 本地 playlist 中的一个分片行, 按序号引用条目.
+    struct Line: Codable, Equatable, Sendable {
+        let segment: Int
+        let key: Int?
+        let iv: Data?
+        let map: Int?
+        let discontinuity: Bool
+        let duration: Double
+    }
+
+    var generation: Int
+    let version: Int
+    let targetDuration: Int
+    let mediaSequence: Int
+    var entries: [Entry]
+    let lines: [Line]
+
+    /// The identity of a key or map URL. Proxied playlists give every line its own `mt` token, so
+    /// the same upstream key appears under many URLs; the proxy's `url` query parameter names it.
+    /// Direct URLs are their own identity.
+    ///
+    /// key 或 map URL 的身份. 代理后的 playlist 每一行都带各自的 `mt` token, 同一个上游 key 会以多个
+    /// URL 出现; 代理的 `url` 查询参数标识它. 直连 URL 自身即为身份.
+    static func dedupeKey(_ url: URL) -> String {
+        if url.path.contains("/proxy/"),
+           let upstream = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+               .queryItems?.first(where: { $0.name == "url" })?.value {
+            return upstream
+        }
+        return url.absoluteString
+    }
+
+    /// Builds the manifest of a media playlist. Keys and maps are deduplicated by upstream URL
+    /// (see `dedupeKey`); when a key has no IV, the IV is the segment's media sequence number (HLS
+    /// rule), so renumbered local segments still decrypt.
+    ///
+    /// 由 media playlist 构建 manifest. key 与 map 按上游 URL 去重 (见 `dedupeKey`); key 没有 IV 时,
+    /// 按 HLS 规则取分片的 media sequence 号作为 IV, 因此重新编号后的本地分片仍能解密.
+    static func build(from playlist: HLSMediaPlaylist, generation: Int) -> DownloadManifest {
+        var entries: [Entry] = []
+        var keyIndex: [String: Int] = [:]
+        var mapIndex: [String: Int] = [:]
+        var lines: [Line] = []
+        let segmentExtension = playlist.segments.contains { $0.map != nil } ? "m4s" : "ts"
+        func add(_ kind: Kind, _ url: URL, _ name: String, _ duration: Double) -> Int {
+            entries.append(Entry(index: entries.count, kind: kind, remoteURL: url, fileName: name,
+                                 duration: duration, done: false, bytes: 0, attempts: 0))
+            return entries.count - 1
+        }
+        for (position, segment) in playlist.segments.enumerated() {
+            var key: Int?
+            var iv: Data?
+            if case .aes128(let uri, let explicitIV) = segment.key {
+                if let existing = keyIndex[dedupeKey(uri)] {
+                    key = existing
+                } else {
+                    key = add(.key, uri, "key-\(keyIndex.count).bin", 0)
+                    keyIndex[dedupeKey(uri)] = key
+                }
+                iv = explicitIV ?? Self.sequenceIV(segment.mediaSequence)
+            }
+            var map: Int?
+            if let mapURL = segment.map {
+                if let existing = mapIndex[dedupeKey(mapURL)] {
+                    map = existing
+                } else {
+                    map = add(.map, mapURL, "init-\(mapIndex.count).mp4", 0)
+                    mapIndex[dedupeKey(mapURL)] = map
+                }
+            }
+            let name = String(format: "seg-%05d.%@", position, segmentExtension)
+            let segmentEntry = add(.segment, segment.uri, name, segment.duration)
+            lines.append(Line(segment: segmentEntry, key: key, iv: iv, map: map,
+                              discontinuity: segment.discontinuity, duration: segment.duration))
+        }
+        return DownloadManifest(generation: generation, version: playlist.version,
+                                targetDuration: playlist.targetDuration, mediaSequence: playlist.mediaSequence,
+                                entries: entries, lines: lines)
+    }
+
+    /// The 16-byte big-endian IV for a media sequence number.
+    ///
+    /// media sequence 号对应的 16 字节大端 IV.
+    static func sequenceIV(_ sequence: Int) -> Data {
+        var bytes = [UInt8](repeating: 0, count: 16)
+        var value = UInt64(max(0, sequence))
+        for index in stride(from: 15, through: 8, by: -1) {
+            bytes[index] = UInt8(value & 0xFF)
+            value >>= 8
+        }
+        return Data(bytes)
+    }
+
+    /// Whether `other` describes the same files (same entry count, kinds, and durations), so a
+    /// refresh can keep finished entries.
+    ///
+    /// `other` 是否描述同一批文件 (条目数, 类型与时长都一致), 刷新时据此保留已完成的条目.
+    func matches(_ other: DownloadManifest) -> Bool {
+        guard entries.count == other.entries.count, lines.count == other.lines.count else { return false }
+        return zip(entries, other.entries).allSatisfy { $0.kind == $1.kind && abs($0.duration - $1.duration) < 0.01 }
+    }
+
+    /// This manifest with the newer one's URLs and generation; done flags, sizes, and attempts stay.
+    ///
+    /// 采用较新 manifest 的 URL 与 generation 后的本 manifest; 完成标记, 大小与尝试次数保持不变.
+    func adopting(urlsFrom newer: DownloadManifest) -> DownloadManifest {
+        var next = self
+        next.generation = newer.generation
+        for index in next.entries.indices { next.entries[index].remoteURL = newer.entries[index].remoteURL }
+        return next
+    }
+
+    /// Entries still to download.
+    ///
+    /// 仍需下载的条目.
+    var missing: [Entry] { entries.filter { !$0.done } }
+
+    /// Whether every entry is downloaded.
+    ///
+    /// 是否所有条目都已下载.
+    var isComplete: Bool { entries.allSatisfy(\.done) }
+
+    /// Number of downloaded entries.
+    ///
+    /// 已下载的条目数.
+    var doneCount: Int { entries.filter(\.done).count }
+
+    /// Bytes of downloaded entries.
+    ///
+    /// 已下载条目的字节数.
+    var totalBytes: Int64 { entries.reduce(0) { $0 + $1.bytes } }
+
+    /// Playback duration of all segments.
+    ///
+    /// 所有分片的播放时长.
+    var totalDuration: Double { lines.reduce(0) { $0 + $1.duration } }
+
+    /// Loads a manifest; nil when the file is missing or unreadable.
+    ///
+    /// 读取 manifest; 文件缺失或无法读取时返回 nil.
+    static func load(from url: URL) -> DownloadManifest? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(DownloadManifest.self, from: data)
+    }
+
+    /// Writes the manifest atomically.
+    ///
+    /// 以原子方式写入 manifest.
+    func save(to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(self).write(to: url, options: .atomic)
+    }
+}
+
+/// Writes the local `index.m3u8` of a completed manifest with relative URIs.
+///
+/// 为已完成的 manifest 生成使用相对 URI 的本地 `index.m3u8`.
+enum LocalPlaylistWriter {
+    /// The playlist text. Every encrypted segment gets its own key line with an explicit IV.
+    ///
+    /// playlist 文本. 每个加密分片都有自己的 key 行, 并显式写出 IV.
+    static func write(_ manifest: DownloadManifest) -> String {
+        let hasMap = manifest.lines.contains { $0.map != nil }
+        var out = ["#EXTM3U",
+                   "#EXT-X-VERSION:\(max(manifest.version, hasMap ? 6 : 3))",
+                   "#EXT-X-TARGETDURATION:\(max(1, manifest.targetDuration))",
+                   "#EXT-X-MEDIA-SEQUENCE:\(manifest.mediaSequence)",
+                   "#EXT-X-PLAYLIST-TYPE:VOD"]
+        var encrypted = false
+        var currentMap: Int?
+        for line in manifest.lines {
+            if line.discontinuity { out.append("#EXT-X-DISCONTINUITY") }
+            if let key = line.key {
+                let iv = (line.iv ?? Data()).map { String(format: "%02X", $0) }.joined()
+                out.append("#EXT-X-KEY:METHOD=AES-128,URI=\"\(manifest.entries[key].fileName)\",IV=0x\(iv)")
+                encrypted = true
+            } else if encrypted {
+                out.append("#EXT-X-KEY:METHOD=NONE")
+                encrypted = false
+            }
+            if let map = line.map, map != currentMap {
+                out.append("#EXT-X-MAP:URI=\"\(manifest.entries[map].fileName)\"")
+                currentMap = map
+            }
+            out.append("#EXTINF:\(String(format: "%.3f", line.duration)),")
+            out.append(manifest.entries[line.segment].fileName)
+        }
+        out.append("#EXT-X-ENDLIST")
+        return out.joined(separator: "\n") + "\n"
+    }
+}

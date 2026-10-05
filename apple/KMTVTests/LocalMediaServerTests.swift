@@ -1,3 +1,4 @@
+import CommonCrypto
 import AVFoundation
 import XCTest
 @testable import KMTV
@@ -84,5 +85,59 @@ final class LocalMediaServerTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(100))
         }
         return false
+    }
+
+    func testWriterOutputPlaysAESFixtureWithDerivedIV() async throws {
+        let dir = root.appending(path: "aes")
+        let text = try String(contentsOf: dir.appending(path: "index.m3u8"), encoding: .utf8)
+        guard case .media(let playlist) = try HLSParser.parse(text, baseURL: dir.appending(path: "index.m3u8")) else {
+            return XCTFail("expected media playlist")
+        }
+        let manifest = DownloadManifest.build(from: playlist, generation: 1)
+        XCTAssertEqual(manifest.entries.map(\.fileName), ["key-0.bin", "seg-00000.ts", "seg-00001.ts"])
+        let written = LocalPlaylistWriter.write(manifest)
+        try written.write(to: dir.appending(path: "index.m3u8"), atomically: true, encoding: .utf8)
+
+        // The writer's IV for segment 1 must be its media sequence number, 6.
+        let keyLines = written.split(separator: "\n").filter { $0.hasPrefix("#EXT-X-KEY:") }
+        XCTAssertEqual(keyLines.count, 2)
+        let ivHex = try XCTUnwrap(keyLines[1].components(separatedBy: "IV=0x").last?.prefix(32))
+        XCTAssertEqual(String(ivHex).lowercased(), String(format: "%032x", 6))
+        let iv = Data(stride(from: 0, to: 32, by: 2).map { offset in
+            UInt8(ivHex.dropFirst(offset).prefix(2), radix: 16)!
+        })
+
+        let key = try Data(contentsOf: dir.appending(path: "key-0.bin"))
+        let encrypted = try Data(contentsOf: dir.appending(path: "seg-00001.ts"))
+        let plain = try Data(contentsOf: root.appending(path: "ts/seg-00001.ts"))
+        XCTAssertEqual(try Self.decryptAES128CBC(encrypted, key: key, iv: iv), plain)
+        let wrong = try Self.decryptAES128CBC(encrypted, key: key, iv: Data(count: 16))
+        XCTAssertNotEqual(wrong.prefix(16), plain.prefix(16))
+        XCTAssertEqual(plain.first, 0x47)
+
+        let server = LocalMediaServer(root: root)
+        _ = try await server.start()
+        defer { server.stop() }
+        let played = try await Self.playsPastOneSecond(try XCTUnwrap(server.url(forRelativePath: "aes/index.m3u8")))
+        XCTAssertTrue(played)
+    }
+
+    private static func decryptAES128CBC(_ data: Data, key: Data, iv: Data) throws -> Data {
+        var output = Data(count: data.count + kCCBlockSizeAES128)
+        let outputCapacity = output.count
+        var moved = 0
+        let status = output.withUnsafeMutableBytes { out in
+            data.withUnsafeBytes { input in
+                key.withUnsafeBytes { keyBytes in
+                    iv.withUnsafeBytes { ivBytes in
+                        CCCrypt(CCOperation(kCCDecrypt), CCAlgorithm(kCCAlgorithmAES), CCOptions(kCCOptionPKCS7Padding),
+                                keyBytes.baseAddress, key.count, ivBytes.baseAddress,
+                                input.baseAddress, data.count, out.baseAddress, outputCapacity, &moved)
+                    }
+                }
+            }
+        }
+        guard status == kCCSuccess else { throw CocoaError(.coderInvalidValue) }
+        return output.prefix(moved)
     }
 }
