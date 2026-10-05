@@ -163,6 +163,30 @@ final class OfflinePlayerViewModelTests: XCTestCase {
         XCTAssertNil(vm.player)
     }
 
+    func testProgressSavesAreThrottledByWallClockNotPosition() throws {
+        let clock = InstantBox()
+        let ep = try XCTUnwrap(episode(0))
+        let show = try XCTUnwrap(manager.show(scopeKey: scope, showKey: ep.showKey))
+        let vm = OfflinePlayerViewModel(manager: manager, show: show, episode: ep, modelContext: container.mainContext,
+                                        serverURL: "https://kmtv.example", syncStore: sync, now: { clock.now })
+        vm.handleTime(current: 10, total: 1000)
+        XCTAssertEqual(episode(0)?.positionSec, 10)
+        // Scrubbing jumps the position many times within a second; none of those callbacks save.
+        //
+        // 拖动进度条会在一秒内多次跳转位置; 这些回调都不会保存.
+        for position in stride(from: 50.0, through: 600, by: 50) {
+            vm.handleTime(current: position, total: 1000)
+        }
+        clock.advance(.seconds(4))
+        vm.handleTime(current: 610, total: 1000)
+        XCTAssertEqual(episode(0)?.positionSec, 10)
+        XCTAssertEqual(sync.watch(title: "Show")?.progressSec, 10)
+        clock.advance(.seconds(1))
+        vm.handleTime(current: 611, total: 1000)
+        XCTAssertEqual(episode(0)?.positionSec, 611)
+        XCTAssertEqual(sync.watch(title: "Show")?.progressSec, 611)
+    }
+
     func testRestartUsesTheCheckpointInsteadOfStartTime() throws {
         let ep = try XCTUnwrap(episode(2))
         ep.finished = true
@@ -171,4 +195,17 @@ final class OfflinePlayerViewModelTests: XCTestCase {
         XCTAssertEqual(OfflinePlayerViewModel.resolveStart(explicit: 990, record: record, episode: ep, skipIntroSeconds: 10), 990)
         XCTAssertEqual(OfflinePlayerViewModel.resolveStart(explicit: nil, record: record, episode: ep, skipIntroSeconds: 10), 10)
     }
+}
+
+/// Settable instant for the view model's injected clock.
+///
+/// 供视图模型注入时钟使用的可设置时间点.
+@MainActor
+private final class InstantBox {
+    private(set) var now = ContinuousClock.now
+
+    /// Moves the clock forward.
+    ///
+    /// 将时钟向前推进.
+    func advance(_ duration: Duration) { now = now.advanced(by: duration) }
 }

@@ -3,20 +3,18 @@ import AVKit
 import SwiftUI
 
 /// Fullscreen player for a downloaded episode, using the system controls (AirPlay is off for
-/// local items), with a close button and a next-episode button.
+/// local items). The system close button dismisses it and the system title shows the show and
+/// episode; a next-episode button appears only while paused or near the end, below the system top
+/// bar.
 ///
-/// 已下载剧集的全屏播放器, 使用系统控件 (本地内容关闭 AirPlay), 并提供关闭与下一集按钮.
+/// 已下载剧集的全屏播放器, 使用系统控件 (本地内容关闭 AirPlay). 由系统关闭按钮退出, 系统标题显示剧名
+/// 与集名; 下一集按钮只在暂停或接近结尾时出现, 位于系统顶部栏下方.
 struct OfflinePlayerView: View {
-    @State private var viewModel: OfflinePlayerViewModel
-    @Environment(\.dismiss) private var dismiss
+    let viewModel: OfflinePlayerViewModel
     @Environment(\.scenePhase) private var scenePhase
 
-    init(viewModel: OfflinePlayerViewModel) {
-        _viewModel = State(initialValue: viewModel)
-    }
-
     var body: some View {
-        ZStack(alignment: .top) {
+        ZStack(alignment: .topTrailing) {
             Color.black.ignoresSafeArea()
             if let player = viewModel.player {
                 FullScreenPlayerRepresentable(player: player)
@@ -30,9 +28,14 @@ struct OfflinePlayerView: View {
                     .tint(.white)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            topBar
+            if viewModel.player != nil, viewModel.showsUpNext {
+                nextButton
+            }
         }
         .task { await viewModel.start() }
+        // Runs however the cover goes away, including the system close button.
+        //
+        // 无论封面以何种方式关闭 (包括系统关闭按钮) 都会执行.
         .onDisappear { viewModel.close() }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -43,41 +46,23 @@ struct OfflinePlayerView: View {
         }
     }
 
-    private var topBar: some View {
-        HStack(spacing: 12) {
-            Button {
-                viewModel.close()
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(.black.opacity(0.55), in: Circle())
-            }
-            .accessibilityLabel(Text("Close"))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(viewModel.show.title).font(.headline)
-                Text(viewModel.episode.episodeName).font(.caption)
-            }
-            .foregroundStyle(.white)
-            .shadow(radius: 2)
-            Spacer()
-            if viewModel.nextEpisode != nil {
-                Button {
-                    viewModel.playNext()
-                } label: {
-                    Label("Next Episode", systemImage: "forward.end.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .frame(height: 44)
-                        .background(.black.opacity(0.55), in: Capsule())
-                }
-            }
+    private var nextButton: some View {
+        Button {
+            viewModel.playNext()
+        } label: {
+            Label("Next Episode", systemImage: "forward.end.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .frame(height: 44)
+                .background(.black.opacity(0.55), in: Capsule())
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
+        // Clear of the system top bar (close, picture in picture, volume).
+        //
+        // 避开系统顶部栏 (关闭, 画中画, 音量).
+        .padding(.top, 64)
+        .padding(.trailing, 16)
+        .transition(.opacity)
     }
 }
 #endif

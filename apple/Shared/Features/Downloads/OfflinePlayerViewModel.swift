@@ -1,5 +1,6 @@
 #if os(iOS)
 import AVFoundation
+import AVKit
 import Foundation
 import Observation
 import SwiftData
@@ -11,10 +12,28 @@ import SwiftData
 @Observable
 @MainActor
 final class OfflinePlayerViewModel {
+    /// Shortest wall-clock gap between two periodic progress saves. Scrubbing moves the position
+    /// many times a second, so a position-based gap would save on almost every callback.
+    ///
+    /// 两次周期性进度保存之间的最短实际时间间隔. 拖动进度条时位置每秒变化多次, 若按位置差判断,
+    /// 几乎每次回调都会保存.
+    static let saveInterval: Duration = .seconds(5)
+    /// How long before the end the next-episode button appears during playback.
+    ///
+    /// 播放时距离结尾多久显示下一集按钮.
+    static let upNextLead: TimeInterval = 60
+
     let show: DownloadShow
     private(set) var episode: DownloadEpisode
     private(set) var player: AVPlayer?
     var error: String?
+    /// Whether playback is paused, and whether the playhead is within `upNextLead` of the end (or
+    /// of the outro skip); the next-episode button shows only then. Both change only on a flip.
+    ///
+    /// 播放是否已暂停, 以及播放头是否距结尾 (或片尾跳过点) 不足 `upNextLead`; 只有此时才显示下一集
+    /// 按钮. 两者只在状态翻转时才会改变.
+    private(set) var isPaused = false
+    private(set) var isNearEnd = false
 
     @ObservationIgnored private let manager: DownloadManager
     @ObservationIgnored private let progressStore: PlaybackProgressStore
@@ -22,7 +41,11 @@ final class OfflinePlayerViewModel {
     @ObservationIgnored private let coordinator = PlaybackCoordinator()
     @ObservationIgnored private let skipIntroSeconds: Int
     @ObservationIgnored private let skipOutroSeconds: Int
-    @ObservationIgnored private var lastSave: TimeInterval = 0
+    // Wall-clock instant of the last periodic save; nil saves on the next callback.
+    //
+    // 上一次周期性保存的实际时间点; 为 nil 时下一次回调即保存.
+    @ObservationIgnored private var lastSaveAt: ContinuousClock.Instant?
+    @ObservationIgnored private var pauseObservation: NSKeyValueObservation?
     @ObservationIgnored private var lastDuration: TimeInterval = 0
     @ObservationIgnored private var outroHandled = false
     // One automatic rebuild per episode when playback fails with intact files (for example after
@@ -53,11 +76,14 @@ final class OfflinePlayerViewModel {
     // 待执行的自动重启 (失败后重建, 自动下一集); 供测试使用.
     @ObservationIgnored private(set) var restartTask: Task<Void, Never>?
     @ObservationIgnored private let playbackURL: @MainActor (DownloadEpisode) async throws -> URL
+    @ObservationIgnored private let now: @MainActor () -> ContinuousClock.Instant
 
     init(manager: DownloadManager, show: DownloadShow, episode: DownloadEpisode, modelContext: ModelContext,
          serverURL: String, syncStore: SyncStore?,
-         playbackURL: (@MainActor (DownloadEpisode) async throws -> URL)? = nil) {
+         playbackURL: (@MainActor (DownloadEpisode) async throws -> URL)? = nil,
+         now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }) {
         self.manager = manager
+        self.now = now
         self.playbackURL = playbackURL ?? { [manager] in try await manager.localPlaybackURL(for: $0) }
         self.show = show
         self.episode = episode
@@ -126,14 +152,58 @@ final class OfflinePlayerViewModel {
         guard !closed, !Task.isCancelled, !suspended, generation == startGeneration else { return }
         let start = Self.resolveStart(explicit: position, record: syncStore?.watch(title: show.title),
                                       episode: episode, skipIntroSeconds: skipIntroSeconds)
-        lastSave = start
+        lastSaveAt = now()
         outroHandled = false
+        isNearEnd = false
         coordinator.start(url: url, startTime: start, rate: 1, allowsExternalPlayback: false,
-                          onTime: { [weak self] current, total in self?.onTime(current: current, total: total) },
+                          onTime: { [weak self] current, total in self?.handleTime(current: current, total: total) },
                           onBuffer: { _ in },
                           onEnd: { [weak self] in self?.finishCurrent() },
                           onError: { [weak self] _ in self?.fail() })
         player = coordinator.player
+        applyMetadata()
+        observePause()
+    }
+
+    /// Whether the next-episode button shows: a next episode exists and playback is paused or near
+    /// the end.
+    ///
+    /// 是否显示下一集按钮: 存在下一集, 且播放已暂停或接近结尾.
+    var showsUpNext: Bool {
+        (isPaused || isNearEnd) && nextEpisode != nil
+    }
+
+    /// Gives the item the show and episode names, which the system player shows as its title, so
+    /// no overlay has to sit on the video.
+    ///
+    /// 为 item 设置剧名与集名, 系统播放器会将其显示为标题, 因此无需在视频上叠加视图.
+    private func applyMetadata() {
+        coordinator.player?.currentItem?.externalMetadata = [
+            Self.metadataItem(.commonIdentifierTitle, value: show.title),
+            Self.metadataItem(.iTunesMetadataTrackSubTitle, value: episode.episodeName),
+        ]
+    }
+
+    private static func metadataItem(_ identifier: AVMetadataIdentifier, value: String) -> AVMetadataItem {
+        let item = AVMutableMetadataItem()
+        item.identifier = identifier
+        item.value = value as NSString
+        item.extendedLanguageTag = "und"
+        return item
+    }
+
+    /// Tracks whether the player is paused; KVO delivers on the main thread, as in
+    /// `PlaybackCoordinator`.
+    ///
+    /// 跟踪播放器是否暂停; 与 `PlaybackCoordinator` 一样, KVO 在主线程投递.
+    private func observePause() {
+        pauseObservation = coordinator.player?.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
+            let paused = player.timeControlStatus == .paused
+            MainActor.assumeIsolated {
+                guard let self, self.isPaused != paused else { return }
+                self.isPaused = paused
+            }
+        }
     }
 
     /// Plays the next completed episode, if any.
@@ -186,6 +256,7 @@ final class OfflinePlayerViewModel {
         manager.offlinePlaybackActive = false
         restartTask?.cancel()
         checkpoint()
+        pauseObservation = nil
         coordinator.cleanup()
         player = nil
     }
@@ -206,12 +277,18 @@ final class OfflinePlayerViewModel {
         manager.recordWatch(episode, positionSec: current, finished: done)
     }
 
-    private func onTime(current: TimeInterval, total: TimeInterval) {
+    /// Handles a periodic time callback: saves progress and skips the outro.
+    ///
+    /// 处理周期性时间回调: 保存进度并跳过片尾.
+    func handleTime(current: TimeInterval, total: TimeInterval) {
         lastDuration = total
-        if abs(current - lastSave) >= 5 {
-            lastSave = current
+        let instant = now()
+        if lastSaveAt.map({ instant - $0 >= Self.saveInterval }) ?? true {
+            lastSaveAt = instant
             record(current: current, duration: total, finished: false)
         }
+        let nearEnd = total > 0 && total - current <= Self.upNextLead + TimeInterval(skipOutroSeconds)
+        if nearEnd != isNearEnd { isNearEnd = nearEnd }
         if !outroHandled, skipOutroSeconds > 0, total > 0, total - current > 0,
            total - current <= TimeInterval(skipOutroSeconds) {
             outroHandled = true
@@ -243,6 +320,7 @@ final class OfflinePlayerViewModel {
     private func fail() {
         guard !suspended, !closed else { return }
         checkpoint()
+        pauseObservation = nil
         coordinator.cleanup()
         player = nil
         if !manager.filesIntact(episode) {
