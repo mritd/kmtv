@@ -3,6 +3,12 @@
 Bugs worth remembering, newest first: what broke, why, how it was fixed, and how to avoid it again.
 Keep entries short; remove entries that no longer teach anything.
 
+### 2026-10-03 - Stray separator in Apple metadata lines
+- **Issue**: Favorites, search results, the detail page, and the player showed lines like "| 2025" when the type, year, or area was empty.
+- **Root Cause**: The views interpolated `"\(type) | \(year)"` directly; Web already dropped empty parts before joining.
+- **Solution**: `DisplayFormatters.metaLine(_:separator:)` joins only non-empty parts; all five call sites use it. Verified with `testMetaLineSkipsEmptyParts`, the full `KMTVTests` suite (215), and a tvOS simulator build.
+- **Prevention**: Build metadata lines with `DisplayFormatters.metaLine`, not string interpolation.
+
 ### 2026-10-03 - Web player gate opened early under StrictMode
 - **Issue**: In `vite dev`, a player could pick its episode from stale local data before the launch sync.
 - **Root Cause**: StrictMode replays effects (mount, unmount, mount); the provider's cleanup stopped the engine and the child gate's replayed effect saw a stopped engine and resolved at once.

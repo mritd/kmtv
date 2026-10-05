@@ -24,6 +24,15 @@ final class UtilsTests: XCTestCase {
         XCTAssertEqual(DisplayFormatters.bestDescription(title: "Movie", desc: "Movie"), nil)
     }
 
+    func testMetaLineSkipsEmptyParts() {
+        XCTAssertEqual(DisplayFormatters.metaLine(["TV", "2025"]), "TV | 2025")
+        XCTAssertEqual(DisplayFormatters.metaLine(["", "2025"]), "2025")
+        XCTAssertEqual(DisplayFormatters.metaLine([nil, " ", "2025", "US"]), "2025 | US")
+        XCTAssertEqual(DisplayFormatters.metaLine(["TV", ""]), "TV")
+        XCTAssertEqual(DisplayFormatters.metaLine([nil, ""]), "")
+        XCTAssertEqual(DisplayFormatters.metaLine(["TV", "2025"], separator: " "), "TV 2025")
+    }
+
     func testSearchRowIdentitySeparatesSkeletonAndResultRows() {
         XCTAssertNotEqual(SearchRowIdentity.skeleton(0), SearchRowIdentity.result(0))
         XCTAssertEqual(SearchRowIdentity.result(2), SearchRowIdentity.result(2))

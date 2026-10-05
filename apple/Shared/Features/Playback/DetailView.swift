@@ -157,7 +157,7 @@ struct DetailView: View {
     private func infoColumn(_ vm: PlayerViewModel) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(vm.detail?.title ?? title).font(.title.bold()).foregroundStyle(.primary)
-            Text("\(vm.detail?.type ?? "") | \(vm.detail?.year ?? "") | \(vm.detail?.area ?? "")")
+            Text(DisplayFormatters.metaLine([vm.detail?.type, vm.detail?.year, vm.detail?.area]))
                 .foregroundStyle(.secondary)
             if let director = vm.detail?.director, !director.isEmpty {
                 #if os(tvOS)
