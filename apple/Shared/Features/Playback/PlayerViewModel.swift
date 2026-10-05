@@ -140,6 +140,10 @@ final class PlayerViewModel {
     //
     // 本地副本失败后置位, 下一次启动直接走在线播放, 不再尝试本地副本.
     private var skipLocalCopy = false
+    /// How long a downloaded copy may take to become ready before playback falls back to streaming.
+    ///
+    /// 下载副本变为就绪前可等待的时长, 超时后回退为在线播放.
+    private let localLoadTimeout: Duration
 
     /// Coordinates player side effects while this view model owns user-visible state.
     ///
@@ -150,8 +154,10 @@ final class PlayerViewModel {
          syncStore: SyncStore? = nil, syncEngine: SyncEngine? = nil,
          sources: [SourceResult], sourceKey: String, videoId: String, title: String,
          coverHint: String = "", initialEpisodeIndex: Int? = nil, playerSyncWait: Duration = .milliseconds(1500),
-         localEpisodes: (any LocalEpisodeProviding)? = nil) {
+         localEpisodes: (any LocalEpisodeProviding)? = nil,
+         localLoadTimeout: Duration = PlaybackCoordinator.localLoadTimeout) {
         self.localEpisodes = localEpisodes
+        self.localLoadTimeout = localLoadTimeout
         self.apiClient = apiClient
         self.modelContext = modelContext
 		self.serverURL = serverURL
@@ -270,7 +276,7 @@ final class PlayerViewModel {
                                                                 episodeIndex: currentEpisodeIndex) {
                 guard id == playbackRequest else { return }
                 isPlayingLocalCopy = true
-                startPlayer(with: local, allowsExternalPlayback: false)
+                startPlayer(with: local, allowsExternalPlayback: false, loadTimeout: localLoadTimeout)
                 return
             }
             skipLocalCopy = false
@@ -309,7 +315,7 @@ final class PlayerViewModel {
         return url
     }
 
-    private func startPlayer(with url: URL, allowsExternalPlayback: Bool = true) {
+    private func startPlayer(with url: URL, allowsExternalPlayback: Bool = true, loadTimeout: Duration? = nil) {
         skipOutroTriggered = false
         endCheckpointWritten = false
         detachedFromItem = false
@@ -333,6 +339,7 @@ final class PlayerViewModel {
             startTime: startTime,
             rate: playbackRate,
             allowsExternalPlayback: allowsExternalPlayback,
+            loadTimeout: loadTimeout,
             onTime: { [weak self] current, total in
                 self?.onTimeUpdate(current: current, total: total)
             },

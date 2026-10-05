@@ -163,6 +163,26 @@ final class OfflinePlayerViewModelTests: XCTestCase {
         XCTAssertNil(vm.player)
     }
 
+    func testItemThatNeverLoadsFailsAfterTheLoadTimeout() async throws {
+        let hanging = HangingServer()
+        let url = try await hanging.start()
+        defer { hanging.stop() }
+        let ep = try XCTUnwrap(episode(0))
+        let show = try XCTUnwrap(manager.show(scopeKey: scope, showKey: ep.showKey))
+        let vm = OfflinePlayerViewModel(manager: manager, show: show, episode: ep, modelContext: container.mainContext,
+                                        serverURL: "https://kmtv.example", syncStore: sync,
+                                        playbackURL: { _ in url }, loadTimeout: .milliseconds(300))
+        defer { vm.close() }
+        await vm.start()
+        XCTAssertNotNil(vm.player)
+        // The first timeout rebuilds the item once (files are intact); the second shows the error.
+        //
+        // 第一次超时会重建一次 item (文件完好); 第二次超时显示错误.
+        for _ in 0..<100 where vm.error == nil { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertNotNil(vm.error)
+        XCTAssertEqual(ep.state, .completed)
+    }
+
     func testProgressSavesAreThrottledByWallClockNotPosition() throws {
         let clock = InstantBox()
         let ep = try XCTUnwrap(episode(0))

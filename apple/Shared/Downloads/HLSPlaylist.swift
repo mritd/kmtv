@@ -42,6 +42,12 @@ struct HLSSegment: Equatable, Sendable {
     let duration: Double
     let key: HLSKey
     let map: URL?
+    /// Whether the map was declared while a key was active, so it is encrypted too (RFC 8216
+    /// 4.3.2.4); a map declared before the key is clear.
+    ///
+    /// map 是否在某个 key 生效时声明, 即是否同样被加密 (RFC 8216 4.3.2.4); 在 key 之前声明的 map
+    /// 为明文.
+    let mapEncrypted: Bool
     let discontinuity: Bool
     let mediaSequence: Int
 }
@@ -150,6 +156,7 @@ enum HLSParser {
         var firstSequence = 0
         var key = HLSKey.none
         var map: URL?
+        var mapEncrypted = false
         var duration: Double?
         var discontinuity = false
         var hasEndList = false
@@ -170,6 +177,7 @@ enum HLSParser {
                 let attrs = attributes(line.dropFirst("#EXT-X-MAP:".count))
                 if attrs["BYTERANGE"] != nil { throw HLSParseError.byteRange }
                 map = try attrs["URI"].flatMap { try resolve($0, baseURL) }
+                mapEncrypted = key != .none
             } else if line.hasPrefix("#EXT-X-BYTERANGE") {
                 throw HLSParseError.byteRange
             } else if line.hasPrefix("#EXTINF:") {
@@ -188,7 +196,8 @@ enum HLSParser {
                 let (sequence, overflow) = firstSequence.addingReportingOverflow(segments.count)
                 guard !overflow else { throw HLSParseError.notHLS }
                 segments.append(HLSSegment(uri: uri, duration: segmentDuration, key: key, map: map,
-                                           discontinuity: discontinuity, mediaSequence: sequence))
+                                           mapEncrypted: mapEncrypted, discontinuity: discontinuity,
+                                           mediaSequence: sequence))
                 duration = nil
                 discontinuity = false
             }

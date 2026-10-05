@@ -39,6 +39,7 @@
 		2469B6687B7F21D45D801FFC /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAF66F9A7B1276353B8C14B /* HomeView.swift */; };
 		24D49B6FB95CFA4C8F5CF0F6 /* SSEClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B377952B2ADB99FBFED7DC88 /* SSEClient.swift */; };
 		24F0E95254D633D8160001C1 /* FavoritesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C160DA751208E1A94BAB3BC /* FavoritesUITests.swift */; };
+		259752F17FA017D78346B51A /* HangingServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99AF62E1AD11EF54131F0A29 /* HangingServer.swift */; };
 		2633975A1FFC65019858A401 /* AuthModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B22280A3C7EDE990859D47B /* AuthModels.swift */; };
 		280D502C424EFE579DA40E3E /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F8667C6F4ECEBB2775C465C /* DownloadManager.swift */; };
 		28249708B6C0DDF111EAC1FC /* DownloadEntryValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17DE89F3499A1FD6761DD75 /* DownloadEntryValidator.swift */; };
@@ -370,6 +371,7 @@
 		95DED24B436F2AE78DC21BD7 /* SyncKeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncKeyTests.swift; sourceTree = "<group>"; };
 		97596B2B8569A9277DCFD462 /* PlaybackModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackModels.swift; sourceTree = "<group>"; };
 		97B9B4744EB9CEB5E365070D /* KMTVUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = KMTVUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		99AF62E1AD11EF54131F0A29 /* HangingServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HangingServer.swift; sourceTree = "<group>"; };
 		9A80F5E84EFE76C2E3B811E1 /* ManualClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualClock.swift; sourceTree = "<group>"; };
 		9F8667C6F4ECEBB2775C465C /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
 		9FF81A5CEDE570ACBEFF27CF /* AdminModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminModels.swift; sourceTree = "<group>"; };
@@ -497,6 +499,7 @@
 			children = (
 				831E03D6D736ED97B4985019 /* APIFakes.swift */,
 				50C7CC8170CDEC7DE2DDE885 /* DownloadFakes.swift */,
+				99AF62E1AD11EF54131F0A29 /* HangingServer.swift */,
 				9A80F5E84EFE76C2E3B811E1 /* ManualClock.swift */,
 				30F90697A0A1DE16ABF51D81 /* ModelContainerFactory.swift */,
 				5B1F6F05508AA4FBDDC1A94C /* SyncFixtures.swift */,
@@ -1212,6 +1215,7 @@
 				704F8D66C742E563AA667785 /* EpisodeSelectionTests.swift in Sources */,
 				1D891FCF34D86F74F3A0C236 /* FavoritesViewModelTests.swift in Sources */,
 				37817EED5FA80AE5A9C75596 /* HLSParserTests.swift in Sources */,
+				259752F17FA017D78346B51A /* HangingServer.swift in Sources */,
 				90404B3AD5243039CA116BDD /* HomeViewModelTests.swift in Sources */,
 				31ED0E4639D44496B1169A60 /* LocalMediaServerTests.swift in Sources */,
 				204231B2A7FD4F74C8CE9F74 /* ManualClock.swift in Sources */,

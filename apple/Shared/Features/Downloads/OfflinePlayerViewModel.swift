@@ -77,13 +77,19 @@ final class OfflinePlayerViewModel {
     @ObservationIgnored private(set) var restartTask: Task<Void, Never>?
     @ObservationIgnored private let playbackURL: @MainActor (DownloadEpisode) async throws -> URL
     @ObservationIgnored private let now: @MainActor () -> ContinuousClock.Instant
+    // How long an item may take to become ready before it counts as a failure.
+    //
+    // item 变为就绪前可等待的时长, 超时即视为失败.
+    @ObservationIgnored private let loadTimeout: Duration
 
     init(manager: DownloadManager, show: DownloadShow, episode: DownloadEpisode, modelContext: ModelContext,
          serverURL: String, syncStore: SyncStore?,
          playbackURL: (@MainActor (DownloadEpisode) async throws -> URL)? = nil,
-         now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }) {
+         now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now },
+         loadTimeout: Duration = PlaybackCoordinator.localLoadTimeout) {
         self.manager = manager
         self.now = now
+        self.loadTimeout = loadTimeout
         self.playbackURL = playbackURL ?? { [manager] in try await manager.localPlaybackURL(for: $0) }
         self.show = show
         self.episode = episode
@@ -156,6 +162,7 @@ final class OfflinePlayerViewModel {
         outroHandled = false
         isNearEnd = false
         coordinator.start(url: url, startTime: start, rate: 1, allowsExternalPlayback: false,
+                          loadTimeout: loadTimeout,
                           onTime: { [weak self] current, total in self?.handleTime(current: current, total: total) },
                           onBuffer: { _ in },
                           onEnd: { [weak self] in self?.finishCurrent() },

@@ -56,14 +56,16 @@ final class PlayerViewModelTests: XCTestCase {
     }
 
     @MainActor
-    private func localFirstViewModel(_ local: FakeLocalEpisodes, api: FakePlayerAPI) throws -> PlayerViewModel {
+    private func localFirstViewModel(_ local: FakeLocalEpisodes, api: FakePlayerAPI,
+                                     loadTimeout: Duration = PlaybackCoordinator.localLoadTimeout) throws -> PlayerViewModel {
         let container = try ModelContainerFactory.makeInMemory()
         let vm = PlayerViewModel(
             apiClient: api, modelContext: container.mainContext, serverURL: "https://kmtv.example",
             syncStore: makeSyncStore(container), syncEngine: nil,
             sources: [SourceResult(sourceKey: "source-a", sourceName: "Source A", videoId: "video-1", durationMs: 0,
                                    episodes: [Episode(name: "EP1", url: "https://cdn.example/video.m3u8")])],
-            sourceKey: "source-a", videoId: "video-1", title: "Video", localEpisodes: local
+            sourceKey: "source-a", videoId: "video-1", title: "Video", localEpisodes: local,
+            localLoadTimeout: loadTimeout
         )
         vm.detail = api.detailResponse
         return vm
@@ -100,6 +102,23 @@ final class PlayerViewModelTests: XCTestCase {
         //
         // 在线重试在 task 中运行; 等到它请求播放地址为止.
         for _ in 0..<50 where api.playbackRequests.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertFalse(api.playbackRequests.isEmpty)
+    }
+
+    @MainActor
+    func testLocalCopyThatNeverLoadsFallsBackToStreaming() async throws {
+        let hanging = HangingServer()
+        let api = FakePlayerAPI()
+        let local = FakeLocalEpisodes()
+        local.url = try await hanging.start()
+        defer { hanging.stop() }
+        let vm = try localFirstViewModel(local, api: api, loadTimeout: .milliseconds(300))
+        defer { vm.cleanup() }
+        await vm.startPlaybackAsync()
+        XCTAssertTrue(vm.isPlayingLocalCopy)
+        for _ in 0..<100 where api.playbackRequests.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(Set(local.failures), [0])
+        XCTAssertFalse(vm.isPlayingLocalCopy)
         XCTAssertFalse(api.playbackRequests.isEmpty)
     }
 

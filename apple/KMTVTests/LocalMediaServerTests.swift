@@ -57,7 +57,7 @@ final class LocalMediaServerTests: XCTestCase {
         let port = try await server.start()
         defer { server.stop() }
         XCTAssertNotEqual(port, 0)
-        for name in ["ts", "fmp4", "aes"] {
+        for name in ["ts", "fmp4", "aes", "fmp4-aes-clearinit"] {
             let url = try XCTUnwrap(server.url(forRelativePath: "\(name)/index.m3u8"))
             let played = try await Self.playsPastOneSecond(url)
             XCTAssertTrue(played, "\(name) did not play through \(url)")
@@ -123,6 +123,49 @@ final class LocalMediaServerTests: XCTestCase {
         _ = try await server.start()
         defer { server.stop() }
         let played = try await Self.playsPastOneSecond(try XCTUnwrap(server.url(forRelativePath: "aes/index.m3u8")))
+        XCTAssertTrue(played)
+    }
+
+    /// Regression for a writer that declared the key before a clear init section, so AVPlayer
+    /// decrypted the init and the item stalled in `.unknown` without an error.
+    ///
+    /// 回归测试: 写入器曾在明文 init 之前声明 key, AVPlayer 因而解密了 init, item 一直停在
+    /// `.unknown` 且没有任何错误.
+    ///
+    /// The `fmp4-aes-clearinit` fixture is the `fmp4` fixture with its segments encrypted and the
+    /// init left clear. Regenerate it from `apple/KMTVTests/Fixtures/HLS` with:
+    ///
+    /// `fmp4-aes-clearinit` 素材由 `fmp4` 素材加密分片而来, init 保持明文. 在
+    /// `apple/KMTVTests/Fixtures/HLS` 下按如下命令重新生成:
+    ///
+    ///     cp fmp4/init-0.mp4 fmp4-aes-clearinit/
+    ///     openssl rand 16 > fmp4-aes-clearinit/key-0.bin
+    ///     K=$(xxd -p fmp4-aes-clearinit/key-0.bin)
+    ///     for i in 0 1; do
+    ///       openssl enc -aes-128-cbc -K "$K" -iv "$(printf '%032x' $i)" \
+    ///         -in fmp4/seg-0000$i.m4s -out fmp4-aes-clearinit/seg-0000$i.m4s
+    ///     done
+    ///
+    /// The IV is each segment's media sequence number (0 and 1), and `index.m3u8` declares
+    /// `EXT-X-MAP` before `EXT-X-KEY`.
+    ///
+    /// IV 为各分片的 media sequence 号 (0 与 1), `index.m3u8` 中 `EXT-X-MAP` 位于 `EXT-X-KEY` 之前.
+    func testWriterOutputPlaysEncryptedFMP4WithClearInit() async throws {
+        let dir = root.appending(path: "fmp4-aes-clearinit")
+        let text = try String(contentsOf: dir.appending(path: "index.m3u8"), encoding: .utf8)
+        let base = try XCTUnwrap(URL(string: "https://fixtures.example/fmp4-aes-clearinit/index.m3u8"))
+        guard case .media(let playlist) = try HLSParser.parse(text, baseURL: base) else {
+            return XCTFail("expected media playlist")
+        }
+        let manifest = DownloadManifest.build(from: playlist, generation: 1)
+        XCTAssertEqual(manifest.entries.map(\.fileName), ["key-0.bin", "init-0.mp4", "seg-00000.m4s", "seg-00001.m4s"])
+        try LocalPlaylistWriter.write(manifest).write(to: dir.appending(path: "local.m3u8"), atomically: true,
+                                                      encoding: .utf8)
+        let server = LocalMediaServer(root: root)
+        _ = try await server.start()
+        defer { server.stop() }
+        let played = try await Self.playsPastOneSecond(
+            try XCTUnwrap(server.url(forRelativePath: "fmp4-aes-clearinit/local.m3u8")))
         XCTAssertTrue(played)
     }
 

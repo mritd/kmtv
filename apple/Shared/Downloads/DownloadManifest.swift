@@ -39,6 +39,17 @@ struct DownloadManifest: Codable, Equatable, Sendable {
         let map: Int?
         let discontinuity: Bool
         let duration: Double
+        /// Whether the source declared the map while a key was active; nil in manifests saved
+        /// before this was recorded.
+        ///
+        /// 源 playlist 是否在某个 key 生效时声明该 map; 在记录此字段之前保存的 manifest 中为 nil.
+        var mapEncrypted: Bool?
+
+        /// Whether the line's map is ciphertext. Manifests without the flag keep the old rule: a
+        /// map is encrypted when its line has a key.
+        ///
+        /// 该行的 map 是否为密文. 没有此标记的 manifest 沿用旧规则: 行带 key 时 map 视为加密.
+        var mapIsEncrypted: Bool { map != nil && (mapEncrypted ?? (key != nil)) }
     }
 
     var generation: Int
@@ -104,18 +115,20 @@ struct DownloadManifest: Codable, Equatable, Sendable {
             let name = String(format: "seg-%05d.%@", position, segmentExtension)
             let segmentEntry = add(.segment, segment.uri, name, segment.duration)
             lines.append(Line(segment: segmentEntry, key: key, iv: iv, map: map,
-                              discontinuity: segment.discontinuity, duration: segment.duration))
+                              discontinuity: segment.discontinuity, duration: segment.duration,
+                              mapEncrypted: map == nil ? nil : segment.mapEncrypted))
         }
         return DownloadManifest(generation: generation, version: playlist.version,
                                 targetDuration: playlist.targetDuration, mediaSequence: playlist.mediaSequence,
                                 entries: entries, lines: lines)
     }
 
-    /// Whether an entry is AES-128 ciphertext: a segment or map of a line that has a key.
+    /// Whether an entry is AES-128 ciphertext: the segment of a line that has a key, or a map the
+    /// source declared while a key was active.
     ///
-    /// 条目是否为 AES-128 密文: 即带 key 的行所引用的分片或 map.
+    /// 条目是否为 AES-128 密文: 带 key 的行所引用的分片, 或源 playlist 在 key 生效时声明的 map.
     func isEncrypted(entry index: Int) -> Bool {
-        lines.contains { $0.key != nil && ($0.segment == index || $0.map == index) }
+        lines.contains { ($0.segment == index && $0.key != nil) || ($0.map == index && $0.mapIsEncrypted) }
     }
 
     /// The 16-byte big-endian IV for a media sequence number.
@@ -196,9 +209,12 @@ struct DownloadManifest: Codable, Equatable, Sendable {
 ///
 /// 为已完成的 manifest 生成使用相对 URI 的本地 `index.m3u8`.
 enum LocalPlaylistWriter {
-    /// The playlist text. Every encrypted segment gets its own key line with an explicit IV.
+    /// The playlist text. Every encrypted segment gets its own key line with an explicit IV. A
+    /// key applies to a map declared after it (RFC 8216 4.3.2.4), so a clear map is written while
+    /// no key is active and an encrypted one after its line's key.
     ///
-    /// playlist 文本. 每个加密分片都有自己的 key 行, 并显式写出 IV.
+    /// playlist 文本. 每个加密分片都有自己的 key 行, 并显式写出 IV. key 会作用于其后声明的 map
+    /// (RFC 8216 4.3.2.4), 因此明文 map 在没有生效 key 时写出, 加密 map 写在所在行的 key 之后.
     static func write(_ manifest: DownloadManifest) -> String {
         let hasMap = manifest.lines.contains { $0.map != nil }
         var out = ["#EXTM3U",
@@ -210,6 +226,15 @@ enum LocalPlaylistWriter {
         var currentMap: Int?
         for line in manifest.lines {
             if line.discontinuity { out.append("#EXT-X-DISCONTINUITY") }
+            let newMap = line.map.flatMap { $0 != currentMap ? $0 : nil }
+            if let map = newMap, !line.mapIsEncrypted {
+                if encrypted {
+                    out.append("#EXT-X-KEY:METHOD=NONE")
+                    encrypted = false
+                }
+                out.append("#EXT-X-MAP:URI=\"\(manifest.entries[map].fileName)\"")
+                currentMap = map
+            }
             if let key = line.key {
                 let iv = (line.iv ?? Data()).map { String(format: "%02X", $0) }.joined()
                 out.append("#EXT-X-KEY:METHOD=AES-128,URI=\"\(manifest.entries[key].fileName)\",IV=0x\(iv)")
@@ -218,7 +243,7 @@ enum LocalPlaylistWriter {
                 out.append("#EXT-X-KEY:METHOD=NONE")
                 encrypted = false
             }
-            if let map = line.map, map != currentMap {
+            if let map = newMap, line.mapIsEncrypted {
                 out.append("#EXT-X-MAP:URI=\"\(manifest.entries[map].fileName)\"")
                 currentMap = map
             }

@@ -61,6 +61,74 @@ final class DownloadManifestTests: XCTestCase {
         XCTAssertEqual(fmp4.entries.indices.map { fmp4.isEncrypted(entry: $0) }, [false, true, true])
     }
 
+    private let clearInit = """
+    #EXTM3U
+    #EXT-X-VERSION:7
+    #EXT-X-TARGETDURATION:2
+    #EXT-X-MAP:URI="init.mp4"
+    #EXT-X-KEY:METHOD=AES-128,URI="k.bin",IV=0x0000000000000000000000000000000A
+    #EXTINF:2,
+    s0.m4s
+    #EXTINF:2,
+    s1.m4s
+    #EXT-X-ENDLIST
+    """
+
+    func testMapDeclaredBeforeTheKeyIsClear() throws {
+        let manifest = DownloadManifest.build(from: try media(clearInit), generation: 1)
+        XCTAssertEqual(manifest.entries.map(\.kind), [.key, .map, .segment, .segment])
+        XCTAssertEqual(manifest.entries.indices.map { manifest.isEncrypted(entry: $0) }, [false, false, true, true])
+    }
+
+    func testWriterKeepsTheInitSectionEncryptionOfTheSource() throws {
+        func order(_ playlist: String) -> [String] {
+            playlist.split(separator: "\n").map(String.init).filter { $0.hasPrefix("#EXT-X-KEY") || $0.hasPrefix("#EXT-X-MAP") }
+        }
+        // A clear init is declared while no key is active, so AVPlayer does not decrypt it.
+        //
+        // 明文 init 在没有生效 key 时声明, AVPlayer 因此不会对它解密.
+        let clear = LocalPlaylistWriter.write(DownloadManifest.build(from: try media(clearInit), generation: 1))
+        XCTAssertEqual(order(clear), [
+            #"#EXT-X-MAP:URI="init-0.mp4""#,
+            #"#EXT-X-KEY:METHOD=AES-128,URI="key-0.bin",IV=0x0000000000000000000000000000000A"#,
+            #"#EXT-X-KEY:METHOD=AES-128,URI="key-0.bin",IV=0x0000000000000000000000000000000A"#,
+        ])
+        // A clear init after encrypted segments first switches the key off.
+        //
+        // 加密分片之后出现的明文 init 会先关闭 key.
+        let switched = LocalPlaylistWriter.write(DownloadManifest.build(from: try media("""
+        #EXTM3U
+        #EXT-X-VERSION:7
+        #EXT-X-TARGETDURATION:2
+        #EXT-X-KEY:METHOD=AES-128,URI="k.bin"
+        #EXT-X-MAP:URI="a.mp4"
+        #EXTINF:2,
+        s0.m4s
+        #EXT-X-DISCONTINUITY
+        #EXT-X-KEY:METHOD=NONE
+        #EXT-X-MAP:URI="b.mp4"
+        #EXT-X-KEY:METHOD=AES-128,URI="k.bin"
+        #EXTINF:2,
+        s1.m4s
+        #EXT-X-ENDLIST
+        """), generation: 1))
+        XCTAssertEqual(order(switched), [
+            #"#EXT-X-KEY:METHOD=AES-128,URI="key-0.bin",IV=0x00000000000000000000000000000000"#,
+            #"#EXT-X-MAP:URI="init-0.mp4""#,
+            "#EXT-X-KEY:METHOD=NONE",
+            #"#EXT-X-MAP:URI="init-1.mp4""#,
+            #"#EXT-X-KEY:METHOD=AES-128,URI="key-0.bin",IV=0x00000000000000000000000000000001"#,
+        ])
+    }
+
+    func testManifestsSavedBeforeTheMapFlagKeepTreatingKeyedMapsAsEncrypted() throws {
+        var manifest = DownloadManifest.build(from: try media(clearInit), generation: 1)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(manifest)) as? [String: Any])
+        json["lines"] = (json["lines"] as? [[String: Any]])?.map { line in line.filter { $0.key != "mapEncrypted" } }
+        manifest = try JSONDecoder().decode(DownloadManifest.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(manifest.entries.indices.map { manifest.isEncrypted(entry: $0) }, [false, true, true, true])
+    }
+
     func testFMP4UsesMapAndM4SNames() throws {
         let manifest = DownloadManifest.build(from: try media("""
         #EXTM3U
