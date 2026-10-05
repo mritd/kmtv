@@ -98,6 +98,7 @@ Use the smallest useful verification command for each change.
 - tvOS must avoid multi-level `NavigationStack` push flows inside `TabView` (ADR-009).
 - AVPlayer media requests do not share app cookies, so playback URLs must encode authorization (ADR-011).
 - `apple/Shared/Sync/` ports the Web sync core to Swift with the same names and rules. Change merge or engine behavior in `web/src/sync/` and `apple/Shared/Sync/` together.
+- Offline downloads live in `apple/Shared/Downloads/` (ADR-017). AVPlayer cannot play file-based HLS, so downloaded episodes play through `LocalMediaServer` on the loopback interface. The SwiftData models and pure types there compile on every platform; the manager, transport, server, and UI are iOS-only.
 
 ## Web Client Rules
 

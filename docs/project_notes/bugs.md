@@ -3,6 +3,24 @@
 Bugs worth remembering, newest first: what broke, why, how it was fixed, and how to avoid it again.
 Keep entries short; remove entries that no longer teach anything.
 
+### 2026-10-06 - Bootstrap timeout showed a cancel toast instead of "Connection timed out"
+- **Issue**: With a hanging server, the app went to server setup with a cancel toast instead of "Connection timed out".
+- **Root Cause**: The 5 s bootstrap timeout cancels the `me()` task, but `APIRequestExecutor` wraps `URLError.cancelled` as `APIError.networkError`, so `catch is CancellationError` never fired. Predates the downloads work.
+- **Solution**: `AppViewModel.bootstrap` sets a `timedOut` flag and maps the failure to `URLError(.timedOut)`; `bootstrapTimeout` is injectable. Covered by `BootstrapOfflineTests`.
+- **Prevention**: Errors from `APIClient` never surface as `CancellationError`; check for a wrapped `URLError.cancelled`.
+
+### 2026-10-06 - HLS parser trapped on hostile playlists
+- **Issue**: A hostile `EXT-X-MEDIA-SEQUENCE` (Int overflow) or non-finite `EXTINF` crashed the app. Found in review, fixed before merge.
+- **Root Cause**: The parser converted untrusted numbers without range or finiteness checks (ADR-005).
+- **Solution**: Such playlists now throw `.notHLS`.
+- **Prevention**: Treat every number in an upstream playlist as untrusted; use checked arithmetic and `isFinite`.
+
+### 2026-10-06 - Download pump started discretionary tasks in the background
+- **Issue**: When a preparation finished after the app was backgrounded, the pump created discretionary background tasks. Found in review, fixed before merge.
+- **Root Cause**: The foreground check ran once, before the awaits in the pump.
+- **Solution**: The pump re-checks foreground after every await.
+- **Prevention**: Re-check state that can change while suspended after each `await`.
+
 ### 2026-10-03 - Stray separator in Apple metadata lines
 - **Issue**: Favorites, search results, the detail page, and the player showed lines like "| 2025" when the type, year, or area was empty.
 - **Root Cause**: The views interpolated `"\(type) | \(year)"` directly; Web already dropped empty parts before joining.

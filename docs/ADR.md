@@ -263,3 +263,26 @@ Durable architectural decisions for the KMTV Go backend, native Apple clients, a
 - Accepted limits: an offline device that returns after tombstones are purged (90 days) can bring deleted items back, and an epoch reset brings back deletions that other devices had already acknowledged. A restore is detected only if the restored device pushes or pulls before others raise the revision past its cursor.
 - Adding a synchronized collection means adding a kind on the server and an adapter per client.
 - Clients older than this ADR cannot sync.
+
+## ADR-017: iOS Offline Downloads
+
+**Context:**
+- Users queue episodes on WiFi before going out and watch them without a network, including when the server is unreachable at launch.
+- Sources are HLS with per-URL media tokens that expire after 6 hours by default (ADR-003, ADR-011), AES-128 keys, and irregular playlists.
+- AVPlayer does not play HLS from `file://` URLs: it reports the item playable and then waits forever without an error (spike, 2026-10-05).
+
+**Decision:**
+- The iOS app downloads the playlist, segments, keys, and init maps itself through a background `URLSession` (`com.mritd.kmtv.downloads`). `AVAssetDownloadURLSession` is not used: it cannot switch to fresh signed URLs mid-task and does not keep AES-128 keys.
+- Downloaded episodes play through an in-process, read-only HTTP server on the loopback interface. Every URL carries a random per-launch secret.
+- Only the server's media-token 401 triggers a token refresh; finished entries are kept when the refreshed playlist matches.
+- Downloads are scoped to (server, user) like sync data, identified per source by (source, video, episode index), and never synced to other devices.
+- The server proxies `EXT-X-MAP`, `EXT-X-MEDIA`, `EXT-X-I-FRAME-STREAM-INF`, and `EXT-X-SESSION-KEY` URIs as well.
+- When the server is unreachable at launch and the last identity has completed downloads, the app opens in offline mode with only the Downloads screen.
+
+**Consequences:**
+- Download traffic in proxy mode passes through the KMTV server, and each preparation signs one media-token row per entry.
+- Live streams, `SAMPLE-AES`, byte-range playlists, and separate audio renditions cannot be downloaded.
+- tvOS and Android have no downloads.
+- Media tokens stay valid after logout until they expire; tracked as a separate security follow-up.
+- A playback failure deletes a download only when its files are missing; intact files are kept and the item is rebuilt.
+- Deviations from the design spec: the Downloads screen shows no aggregate speed, and the "downloads restarted after a source change" notice is logged only, not shown.

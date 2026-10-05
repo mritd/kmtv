@@ -21,6 +21,16 @@ Non-sensitive project facts that are looked up often. Never store passwords, tok
 - Shared Web/Android core: `web/src/sync/` copied byte for byte to `android/src/sync/` (guarded by `sharedFiles.test.ts`); Swift port in `apple/Shared/Sync/`.
 - Local stores: Web localStorage `kmtv.sync.v1:<origin>:<userID>`; Android MMKV under the per-server namespace; Apple SwiftData store `KMTV-sync-v1.store`.
 
+### Downloads (ADR-017, iOS only)
+
+- Background session identifier: `com.mritd.kmtv.downloads`; `httpMaximumConnectionsPerHost = 6`.
+- Files: `Application Support/Downloads/<scopeHash>/<showDir>/<episodeDir>/`.
+- Outstanding task limit: 3000.
+- Retry backoff: 30 s, 120 s, 600 s; the 4th failure fails the episode.
+- Free-space floor: 1 GB (`1_000_000_000` bytes).
+- UserDefaults keys: `kmtv.downloads.lastIdentity`, `kmtv.downloads.allowsCellular` (default false).
+- Sources: `apple/Shared/Downloads/`; the loopback server URLs carry a per-launch random secret.
+
 ### Clients
 
 - Web: `web/`, Bun, exact-pinned dependencies (ADR-010).
