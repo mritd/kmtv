@@ -34,10 +34,31 @@ final class OfflinePlayerViewModel {
     //
     // 在 `suspend()` 与 `resume()` 之间为 true; 此期间的错误来自已停止的服务.
     @ObservationIgnored private var suspended = false
+    // Set by `close()`; a start that was awaiting the loopback URL must not create a player after it.
+    //
+    // 由 `close()` 设置; 仍在等待 loopback URL 的 start 不得在此之后创建播放器.
+    @ObservationIgnored private var closed = false
+    // Bumped by every `start`, so an older start that finishes awaiting later is dropped.
+    //
+    // 每次 `start` 都会递增, 较早的 start 在稍后结束等待时会被丢弃.
+    @ObservationIgnored private var startGeneration = 0
+    // The position captured by the last checkpoint; rebuilds resume here instead of recomputing
+    // the start, because a finished flag set near the end would otherwise restart the episode.
+    //
+    // 最近一次检查点捕获的位置; 重建时从这里继续而不是重新计算起播位置,
+    // 否则临近结尾时设置的 finished 标记会让该集从头开始.
+    @ObservationIgnored private(set) var resumePosition: TimeInterval?
+    // Pending automatic restart (rebuild after failure, auto-advance); exposed for tests.
+    //
+    // 待执行的自动重启 (失败后重建, 自动下一集); 供测试使用.
+    @ObservationIgnored private(set) var restartTask: Task<Void, Never>?
+    @ObservationIgnored private let playbackURL: @MainActor (DownloadEpisode) async throws -> URL
 
     init(manager: DownloadManager, show: DownloadShow, episode: DownloadEpisode, modelContext: ModelContext,
-         serverURL: String, syncStore: SyncStore?) {
+         serverURL: String, syncStore: SyncStore?,
+         playbackURL: (@MainActor (DownloadEpisode) async throws -> URL)? = nil) {
         self.manager = manager
+        self.playbackURL = playbackURL ?? { [manager] in try await manager.localPlaybackURL(for: $0) }
         self.show = show
         self.episode = episode
         self.syncStore = syncStore
@@ -62,6 +83,15 @@ final class OfflinePlayerViewModel {
         return skipIntroSeconds > 0 ? TimeInterval(skipIntroSeconds) : 0
     }
 
+    /// The start position for a (re)start: the explicit checkpoint position when given, otherwise
+    /// `startTime(record:episode:skipIntroSeconds:)`.
+    ///
+    /// (重新) 起播位置: 有明确的检查点位置时用它, 否则使用 `startTime(record:episode:skipIntroSeconds:)`.
+    static func resolveStart(explicit: TimeInterval?, record: WatchPayload?, episode: DownloadEpisode,
+                             skipIntroSeconds: Int) -> TimeInterval {
+        explicit ?? startTime(record: record, episode: episode, skipIntroSeconds: skipIntroSeconds)
+    }
+
     /// The next completed episode of the same source and video.
     ///
     /// 同一来源与视频的下一个已完成剧集.
@@ -75,17 +105,26 @@ final class OfflinePlayerViewModel {
     /// Starts the current episode.
     ///
     /// 开始播放当前剧集.
-    func start() async {
+    ///
+    /// `position` overrides the computed start, for resuming at a checkpoint.
+    ///
+    /// `position` 覆盖计算出的起播位置, 用于从检查点继续.
+    func start(at position: TimeInterval? = nil) async {
+        guard !closed else { return }
         error = nil
+        startGeneration += 1
+        let generation = startGeneration
         let url: URL
         do {
-            url = try await manager.localPlaybackURL(for: episode)
+            url = try await playbackURL(episode)
         } catch {
+            guard !closed, generation == startGeneration else { return }
             fail()
             return
         }
-        let start = Self.startTime(record: syncStore?.watch(title: show.title), episode: episode,
-                                   skipIntroSeconds: skipIntroSeconds)
+        guard !closed, !Task.isCancelled, !suspended, generation == startGeneration else { return }
+        let start = Self.resolveStart(explicit: position, record: syncStore?.watch(title: show.title),
+                                      episode: episode, skipIntroSeconds: skipIntroSeconds)
         lastSave = start
         outroHandled = false
         coordinator.start(url: url, startTime: start, rate: 1, allowsExternalPlayback: false,
@@ -101,10 +140,15 @@ final class OfflinePlayerViewModel {
     /// 播放下一个已完成的剧集 (如有).
     func playNext() {
         checkpoint()
-        guard let next = nextEpisode else { return }
+        guard !closed, let next = nextEpisode else { return }
+        switchEpisode(to: next)
+    }
+
+    private func switchEpisode(to next: DownloadEpisode) {
         episode = next
         rebuiltAfterFailure = false
-        Task { await start() }
+        resumePosition = nil
+        restartTask = Task { await start() }
     }
 
     /// Checkpoints and pauses when the app leaves the foreground. The player stays, so the screen
@@ -112,10 +156,15 @@ final class OfflinePlayerViewModel {
     ///
     /// App 离开前台时写入检查点并暂停. 播放器保留, 界面状态不变; loopback 服务在 `resume()` 之前停止监听.
     func suspend() {
-        guard player != nil, !suspended else { return }
+        guard !suspended else { return }
+        suspended = true
+        // Without a player the first load is still pending; `start` drops itself while suspended
+        // and `resume()` starts it again.
+        //
+        // 没有播放器时首次加载仍在进行; `start` 在挂起期间会自行放弃, 由 `resume()` 重新开始.
+        guard player != nil else { return }
         checkpoint()
         player?.pause()
-        suspended = true
     }
 
     /// Rebuilds the item at the checkpoint when the app returns, because the connections of the
@@ -123,15 +172,17 @@ final class OfflinePlayerViewModel {
     ///
     /// App 返回时在检查点处重建 item, 因为旧 item 的连接已随服务的 listener 一起失效.
     func resume() async {
-        guard suspended else { return }
+        guard suspended, !closed else { return }
         suspended = false
-        await start()
+        await start(at: resumePosition)
     }
 
     /// Saves the position and stops playback.
     ///
     /// 保存位置并停止播放.
     func close() {
+        closed = true
+        restartTask?.cancel()
         checkpoint()
         coordinator.cleanup()
         player = nil
@@ -169,10 +220,8 @@ final class OfflinePlayerViewModel {
     private func finishCurrent() {
         let total = lastDuration > 0 ? lastDuration : episode.durationSec
         record(current: total, duration: total, finished: true)
-        guard let next = nextEpisode else { return }
-        episode = next
-        rebuiltAfterFailure = false
-        Task { await start() }
+        guard !closed, let next = nextEpisode else { return }
+        switchEpisode(to: next)
     }
 
     private func checkpoint() {
@@ -180,6 +229,7 @@ final class OfflinePlayerViewModel {
         let current = CMTimeGetSeconds(player.currentTime())
         let total = CMTimeGetSeconds(item.duration)
         if current.isFinite, total.isFinite, current > 0, total > 0 {
+            resumePosition = current
             record(current: current, duration: total, finished: false)
         }
     }
@@ -189,7 +239,7 @@ final class OfflinePlayerViewModel {
     ///
     /// 只有文件确实缺失时, 失败才会删除下载. 文件完好时在检查点处重建一次 item; 再次失败则提示错误并保留文件.
     private func fail() {
-        guard !suspended else { return }
+        guard !suspended, !closed else { return }
         checkpoint()
         coordinator.cleanup()
         player = nil
@@ -198,7 +248,7 @@ final class OfflinePlayerViewModel {
             manager.markDamaged(episode)
         } else if !rebuiltAfterFailure {
             rebuiltAfterFailure = true
-            Task { await start() }
+            if !closed { restartTask = Task { await start(at: resumePosition) } }
         } else {
             error = String(localized: "Playback failed, try again later")
         }

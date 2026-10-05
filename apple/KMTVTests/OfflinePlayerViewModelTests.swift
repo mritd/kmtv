@@ -92,4 +92,83 @@ final class OfflinePlayerViewModelTests: XCTestCase {
         try viewModel(2).record(current: 1000, duration: 1000, finished: true)
         XCTAssertEqual(sync.watch(title: "Show")?.completed, true)
     }
+
+    private struct Boom: Error {}
+
+    private func failingViewModel(_ index: Int) throws -> OfflinePlayerViewModel {
+        let ep = try XCTUnwrap(episode(index))
+        let show = try XCTUnwrap(manager.show(scopeKey: scope, showKey: ep.showKey))
+        return OfflinePlayerViewModel(manager: manager, show: show, episode: ep, modelContext: container.mainContext,
+                                      serverURL: "https://kmtv.example", syncStore: sync,
+                                      playbackURL: { _ in throw Boom() })
+    }
+
+    func testIntactFilesRebuildOnceThenShowErrorAndKeepFiles() async throws {
+        let vm = try failingViewModel(0)
+        let ep = try XCTUnwrap(episode(0))
+        XCTAssertTrue(manager.filesIntact(ep))
+        await vm.start()
+        XCTAssertNil(vm.error)
+        XCTAssertEqual(ep.state, .completed)
+        await vm.restartTask?.value
+        XCTAssertNotNil(vm.error)
+        XCTAssertEqual(ep.state, .completed)
+        XCTAssertTrue(manager.filesIntact(ep))
+    }
+
+    func testMissingFilesMarkTheEpisodeDamaged() async throws {
+        let vm = try failingViewModel(0)
+        let ep = try XCTUnwrap(episode(0))
+        let dir = DownloadLayout(root: root).episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
+        try FileManager.default.removeItem(at: DownloadLayout(root: root).playlistURL(episodeDir: dir))
+        await vm.start()
+        XCTAssertEqual(ep.state, .failed)
+        XCTAssertEqual(ep.failure, .damaged)
+        XCTAssertNotNil(vm.error)
+    }
+
+    func testClosedViewModelDoesNotCreateAPlayerFromAPendingStart() async throws {
+        var gate: CheckedContinuation<Void, Never>?
+        let ep = try XCTUnwrap(episode(0))
+        let show = try XCTUnwrap(manager.show(scopeKey: scope, showKey: ep.showKey))
+        let vm = OfflinePlayerViewModel(manager: manager, show: show, episode: ep, modelContext: container.mainContext,
+                                        serverURL: "https://kmtv.example", syncStore: sync,
+                                        playbackURL: { _ in
+                                            await withCheckedContinuation { gate = $0 }
+                                            return URL(string: "http://127.0.0.1:1/index.m3u8")!
+                                        })
+        let task = Task { await vm.start() }
+        while gate == nil { await Task.yield() }
+        vm.close()
+        gate?.resume()
+        await task.value
+        XCTAssertNil(vm.player)
+    }
+
+    func testSuspendDuringFirstLoadDefersPlayerUntilResume() async throws {
+        var gate: CheckedContinuation<Void, Never>?
+        let ep = try XCTUnwrap(episode(0))
+        let show = try XCTUnwrap(manager.show(scopeKey: scope, showKey: ep.showKey))
+        let vm = OfflinePlayerViewModel(manager: manager, show: show, episode: ep, modelContext: container.mainContext,
+                                        serverURL: "https://kmtv.example", syncStore: sync,
+                                        playbackURL: { _ in
+                                            await withCheckedContinuation { gate = $0 }
+                                            return URL(string: "http://127.0.0.1:1/index.m3u8")!
+                                        })
+        let task = Task { await vm.start() }
+        while gate == nil { await Task.yield() }
+        vm.suspend()
+        gate?.resume()
+        await task.value
+        XCTAssertNil(vm.player)
+    }
+
+    func testRestartUsesTheCheckpointInsteadOfStartTime() throws {
+        let ep = try XCTUnwrap(episode(2))
+        ep.finished = true
+        let record = WatchPayload(title: "Show", sourceKey: "src", videoId: "v1", episode: "EP3", episodeIndex: 2,
+                                  progressSec: 990, durationSec: 1000, completed: true)
+        XCTAssertEqual(OfflinePlayerViewModel.resolveStart(explicit: 990, record: record, episode: ep, skipIntroSeconds: 10), 990)
+        XCTAssertEqual(OfflinePlayerViewModel.resolveStart(explicit: nil, record: record, episode: ep, skipIntroSeconds: 10), 10)
+    }
 }
