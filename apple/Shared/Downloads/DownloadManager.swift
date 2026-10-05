@@ -38,6 +38,20 @@ enum DownloadEnqueueError: Error, Equatable {
     case notEnoughSpace
 }
 
+/// What a row shows for an episode.
+///
+/// 一集在列表行中展示的状态.
+enum DownloadDisplayState: Equatable {
+    case queued
+    case preparing
+    case downloading(Double)
+    case waitingNetwork
+    case waitingWiFi
+    case paused(DownloadPauseReason)
+    case completed
+    case failed(DownloadFailure)
+}
+
 /// Owns downloads: the queue, background tasks, manifests, the loopback server, and the rows the
 /// UI reads. One instance lives for the whole process, created before any view, so background
 /// relaunches deliver their events to it.
@@ -82,6 +96,10 @@ final class DownloadManager {
     ///
     /// 新任务是否可以使用蜂窝数据.
     private(set) var allowsCellular: Bool
+    /// Network path monitor; nil means the path is assumed usable.
+    ///
+    /// 网络路径监视器; 为 nil 时视为网络可用.
+    let network: DownloadNetworkMonitor?
 
     /// Dependencies, cached manifests by `episodeKey`, in-flight task IDs, entries finished since the
     /// last manifest save, and pump bookkeeping.
@@ -109,7 +127,8 @@ final class DownloadManager {
     /// 创建管理器, 并在任何任务入队之前订阅传输事件.
     init(context: ModelContext, layout: DownloadLayout, transport: any DownloadTransport,
          defaults: UserDefaults = .standard, freeSpace: @escaping () -> Int64 = DownloadManager.deviceFreeSpace,
-         now: @escaping () -> Date = Date.init, outstandingLimit: Int = 3000) {
+         now: @escaping () -> Date = Date.init, outstandingLimit: Int = 3000,
+         network: DownloadNetworkMonitor? = nil) {
         self.context = context
         self.layout = layout
         self.transport = transport
@@ -118,7 +137,9 @@ final class DownloadManager {
         self.now = now
         self.outstandingLimit = outstandingLimit
         self.allowsCellular = defaults.bool(forKey: Self.cellularKey)
+        self.network = network
         transport.onEvent = { [weak self] event in await self?.process(event) }
+        network?.onRestore = { [weak self] in self?.schedulePump() }
     }
 
     /// Free space for important data on the app's volume.
@@ -227,6 +248,38 @@ final class DownloadManager {
     /// 某个作用域是否至少有一集已完成.
     func hasCompleted(in scopeKey: String) -> Bool {
         episodes(in: scopeKey).contains { $0.state == .completed }
+    }
+
+    /// Display state of an episode under the current network path.
+    ///
+    /// 当前网络路径下一集的展示状态.
+    func displayState(of ep: DownloadEpisode) -> DownloadDisplayState {
+        Self.displayState(state: ep.state, pauseReason: ep.pauseReason, failure: ep.failure, done: ep.doneEntries,
+                          total: ep.totalEntries, preparing: preparingKeys.contains(ep.episodeKey),
+                          satisfied: network?.isSatisfied ?? true, expensive: network?.isExpensive ?? false,
+                          constrained: network?.isConstrained ?? false, allowsCellular: allowsCellular)
+    }
+
+    /// Pure display-state rule: stored terminal and paused states win; otherwise an unusable path
+    /// waits for the network, and an expensive path without the cellular setting (or Low Data
+    /// Mode) waits for WiFi.
+    ///
+    /// 纯粹的展示状态规则: 持久化的终止与暂停状态优先; 否则网络不可用时等待网络, 网络昂贵且未允许
+    /// 蜂窝数据 (或处于低数据模式) 时等待 WiFi.
+    static func displayState(state: DownloadState, pauseReason: DownloadPauseReason?, failure: DownloadFailure?,
+                             done: Int, total: Int, preparing: Bool, satisfied: Bool, expensive: Bool,
+                             constrained: Bool, allowsCellular: Bool) -> DownloadDisplayState {
+        switch state {
+        case .completed: return .completed
+        case .failed: return .failed(failure ?? .network)
+        case .paused: return .paused(pauseReason ?? .user)
+        case .queued, .downloading:
+            if !satisfied { return .waitingNetwork }
+            if constrained || (expensive && !allowsCellular) { return .waitingWiFi }
+            if preparing { return .preparing }
+            if state == .queued { return .queued }
+            return .downloading(total > 0 ? Double(done) / Double(total) : 0)
+        }
     }
 
     // MARK: - Scope

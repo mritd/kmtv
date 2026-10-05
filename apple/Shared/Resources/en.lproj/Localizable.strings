@@ -214,3 +214,21 @@
 
 /* Sync */
 "Favorites are full" = "Favorites are full";
+
+/* Downloads */
+"Waiting" = "Waiting";
+"Preparing" = "Preparing";
+"Downloading %lld%%" = "Downloading %lld%%";
+"Waiting for network" = "Waiting for network";
+"Waiting for WiFi" = "Waiting for WiFi";
+"Sign in to continue" = "Sign in to continue";
+"Not enough storage" = "Not enough storage";
+"Paused" = "Paused";
+"Downloaded" = "Downloaded";
+"Unsupported format" = "Unsupported format";
+"Separate audio tracks are not supported" = "Separate audio tracks are not supported";
+"Source returned %lld" = "Source returned %lld";
+"Source keeps rejecting the download" = "Source keeps rejecting the download";
+"Source returned invalid data" = "Source returned invalid data";
+"Network error" = "Network error";
+"File damaged, download again" = "File damaged, download again";
