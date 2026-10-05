@@ -127,4 +127,16 @@ final class HLSParserTests: XCTestCase {
         guard case .media(let playlist) = try HLSParser.parse(text, baseURL: base) else { return XCTFail() }
         XCTAssertEqual(playlist.segments.map(\.uri.lastPathComponent), ["a.ts"])
     }
+
+    func testRejectsMalformedNumbers() {
+        func error(_ text: String) -> HLSParseError? {
+            do { _ = try HLSParser.parse(text, baseURL: base); return nil } catch { return error as? HLSParseError }
+        }
+        XCTAssertEqual(error("#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:9223372036854775807\n#EXTINF:2,\na.ts\n#EXTINF:2,\nb.ts\n#EXT-X-ENDLIST"), .notHLS)
+        XCTAssertEqual(error("#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:-1\n#EXTINF:2,\na.ts\n#EXT-X-ENDLIST"), .notHLS)
+        XCTAssertEqual(error("#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:abc\n#EXTINF:2,\na.ts\n#EXT-X-ENDLIST"), .notHLS)
+        for bad in ["inf", "nan", "-1"] {
+            XCTAssertEqual(error("#EXTM3U\n#EXTINF:\(bad),\na.ts\n#EXT-X-ENDLIST"), .notHLS, bad)
+        }
+    }
 }

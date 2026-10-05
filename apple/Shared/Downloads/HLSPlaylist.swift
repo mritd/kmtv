@@ -150,7 +150,10 @@ enum HLSParser {
             } else if line.hasPrefix("#EXT-X-TARGETDURATION:") {
                 targetDuration = Int(line.dropFirst("#EXT-X-TARGETDURATION:".count)) ?? targetDuration
             } else if line.hasPrefix("#EXT-X-MEDIA-SEQUENCE:") {
-                firstSequence = Int(line.dropFirst("#EXT-X-MEDIA-SEQUENCE:".count)) ?? 0
+                guard let value = Int(line.dropFirst("#EXT-X-MEDIA-SEQUENCE:".count)), value >= 0 else {
+                    throw HLSParseError.notHLS
+                }
+                firstSequence = value
             } else if line.hasPrefix("#EXT-X-KEY:") {
                 key = try parseKey(attributes(line.dropFirst("#EXT-X-KEY:".count)), baseURL: baseURL)
             } else if line.hasPrefix("#EXT-X-MAP:") {
@@ -161,16 +164,20 @@ enum HLSParser {
                 throw HLSParseError.byteRange
             } else if line.hasPrefix("#EXTINF:") {
                 let value = line.dropFirst("#EXTINF:".count).split(separator: ",", maxSplits: 1).first ?? ""
-                duration = Double(value.trimmingCharacters(in: .whitespaces)) ?? 0
+                guard let parsed = Double(value.trimmingCharacters(in: .whitespaces)), parsed.isFinite, parsed >= 0 else {
+                    throw HLSParseError.notHLS
+                }
+                duration = parsed
             } else if line == "#EXT-X-DISCONTINUITY" {
                 discontinuity = true
             } else if line == "#EXT-X-ENDLIST" {
                 hasEndList = true
             } else if !line.hasPrefix("#"), let segmentDuration = duration {
                 guard let uri = resolve(line, baseURL) else { throw HLSParseError.notHLS }
+                let (sequence, overflow) = firstSequence.addingReportingOverflow(segments.count)
+                guard !overflow else { throw HLSParseError.notHLS }
                 segments.append(HLSSegment(uri: uri, duration: segmentDuration, key: key, map: map,
-                                           discontinuity: discontinuity,
-                                           mediaSequence: firstSequence + segments.count))
+                                           discontinuity: discontinuity, mediaSequence: sequence))
                 duration = nil
                 discontinuity = false
             }
