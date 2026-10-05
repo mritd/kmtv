@@ -1040,4 +1040,18 @@ final class DownloadManager {
 }
 
 extension DownloadManager: DownloadScopeControlling {}
+
+extension DownloadManager: LocalEpisodeProviding {
+    func localPlaybackURL(scopeKey: String, sourceKey: String, videoId: String, episodeIndex: Int) async -> URL? {
+        guard let ep = episode(scopeKey: scopeKey, sourceKey: sourceKey, videoId: videoId, episodeIndex: episodeIndex),
+              ep.state == .completed else { return nil }
+        return try? await localPlaybackURL(for: ep)
+    }
+
+    func reportPlaybackFailure(scopeKey: String, sourceKey: String, videoId: String, episodeIndex: Int) {
+        guard let ep = episode(scopeKey: scopeKey, sourceKey: sourceKey, videoId: videoId, episodeIndex: episodeIndex),
+              ep.state == .completed, !filesIntact(ep) else { return }
+        markDamaged(ep)
+    }
+}
 #endif

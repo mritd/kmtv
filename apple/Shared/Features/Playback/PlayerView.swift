@@ -39,7 +39,8 @@ struct PlayerView: View {
                     sources: destination.sources, sourceKey: destination.sourceKey,
                     videoId: destination.videoId, title: destination.title,
                     coverHint: destination.coverHint,
-                    initialEpisodeIndex: destination.resumeIntent?.episodeIndex
+                    initialEpisodeIndex: destination.resumeIntent?.episodeIndex,
+                    localEpisodes: appVM.downloadManager
 				)
 				viewModel = vm
 				await vm.prepareResume()
@@ -115,6 +116,11 @@ struct PlayerView: View {
                                 ]))
                                     .font(.caption)
                                     .foregroundStyle(Theme.textSecondary)
+                                if vm.isPlayingLocalCopy {
+                                    Label("Downloaded", systemImage: "arrow.down.circle.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.green)
+                                }
                             }
                             Spacer()
                             Button { vm.toggleFavorite() } label: {

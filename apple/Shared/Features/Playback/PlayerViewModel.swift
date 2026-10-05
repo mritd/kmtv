@@ -128,6 +128,18 @@ final class PlayerViewModel {
     private let videoTitle: String
     private let coverHint: String
     private let progressStore: PlaybackProgressStore
+    /// Downloads the player may use instead of streaming.
+    ///
+    /// 播放器可以替代流媒体使用的下载内容.
+    private let localEpisodes: (any LocalEpisodeProviding)?
+    /// Whether the current item plays a downloaded copy.
+    ///
+    /// 当前 item 是否在播放下载的副本.
+    private(set) var isPlayingLocalCopy = false
+    // Set after a local copy failed, so the next start streams instead of trying it again.
+    //
+    // 本地副本失败后置位, 下一次启动直接走在线播放, 不再尝试本地副本.
+    private var skipLocalCopy = false
 
     /// Coordinates player side effects while this view model owns user-visible state.
     ///
@@ -137,7 +149,9 @@ final class PlayerViewModel {
     init(apiClient: any PlaybackDetailAPIProtocol, modelContext: ModelContext, serverURL: String,
          syncStore: SyncStore? = nil, syncEngine: SyncEngine? = nil,
          sources: [SourceResult], sourceKey: String, videoId: String, title: String,
-         coverHint: String = "", initialEpisodeIndex: Int? = nil, playerSyncWait: Duration = .milliseconds(1500)) {
+         coverHint: String = "", initialEpisodeIndex: Int? = nil, playerSyncWait: Duration = .milliseconds(1500),
+         localEpisodes: (any LocalEpisodeProviding)? = nil) {
+        self.localEpisodes = localEpisodes
         self.apiClient = apiClient
         self.modelContext = modelContext
 		self.serverURL = serverURL
@@ -250,6 +264,17 @@ final class PlayerViewModel {
             )
             playbackRequest += 1
             let id = playbackRequest
+            if !skipLocalCopy, let localEpisodes, let scopeKey = syncStore?.scopeKey,
+               let local = await localEpisodes.localPlaybackURL(scopeKey: scopeKey, sourceKey: currentSourceKey,
+                                                                videoId: currentVideoID,
+                                                                episodeIndex: currentEpisodeIndex) {
+                guard id == playbackRequest else { return }
+                isPlayingLocalCopy = true
+                startPlayer(with: local, allowsExternalPlayback: false)
+                return
+            }
+            skipLocalCopy = false
+            isPlayingLocalCopy = false
             let url = try await preparePlaybackURL()
             // A newer switch took over while this reply was in flight.
             //
@@ -284,7 +309,7 @@ final class PlayerViewModel {
         return url
     }
 
-    private func startPlayer(with url: URL) {
+    private func startPlayer(with url: URL, allowsExternalPlayback: Bool = true) {
         skipOutroTriggered = false
         endCheckpointWritten = false
         detachedFromItem = false
@@ -307,6 +332,7 @@ final class PlayerViewModel {
             url: url,
             startTime: startTime,
             rate: playbackRate,
+            allowsExternalPlayback: allowsExternalPlayback,
             onTime: { [weak self] current, total in
                 self?.onTimeUpdate(current: current, total: total)
             },
@@ -356,6 +382,19 @@ final class PlayerViewModel {
     /// 播放器 item 报告失败. 选择正在变化时忽略, 因为旧 item 的失败与即将挂载的 item 无关.
     func handleItemError(_ message: String?) async {
         guard !detachedFromItem else { return }
+        if isPlayingLocalCopy, let localEpisodes, let scopeKey = syncStore?.scopeKey {
+            // A failed local copy falls back to streaming the same selection, not to the next line.
+            // The manager deletes the copy only when its files are missing.
+            //
+            // 本地副本失败时回退为在线播放同一选择, 而不是切换到下一条线路. 只有文件缺失时管理器才会删除该副本.
+            localEpisodes.reportPlaybackFailure(scopeKey: scopeKey, sourceKey: currentSourceKey,
+                                                videoId: currentVideoID, episodeIndex: currentEpisodeIndex)
+            isPlayingLocalCopy = false
+            skipLocalCopy = true
+            isBuffering = false
+            startPlayback()
+            return
+        }
         if let message { error = message }
         isBuffering = false
         await handlePlaybackError()
