@@ -13,7 +13,8 @@ enum AppModelContainer {
     /// Every persisted model.
     ///
     /// 所有持久化模型.
-    static let schema = Schema([Server.self, PlaybackSettings.self, SyncRecord.self, SyncScopeState.self])
+    static let schema = Schema([Server.self, PlaybackSettings.self, SyncRecord.self, SyncScopeState.self,
+                                DownloadShow.self, DownloadEpisode.self])
 
     /// Deletes the old store, then opens the on-disk container.
     ///
