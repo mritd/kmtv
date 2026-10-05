@@ -38,10 +38,17 @@ final class DownloadManagerTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
-    private func makeManager() -> DownloadManager {
+    private func makeManager(wakeBudget: Duration = DownloadManager.backgroundWakeBudget) -> DownloadManager {
         DownloadManager(context: container.mainContext, layout: layout, transport: transport, defaults: defaults,
                         freeSpace: { [unowned self] in self.freeSpace }, now: { [unowned self] in self.nowValue },
-                        outstandingLimit: 100, coverFetcher: { [covers] url in covers.fetch(url) })
+                        outstandingLimit: 100, coverFetcher: { [covers] url in covers.fetch(url) },
+                        backgroundWakeBudget: wakeBudget)
+    }
+
+    private func savedManifest(_ index: Int) -> DownloadManifest? {
+        guard let ep = episode(index) else { return nil }
+        let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
+        return DownloadManifest.load(from: layout.manifestURL(episodeDir: dir))
     }
 
     private func request(_ index: Int) -> DownloadEpisodeRequest {
@@ -368,6 +375,66 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertEqual(transport.enqueued.count, 3)
         XCTAssertEqual(episode(0)?.state, .downloading)
         XCTAssertEqual(episode(0)?.doneEntries, 1)
+    }
+
+    func testBackgroundWakeStopsAtDeadlineAndPersists() async throws {
+        manager = makeManager(wakeBudget: .milliseconds(200))
+        await manager.activate(scopeKey: scope, preparer: preparer)
+        try await enqueueAndSettle([0])
+        await manager.handleScenePhase(.background)
+        _ = try manager.enqueue(show: info, episodes: (1...5).map(request))
+        // An entry finished in the background is cached but not yet written to disk.
+        //
+        // 在后台完成的条目已缓存, 但尚未写入磁盘.
+        await transport.finish(liveIDs(0)[0], layout: layout)
+        XCTAssertEqual(savedManifest(0)?.doneCount, 0)
+        let gate = PrepareGate()
+        preparer.gate = gate
+
+        let start = ContinuousClock.now
+        await manager.handleBackgroundWake()
+        let elapsed = ContinuousClock.now - start
+        XCTAssertLessThan(elapsed, .seconds(2))
+        XCTAssertEqual(savedManifest(0)?.doneCount, 1)
+        XCTAssertEqual(preparer.calls.count, 2)
+        XCTAssertEqual((2...5).compactMap { episode($0)?.state }, Array(repeating: .queued, count: 4))
+
+        // The prepare that outlived the wake finishes without starting more, and the next
+        // foreground pump picks up the rest.
+        //
+        // 超出唤醒时长的准备完成后不会再开始新的准备, 剩余剧集由下一次前台推进处理.
+        gate.open()
+        await manager.waitForIdle()
+        XCTAssertEqual(preparer.calls.count, 2)
+        XCTAssertEqual(episode(1)?.state, .downloading)
+        await manager.handleScenePhase(.inactive)
+        await manager.waitForIdle()
+        XCTAssertEqual(preparer.calls.count, 6)
+        XCTAssertTrue((1...5).allSatisfy { episode($0)?.state == .downloading })
+    }
+
+    func testPumpCompletesDownloadingEpisodeWithCompleteManifest() async throws {
+        try await enqueueAndSettle()
+        for id in liveIDs(0) { await transport.finish(id, layout: layout) }
+        await manager.waitForIdle()
+        let ep = try XCTUnwrap(episode(0))
+        XCTAssertEqual(ep.state, .completed)
+        // The app stopped after `complete` wrote the manifest but before the row was saved.
+        //
+        // App 在 `complete` 写入 manifest 之后, 保存数据行之前停止.
+        let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
+        try FileManager.default.removeItem(at: layout.playlistURL(episodeDir: dir))
+        ep.state = .downloading
+        ep.completedAt = nil
+        try container.mainContext.save()
+
+        let relaunched = makeManager()
+        await relaunched.activate(scopeKey: scope, preparer: preparer)
+        await relaunched.waitForIdle()
+        XCTAssertEqual(episode(0)?.state, .completed)
+        XCTAssertNotNil(episode(0)?.completedAt)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: layout.playlistURL(episodeDir: dir).path))
+        XCTAssertEqual(preparer.calls.count, 1)
     }
 
     func testDeleteEpisodeRemovesEmptyShowAndMarkDamagedClearsFiles() async throws {

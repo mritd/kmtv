@@ -44,6 +44,18 @@ final class DownloadEntryValidatorTests: XCTestCase {
         XCTAssertEqual(classify(direct, 200, head: Data(repeating: 1, count: 15), size: 15, kind: .key), .retry(.invalidContent))
     }
 
+    func testRetriesJSONBodiesForSegmentsAndMapsButNotKeys() {
+        let json = Data(#"{"code":500,"msg":"upstream error"}"#.utf8)
+        let size = Int64(json.count)
+        XCTAssertEqual(classify(direct, 200, type: "video/mp2t", head: json, size: size), .retry(.invalidContent))
+        XCTAssertEqual(classify(direct, 200, head: Data(" \n{}".utf8), size: 4, kind: .map), .retry(.invalidContent))
+        // Key bytes are random, so a key that happens to start with `{` is still accepted.
+        //
+        // 密钥字节是随机的, 恰好以 `{` 开头的密钥仍被接受.
+        let key = Data([UInt8(ascii: "{")] + Array(repeating: 1, count: 15))
+        XCTAssertEqual(classify(direct, 200, head: key, size: 16, kind: .key), .accept)
+    }
+
     func testTransportErrors() {
         XCTAssertNil(DownloadEntryValidator.classify(transportError: URLError(.cancelled)))
         XCTAssertEqual(DownloadEntryValidator.classify(transportError: URLError(.timedOut)), .retry(.network))

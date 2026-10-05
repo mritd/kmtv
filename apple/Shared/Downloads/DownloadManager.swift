@@ -71,6 +71,11 @@ final class DownloadManager {
     static let retryDelays: [TimeInterval] = [30, 120, 600]
     static let refreshLimit = 2
     static let saveEvery = 20
+    /// Time a background wake may spend before it persists and completes; iOS allows about 30 s for
+    /// background session events.
+    ///
+    /// 后台唤醒在持久化并结束之前可用的时间; iOS 为后台 session 事件提供约 30 秒.
+    static let backgroundWakeBudget: Duration = .seconds(20)
 
     /// On-disk layout of the downloads root.
     ///
@@ -124,6 +129,8 @@ final class DownloadManager {
     @ObservationIgnored private var pumpTask: Task<Void, Never>?
     @ObservationIgnored private var pumpRequested = false
     @ObservationIgnored private var backgroundWake = false
+    @ObservationIgnored private var wakeDeadline: ContinuousClock.Instant?
+    @ObservationIgnored private let wakeBudget: Duration
     @ObservationIgnored private var server: LocalMediaServer?
     @ObservationIgnored private let logger = Logger(subsystem: "com.mritd.kmtv", category: "downloads")
 
@@ -134,7 +141,8 @@ final class DownloadManager {
          defaults: UserDefaults = .standard, freeSpace: @escaping () -> Int64 = DownloadManager.deviceFreeSpace,
          now: @escaping () -> Date = Date.init, outstandingLimit: Int = 3000,
          network: DownloadNetworkMonitor? = nil,
-         coverFetcher: @escaping @Sendable (URL) async -> Data? = DownloadManager.fetchCoverData) {
+         coverFetcher: @escaping @Sendable (URL) async -> Data? = DownloadManager.fetchCoverData,
+         backgroundWakeBudget: Duration = DownloadManager.backgroundWakeBudget) {
         self.context = context
         self.layout = layout
         self.transport = transport
@@ -145,6 +153,7 @@ final class DownloadManager {
         self.allowsCellular = defaults.bool(forKey: Self.cellularKey)
         self.network = network
         self.coverFetcher = coverFetcher
+        self.wakeBudget = backgroundWakeBudget
         transport.onEvent = { [weak self] event in await self?.process(event) }
         network?.onRestore = { [weak self] in self?.schedulePump() }
     }
@@ -342,6 +351,11 @@ final class DownloadManager {
         }
     }
 
+    /// Remote cover URL of a show: the resolved URL saved at enqueue, else `cover` when it is
+    /// already absolute; nil when neither gives one.
+    ///
+    /// 剧集封面的远程 URL: 优先使用入队时保存的已解析 URL, 其次在 `cover` 已是绝对地址时使用它;
+    /// 两者都没有时返回 nil.
     private func coverRemoteURL(for show: DownloadShow) -> URL? {
         if !show.coverURLString.isEmpty { return URL(string: show.coverURLString) }
         guard show.cover.hasPrefix("http") else { return nil }
@@ -678,17 +692,24 @@ final class DownloadManager {
     }
 
     /// Handles a background relaunch for session events: waits for them, reconciles, pumps once,
-    /// and persists.
+    /// and persists. The pump prepares no new episode after the wake budget runs out, and the wake
+    /// stops waiting for it then, so it persists before iOS suspends the app; episodes still queued
+    /// continue on the next foreground or wake pump.
     ///
-    /// 处理因 session 事件触发的后台唤醒: 等待事件投递完毕, 对账, 推进一次队列并持久化.
+    /// 处理因 session 事件触发的后台唤醒: 等待事件投递完毕, 对账, 推进一次队列并持久化. 唤醒预算用完后,
+    /// 队列推进不再准备新的剧集, 唤醒流程也不再等待它, 从而在 iOS 挂起 App 之前完成持久化; 仍在队列中的
+    /// 剧集由下一次前台或唤醒推进继续处理.
     func handleBackgroundWake() async {
+        let deadline = ContinuousClock.now.advanced(by: wakeBudget)
         await transport.waitForBackgroundEvents()
         await transport.drainEvents()
         await reconcile()
         backgroundWake = true
+        wakeDeadline = deadline
         schedulePump()
-        await waitForIdle()
+        await waitForIdle(until: deadline)
         backgroundWake = false
+        wakeDeadline = nil
         persistAll()
     }
 
@@ -726,6 +747,26 @@ final class DownloadManager {
     /// 没有正在运行的队列推进时返回.
     func waitForIdle() async {
         while let task = pumpTask { await task.value }
+    }
+
+    /// Returns when no pump is running or the deadline passes, whichever comes first. A prepare in
+    /// flight at the deadline keeps running; it does not hold up the caller.
+    ///
+    /// 没有正在运行的队列推进或到达截止时间时返回, 以先到者为准. 截止时仍在进行的准备会继续执行, 但不会
+    /// 阻塞调用方.
+    private func waitForIdle(until deadline: ContinuousClock.Instant) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let resumer = ResumeOnce(continuation)
+            let timer = Task {
+                try? await Task.sleep(until: deadline, clock: .continuous)
+                resumer.resume()
+            }
+            Task {
+                await self.waitForIdle()
+                timer.cancel()
+                resumer.resume()
+            }
+        }
     }
 
     /// Writes cached manifests and pending row changes.
@@ -769,17 +810,36 @@ final class DownloadManager {
             let priority: Float = position < 2 ? URLSessionTask.highPriority : URLSessionTask.defaultPriority
             if ep.state == .downloading {
                 if let manifest = manifest(for: ep) {
-                    enqueueMissing(ep, manifest, priority: priority)
+                    // A complete manifest on a downloading row means the app stopped between writing
+                    // the manifest and saving the row in `complete`; finish it now.
+                    //
+                    // 下载中的行对应一个已完成的 manifest, 说明 App 在 `complete` 写入 manifest 之后,
+                    // 保存数据行之前停止了; 此处补完.
+                    if manifest.isComplete {
+                        await complete(ep, manifest)
+                    } else {
+                        enqueueMissing(ep, manifest, priority: priority)
+                    }
                     continue
                 }
                 ep.state = .queued
             }
-            guard ep.state == .queued else { continue }
+            guard ep.state == .queued, mayPrepare else { continue }
             let key = ep.episodeKey
             await prepare(ep, with: preparer, priority: priority)
             if self.preparer == nil || activeScopeKey != scopeKey { return }
             if let current = episode(forKey: key), current.pauseReason == .signedOut { return }
         }
+    }
+
+    /// Whether the pump may start preparing an episode: in the foreground, or during a background
+    /// wake before its deadline.
+    ///
+    /// 队列推进是否可以开始准备剧集: 处于前台, 或处于后台唤醒且尚未到达截止时间.
+    private var mayPrepare: Bool {
+        if isForeground { return true }
+        guard backgroundWake, let wakeDeadline else { return false }
+        return ContinuousClock.now < wakeDeadline
     }
 
     private func prepare(_ ep: DownloadEpisode, with preparer: any DownloadPreparing, priority: Float) async {
@@ -1097,6 +1157,26 @@ extension DownloadManager: LocalEpisodeProviding {
         guard let ep = episode(scopeKey: scopeKey, sourceKey: sourceKey, videoId: videoId, episodeIndex: episodeIndex),
               ep.state == .completed, !filesIntact(ep) else { return }
         markDamaged(ep)
+    }
+}
+
+/// Resumes a continuation once, however many callers race to resume it.
+///
+/// 只恢复一次 continuation, 无论有多少调用方竞相恢复它.
+@MainActor
+private final class ResumeOnce {
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    init(_ continuation: CheckedContinuation<Void, Never>) {
+        self.continuation = continuation
+    }
+
+    /// Resumes the continuation on the first call; later calls do nothing.
+    ///
+    /// 首次调用时恢复 continuation; 之后的调用不做任何事.
+    func resume() {
+        continuation?.resume()
+        continuation = nil
     }
 }
 #endif

@@ -63,6 +63,81 @@ final class DownloadPreparerTests: XCTestCase {
         XCTAssertEqual(offline, .network)
     }
 
+    /// A session whose requests are answered by `URLProtocolStub` with the given status and body.
+    ///
+    /// 一个由 `URLProtocolStub` 以给定状态码与响应体应答请求的会话.
+    private func stubSession(status: Int, body: Data) -> URLSession {
+        URLProtocolStub.requestHandler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!, body)
+        }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [URLProtocolStub.self]
+        return URLSession(configuration: config)
+    }
+
+    private func streamingError(_ session: URLSession, limit: Int = DownloadPreparer.maxPlaylistBytes) async
+        -> DownloadPrepareError? {
+        do {
+            _ = try await DownloadPreparer.fetch(URL(string: "https://cdn.example/a.m3u8")!, session: session,
+                                                 limit: limit)
+            return nil
+        } catch { return error as? DownloadPrepareError }
+    }
+
+    func testPlaylistHeaderDecidesFromFirstBytes() {
+        XCTAssertEqual(DownloadPreparer.playlistHeader(Data("#EXTM3U\n".utf8)), true)
+        XCTAssertEqual(DownloadPreparer.playlistHeader(Data([0xEF, 0xBB, 0xBF] + Array("\r\n#EXTM3U".utf8))), true)
+        XCTAssertNil(DownloadPreparer.playlistHeader(Data([0xEF, 0xBB])))
+        XCTAssertNil(DownloadPreparer.playlistHeader(Data(" \n#EXT".utf8)))
+        // A video or HTML body is rejected from its first meaningful byte.
+        //
+        // 视频或 HTML 响应体从第一个有效字节起即被拒绝.
+        XCTAssertEqual(DownloadPreparer.playlistHeader(Data([0x00, 0x00, 0x00, 0x20])), false)
+        XCTAssertEqual(DownloadPreparer.playlistHeader(Data("<".utf8)), false)
+        XCTAssertEqual(DownloadPreparer.playlistHeader(Data("#EXTINF:2,\n".utf8)), false)
+    }
+
+    func testStreamingFetchRejectsNonHLSBody() async {
+        defer { URLProtocolStub.requestHandler = nil }
+        var mp4 = Data([0x00, 0x00, 0x00, 0x20])
+        mp4.append(Data("ftypisom".utf8))
+        mp4.append(Data(repeating: 0, count: 64 * 1024))
+        let error = await streamingError(stubSession(status: 200, body: mp4))
+        XCTAssertEqual(error, .format(.notHLS))
+    }
+
+    func testStreamingFetchRejectsOversizeBody() async {
+        defer { URLProtocolStub.requestHandler = nil }
+        let body = Data((media + String(repeating: "#EXT-X-DISCONTINUITY\n", count: 20)).utf8)
+        let error = await streamingError(stubSession(status: 200, body: body), limit: 128)
+        XCTAssertEqual(error, .format(.notHLS))
+        let fits = await streamingError(stubSession(status: 200, body: body), limit: body.count)
+        XCTAssertNil(fits)
+    }
+
+    func testStreamingFetchFeedsPreparerAndKeepsStatusMapping() async throws {
+        defer { URLProtocolStub.requestHandler = nil }
+        let api = PlaybackAPIFake()
+        api.playbackResponse = PlaybackURLResponse(mode: "direct", url: "https://cdn.example/a.m3u8")
+        let session = stubSession(status: 200, body: Data(media.utf8))
+        let manifest = try await DownloadPreparer(api: api) { try await DownloadPreparer.fetch($0, session: session) }
+            .prepare(episodeURL: "x", sourceKey: "s", generation: 1)
+        XCTAssertEqual(manifest.entries.map(\.remoteURL.absoluteString),
+                       ["https://cdn.example/seg0.ts", "https://cdn.example/seg1.ts"])
+
+        func error(_ session: URLSession) async -> DownloadPrepareError? {
+            do {
+                _ = try await DownloadPreparer(api: api) { try await DownloadPreparer.fetch($0, session: session) }
+                    .prepare(episodeURL: "x", sourceKey: "s", generation: 1)
+                return nil
+            } catch { return error as? DownloadPrepareError }
+        }
+        let video = await error(stubSession(status: 200, body: Data(repeating: 0, count: 4096)))
+        XCTAssertEqual(video, .format(.notHLS))
+        let missing = await error(stubSession(status: 404, body: Data("not found".utf8)))
+        XCTAssertEqual(missing, .status(404))
+    }
+
     func testDownloadClientDoesNotPostAuthExpired() async throws {
         URLProtocolStub.requestHandler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!

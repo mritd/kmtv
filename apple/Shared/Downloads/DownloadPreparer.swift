@@ -46,12 +46,71 @@ struct DownloadPreparer: DownloadPreparing {
         return URLSession(configuration: config)
     }()
 
-    /// Fetches a URL and returns its status and body.
+    /// Largest playlist body accepted, matching the server's M3U8 fetch limit (`10<<20` in
+    /// `server/internal/service/proxy.go`).
     ///
-    /// 获取 URL 并返回状态码与响应体.
+    /// 可接受的最大 playlist 响应体, 与服务端 M3U8 获取上限一致 (`server/internal/service/proxy.go`
+    /// 中的 `10<<20`).
+    static let maxPlaylistBytes = 10 << 20
+
+    /// Fetches a playlist URL and returns its status and body.
+    ///
+    /// 获取 playlist URL 并返回状态码与响应体.
     @Sendable static func fetch(_ url: URL) async throws -> (Int, Data) {
-        let (data, response) = try await session.data(from: url)
-        return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
+        try await fetch(url, session: session)
+    }
+
+    /// Streams a playlist body. A non-2xx status returns at once with an empty body. A body that
+    /// does not start with `#EXTM3U` (after an optional UTF-8 BOM and blank lines), or that grows
+    /// past `limit` bytes, is abandoned with `.format(.notHLS)`, because a direct-mode URL can
+    /// point at a multi-gigabyte video file.
+    ///
+    /// 以流式读取 playlist 响应体. 非 2xx 状态码立即返回空响应体. 若响应体 (跳过可选的 UTF-8 BOM 与
+    /// 空行后) 不以 `#EXTM3U` 开头, 或超过 `limit` 字节, 则放弃读取并抛出 `.format(.notHLS)`,
+    /// 因为直连模式的 URL 可能指向数 GB 的视频文件.
+    static func fetch(_ url: URL, session: URLSession, limit: Int = maxPlaylistBytes) async throws -> (Int, Data) {
+        let (bytes, response) = try await session.bytes(from: url)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            bytes.task.cancel()
+            return (status, Data())
+        }
+        var data = Data()
+        var headerChecked = false
+        for try await byte in bytes {
+            data.append(byte)
+            if data.count > limit {
+                bytes.task.cancel()
+                throw DownloadPrepareError.format(.notHLS)
+            }
+            if !headerChecked, let isPlaylist = playlistHeader(data) {
+                guard isPlaylist else {
+                    bytes.task.cancel()
+                    throw DownloadPrepareError.format(.notHLS)
+                }
+                headerChecked = true
+            }
+        }
+        return (status, data)
+    }
+
+    /// Whether a body's first bytes start an HLS playlist: true or false once the first non-empty
+    /// line is known to be or not be `#EXTM3U`, nil while too few bytes have arrived to tell.
+    ///
+    /// 响应体开头的字节是否为 HLS playlist: 能确定第一个非空行是否为 `#EXTM3U` 时返回 true 或 false,
+    /// 已到达的字节不足以判断时返回 nil.
+    static func playlistHeader(_ head: Data) -> Bool? {
+        let bom: [UInt8] = [0xEF, 0xBB, 0xBF]
+        var rest = head[...]
+        if rest.starts(with: bom) {
+            rest = rest.dropFirst(bom.count)
+        } else if bom.starts(with: rest) {
+            return nil
+        }
+        rest = rest.drop { [0x20, 0x09, 0x0A, 0x0D].contains($0) }
+        let tag = Array("#EXTM3U".utf8)
+        if rest.count < tag.count { return tag.starts(with: rest) ? nil : false }
+        return rest.starts(with: tag)
     }
 
     func prepare(episodeURL: String, sourceKey: String, generation: Int) async throws -> DownloadManifest {
@@ -81,6 +140,8 @@ struct DownloadPreparer: DownloadPreparing {
         let data: Data
         do {
             (status, data) = try await fetch(url)
+        } catch let error as DownloadPrepareError {
+            throw error
         } catch {
             throw DownloadPrepareError.network
         }

@@ -31,7 +31,13 @@ enum DownloadEntryValidator {
             if size <= 0 { return .retry(.invalidContent) }
             if kind == .key { return size == 16 ? .accept : .retry(.invalidContent) }
             if contentType?.lowercased().contains("text/html") == true { return .retry(.invalidContent) }
-            if let first = head.first(where: { ![0x20, 0x09, 0x0A, 0x0D].contains($0) }), first == UInt8(ascii: "<") {
+            // Segments and maps never start with `<` or `{`; such a body is an upstream HTML or JSON
+            // error page served with a 2xx status. Keys returned above, since they are raw bytes.
+            //
+            // 分片与 map 不会以 `<` 或 `{` 开头; 这样的响应体是上游以 2xx 状态返回的 HTML 或 JSON 错误页.
+            // 密钥是原始字节, 已在上面返回.
+            if let first = head.first(where: { ![0x20, 0x09, 0x0A, 0x0D].contains($0) }),
+               first == UInt8(ascii: "<") || first == UInt8(ascii: "{") {
                 return .retry(.invalidContent)
             }
             return .accept

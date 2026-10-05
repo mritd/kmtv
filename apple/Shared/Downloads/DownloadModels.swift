@@ -89,6 +89,9 @@ final class DownloadShow {
     var title: String
     var cover: String
     var coverFile: String = ""
+    /// Resolved absolute cover URL; `cover` itself can be relative.
+    ///
+    /// 已解析的绝对封面 URL; `cover` 本身可能是相对地址.
     var coverURLString: String = ""
     var type: String = ""
     var year: String = ""
