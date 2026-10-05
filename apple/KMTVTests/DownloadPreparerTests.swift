@@ -95,6 +95,20 @@ final class DownloadPreparerTests: XCTestCase {
         XCTAssertEqual(DownloadPreparer.playlistHeader(Data([0x00, 0x00, 0x00, 0x20])), false)
         XCTAssertEqual(DownloadPreparer.playlistHeader(Data("<".utf8)), false)
         XCTAssertEqual(DownloadPreparer.playlistHeader(Data("#EXTINF:2,\n".utf8)), false)
+        // Leading whitespace is scanned only up to the limit.
+        //
+        // 开头的空白字符只扫描到上限为止.
+        let limit = DownloadPreparer.headerScanLimit
+        XCTAssertNil(DownloadPreparer.playlistHeader(Data(repeating: 0x20, count: limit - 1)))
+        XCTAssertEqual(DownloadPreparer.playlistHeader(Data(repeating: 0x20, count: limit)), false)
+    }
+
+    func testStreamingFetchRejectsEndlessLeadingWhitespace() async {
+        defer { URLProtocolStub.requestHandler = nil }
+        var body = Data(repeating: 0x0A, count: 1 << 20)
+        body.append(Data(media.utf8))
+        let error = await streamingError(stubSession(status: 200, body: body))
+        XCTAssertEqual(error, .format(.notHLS))
     }
 
     func testStreamingFetchRejectsNonHLSBody() async {

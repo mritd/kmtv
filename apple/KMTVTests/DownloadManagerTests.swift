@@ -437,6 +437,24 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertEqual(preparer.calls.count, 1)
     }
 
+    func testEncryptedSegmentsStartingWithBraceComplete() async throws {
+        preparer.encrypted = true
+        try await enqueueAndSettle()
+        let ids = liveIDs(0)
+        XCTAssertEqual(ids.count, 4)
+        // Ciphertext can start with `{`; only plain segments are sniffed for JSON error bodies.
+        //
+        // 密文可能以 `{` 开头; 只有未加密的分片才会被检查是否为 JSON 错误响应体.
+        let cipher = Data([UInt8(ascii: "{")] + Array(repeating: 0x5A, count: 31))
+        for id in ids {
+            let body = id.entryIndex == 0 ? Data(repeating: 7, count: 16) : cipher
+            await transport.finish(id, layout: layout, body: body)
+        }
+        await manager.waitForIdle()
+        XCTAssertEqual(episode(0)?.state, .completed)
+        XCTAssertEqual(transport.enqueued.count, 4)
+    }
+
     func testDeleteEpisodeRemovesEmptyShowAndMarkDamagedClearsFiles() async throws {
         try await enqueueAndSettle([0, 1])
         for id in liveIDs(0) { await transport.finish(id, layout: layout) }

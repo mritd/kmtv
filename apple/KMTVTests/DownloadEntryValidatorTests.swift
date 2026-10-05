@@ -10,8 +10,9 @@ final class DownloadEntryValidatorTests: XCTestCase {
     private let ts = Data([0x47, 0x40, 0x00, 0x10])
 
     private func classify(_ url: URL, _ status: Int, type: String? = nil, head: Data? = nil, size: Int64 = 4,
-                          kind: DownloadManifest.Kind = .segment) -> EntryOutcome {
-        DownloadEntryValidator.classify(url: url, status: status, contentType: type, head: head ?? ts, size: size, kind: kind)
+                          kind: DownloadManifest.Kind = .segment, encrypted: Bool = false) -> EntryOutcome {
+        DownloadEntryValidator.classify(url: url, status: status, contentType: type, head: head ?? ts, size: size, kind: kind,
+                                        encrypted: encrypted)
     }
 
     func testAcceptsMediaAndKeys() {
@@ -54,6 +55,22 @@ final class DownloadEntryValidatorTests: XCTestCase {
         // 密钥字节是随机的, 恰好以 `{` 开头的密钥仍被接受.
         let key = Data([UInt8(ascii: "{")] + Array(repeating: 1, count: 15))
         XCTAssertEqual(classify(direct, 200, head: key, size: 16, kind: .key), .accept)
+    }
+
+    func testEncryptedEntriesSkipFirstByteSniff() {
+        // AES-128 ciphertext starts with a random byte, which can be `<` or `{`.
+        //
+        // AES-128 密文的首字节是随机的, 可能是 `<` 或 `{`.
+        for first in [UInt8(ascii: "<"), UInt8(ascii: "{")] {
+            let body = Data([first] + Array(repeating: 0x9C, count: 15))
+            XCTAssertEqual(classify(direct, 200, head: body, size: 16, encrypted: true), .accept)
+            XCTAssertEqual(classify(direct, 200, head: body, size: 16, kind: .map, encrypted: true), .accept)
+            XCTAssertEqual(classify(direct, 200, head: body, size: 16), .retry(.invalidContent))
+        }
+        // A server-declared HTML type still rejects an encrypted entry.
+        //
+        // 服务端声明的 HTML 类型仍会拒绝加密条目.
+        XCTAssertEqual(classify(direct, 200, type: "text/html", encrypted: true), .retry(.invalidContent))
     }
 
     func testTransportErrors() {

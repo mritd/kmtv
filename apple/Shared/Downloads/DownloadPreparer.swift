@@ -94,12 +94,27 @@ struct DownloadPreparer: DownloadPreparing {
         return (status, data)
     }
 
+    /// Bytes read without finding the `#EXTM3U` tag before a body counts as not HLS; this also
+    /// bounds the rescans of `playlistHeader`.
+    ///
+    /// 读取这么多字节仍未找到 `#EXTM3U` 标签时, 视为非 HLS 响应体; 同时限制 `playlistHeader` 的重复扫描.
+    static let headerScanLimit = 1024
+
     /// Whether a body's first bytes start an HLS playlist: true or false once the first non-empty
-    /// line is known to be or not be `#EXTM3U`, nil while too few bytes have arrived to tell.
+    /// line is known to be or not be `#EXTM3U`, nil while too few bytes have arrived to tell. A head
+    /// of `headerScanLimit` bytes or more that is still undecided is not HLS.
     ///
     /// 响应体开头的字节是否为 HLS playlist: 能确定第一个非空行是否为 `#EXTM3U` 时返回 true 或 false,
-    /// 已到达的字节不足以判断时返回 nil.
+    /// 已到达的字节不足以判断时返回 nil. 长度达到 `headerScanLimit` 字节仍无法判断时, 视为非 HLS.
     static func playlistHeader(_ head: Data) -> Bool? {
+        guard let verdict = headerVerdict(head) else { return head.count >= headerScanLimit ? false : nil }
+        return verdict
+    }
+
+    /// `playlistHeader` without the scan limit.
+    ///
+    /// 不带扫描上限的 `playlistHeader`.
+    private static func headerVerdict(_ head: Data) -> Bool? {
         let bom: [UInt8] = [0xEF, 0xBB, 0xBF]
         var rest = head[...]
         if rest.starts(with: bom) {

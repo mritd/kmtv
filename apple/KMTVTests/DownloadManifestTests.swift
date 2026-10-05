@@ -44,6 +44,23 @@ final class DownloadManifestTests: XCTestCase {
         XCTAssertFalse(manifest.isComplete)
     }
 
+    func testEncryptedEntriesAreKeyedSegmentsAndMaps() throws {
+        let ts = DownloadManifest.build(from: try media(encrypted), generation: 1)
+        XCTAssertEqual(ts.entries.indices.map { ts.isEncrypted(entry: $0) }, [false, true, true, false])
+        let fmp4 = DownloadManifest.build(from: try media("""
+        #EXTM3U
+        #EXT-X-VERSION:7
+        #EXT-X-TARGETDURATION:2
+        #EXT-X-KEY:METHOD=AES-128,URI="k.bin"
+        #EXT-X-MAP:URI="init.mp4"
+        #EXTINF:2,
+        s0.m4s
+        #EXT-X-ENDLIST
+        """), generation: 1)
+        XCTAssertEqual(fmp4.entries.map(\.kind), [.key, .map, .segment])
+        XCTAssertEqual(fmp4.entries.indices.map { fmp4.isEncrypted(entry: $0) }, [false, true, true])
+    }
+
     func testFMP4UsesMapAndM4SNames() throws {
         let manifest = DownloadManifest.build(from: try media("""
         #EXTM3U

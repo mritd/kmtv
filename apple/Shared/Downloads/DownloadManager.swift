@@ -949,7 +949,8 @@ final class DownloadManager {
         }
         let entry = manifest.entries[id.entryIndex]
         let outcome = DownloadEntryValidator.classify(url: info.url, status: info.status, contentType: info.contentType,
-                                                      head: info.head, size: info.size, kind: entry.kind)
+                                                      head: info.head, size: info.size, kind: entry.kind,
+                                                      encrypted: manifest.isEncrypted(entry: id.entryIndex))
         guard outcome == .accept else {
             try? FileManager.default.removeItem(at: info.file)
             await apply(outcome, to: id)

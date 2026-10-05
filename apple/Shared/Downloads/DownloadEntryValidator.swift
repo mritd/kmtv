@@ -22,21 +22,25 @@ enum DownloadEntryValidator {
     static let mediaTokenMessage = "invalid or expired media token"
 
     /// Classifies a finished response from its status, content type, first bytes, and size.
+    /// `encrypted` marks an AES-128 segment or map, whose ciphertext starts with a random byte, so
+    /// its first bytes are not sniffed.
     ///
-    /// 根据状态码, content type, 开头字节与大小对已完成的响应分类.
+    /// 根据状态码, content type, 开头字节与大小对已完成的响应分类. `encrypted` 表示 AES-128 加密的分片
+    /// 或 map, 其密文的首字节是随机的, 因此不检查其开头字节.
     static func classify(url: URL, status: Int, contentType: String?, head: Data, size: Int64,
-                         kind: DownloadManifest.Kind) -> EntryOutcome {
+                         kind: DownloadManifest.Kind, encrypted: Bool = false) -> EntryOutcome {
         switch status {
         case 200..<300:
             if size <= 0 { return .retry(.invalidContent) }
             if kind == .key { return size == 16 ? .accept : .retry(.invalidContent) }
             if contentType?.lowercased().contains("text/html") == true { return .retry(.invalidContent) }
-            // Segments and maps never start with `<` or `{`; such a body is an upstream HTML or JSON
-            // error page served with a 2xx status. Keys returned above, since they are raw bytes.
+            // Plain segments and maps never start with `<` or `{`; such a body is an upstream HTML or
+            // JSON error page served with a 2xx status. Keys returned above, since they are raw
+            // bytes, and ciphertext is skipped for the same reason.
             //
-            // 分片与 map 不会以 `<` 或 `{` 开头; 这样的响应体是上游以 2xx 状态返回的 HTML 或 JSON 错误页.
-            // 密钥是原始字节, 已在上面返回.
-            if let first = head.first(where: { ![0x20, 0x09, 0x0A, 0x0D].contains($0) }),
+            // 未加密的分片与 map 不会以 `<` 或 `{` 开头; 这样的响应体是上游以 2xx 状态返回的 HTML 或 JSON
+            // 错误页. 密钥是原始字节, 已在上面返回; 密文同理跳过检查.
+            if !encrypted, let first = head.first(where: { ![0x20, 0x09, 0x0A, 0x0D].contains($0) }),
                first == UInt8(ascii: "<") || first == UInt8(ascii: "{") {
                 return .retry(.invalidContent)
             }

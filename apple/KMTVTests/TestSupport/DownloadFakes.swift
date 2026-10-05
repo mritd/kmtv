@@ -53,13 +53,18 @@ final class FakeDownloadTransport: DownloadTransport {
 }
 
 /// Preparer that builds a proxied playlist of `segments[episodeURL]` (default 3) segments whose
-/// URLs carry the generation, or throws `errors[episodeURL]`.
+/// URLs carry the generation, AES-128 encrypted when `encrypted` is set, or throws
+/// `errors[episodeURL]`.
 ///
 /// 准备器: 构建一个含 `segments[episodeURL]` 个分片 (默认 3 个) 的代理 playlist, 分片 URL 中带有
-/// generation; 或抛出 `errors[episodeURL]`.
+/// generation, 设置 `encrypted` 时使用 AES-128 加密; 或抛出 `errors[episodeURL]`.
 final class FakePreparer: DownloadPreparing, @unchecked Sendable {
     var segments: [String: Int] = [:]
     var errors: [String: DownloadPrepareError] = [:]
+    /// Whether playlists carry an AES-128 key, which becomes entry 0.
+    ///
+    /// playlist 是否带有 AES-128 key; 该 key 为第 0 个条目.
+    var encrypted = false
     /// When set, every prepare suspends until the test opens the gate.
     ///
     /// 设置后, 每次准备都会挂起, 直到测试打开该闸门.
@@ -71,6 +76,9 @@ final class FakePreparer: DownloadPreparing, @unchecked Sendable {
         if let gate { await gate.wait() }
         if let error = errors[episodeURL] { throw error }
         var text = "#EXTM3U\n#EXT-X-TARGETDURATION:2\n"
+        if encrypted {
+            text += "#EXT-X-KEY:METHOD=AES-128,URI=\"https://kmtv.example/api/v1/proxy/key?url=k&mt=g\(generation)\"\n"
+        }
         for index in 0..<(segments[episodeURL] ?? 3) {
             text += "#EXTINF:2,\nhttps://kmtv.example/api/v1/proxy/segment?url=\(index)&mt=g\(generation)\n"
         }

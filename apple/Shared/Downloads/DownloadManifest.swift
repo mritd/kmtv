@@ -111,6 +111,13 @@ struct DownloadManifest: Codable, Equatable, Sendable {
                                 entries: entries, lines: lines)
     }
 
+    /// Whether an entry is AES-128 ciphertext: a segment or map of a line that has a key.
+    ///
+    /// 条目是否为 AES-128 密文: 即带 key 的行所引用的分片或 map.
+    func isEncrypted(entry index: Int) -> Bool {
+        lines.contains { $0.key != nil && ($0.segment == index || $0.map == index) }
+    }
+
     /// The 16-byte big-endian IV for a media sequence number.
     ///
     /// media sequence 号对应的 16 字节大端 IV.
