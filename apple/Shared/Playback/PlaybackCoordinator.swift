@@ -107,10 +107,15 @@ final class PlaybackCoordinator {
     /// Starts or replaces playback with a resolved URL.
     ///
     /// 使用已解析的 URL 开始播放或替换当前播放项.
+    ///
+    /// Local items pass `allowsExternalPlayback` false because an AirPlay receiver cannot reach the loopback server.
+    ///
+    /// 本地内容传入 false, 因为 AirPlay 接收端无法访问 loopback 服务.
     func start(
         url: URL,
         startTime: TimeInterval,
         rate: Float,
+        allowsExternalPlayback: Bool = true,
         onTime: @escaping @MainActor @Sendable (TimeInterval, TimeInterval) -> Void,
         onBuffer: @escaping @MainActor @Sendable (BufferSample) -> Void,
         onEnd: @escaping @MainActor @Sendable () -> Void,
@@ -139,6 +144,7 @@ final class PlaybackCoordinator {
             logger.info("coordinator.start creating AVPlayer")
             player = AVPlayer(playerItem: item)
         }
+        player?.allowsExternalPlayback = allowsExternalPlayback
         setupObservers(for: item, onTime: onTime, onBuffer: onBuffer, onEnd: onEnd, onError: onError)
         if startTime > 0 {
             player?.seek(to: CMTime(seconds: startTime, preferredTimescale: 600))

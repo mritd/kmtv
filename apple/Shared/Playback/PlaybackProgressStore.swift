@@ -53,10 +53,21 @@ struct PlaybackProgressStore {
     func saveProgress(detail: VideoDetail, sourceKey: String, videoId: String, episode: Episode,
                       groupIndex: Int = 0, episodeIndex: Int, current: TimeInterval,
                       duration: TimeInterval, completed: Bool = false) {
+        saveProgress(title: detail.title, cover: detail.cover, sourceKey: sourceKey, videoId: videoId,
+                     episodeName: episode.name, groupIndex: groupIndex, episodeIndex: episodeIndex,
+                     current: current, duration: duration, completed: completed)
+    }
+
+    /// Writes a checkpoint from plain values, for the offline player that has no `VideoDetail`.
+    ///
+    /// 用普通值写入检查点, 供没有 `VideoDetail` 的离线播放器使用.
+    func saveProgress(title: String, cover: String, sourceKey: String, videoId: String, episodeName: String,
+                      groupIndex: Int = 0, episodeIndex: Int, current: TimeInterval, duration: TimeInterval,
+                      completed: Bool = false) {
         guard !videoId.isEmpty, current.isFinite, current > 0, duration.isFinite else { return }
         syncStore?.upsert(.watch(WatchPayload(
-            title: detail.title, cover: detail.cover, sourceKey: sourceKey, videoId: videoId,
-            episode: episode.name, groupIndex: groupIndex, episodeIndex: episodeIndex,
+            title: title, cover: cover, sourceKey: sourceKey, videoId: videoId,
+            episode: episodeName, groupIndex: groupIndex, episodeIndex: episodeIndex,
             progressSec: current, durationSec: duration, completed: completed
         )))
     }
