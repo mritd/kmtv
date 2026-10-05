@@ -112,6 +112,7 @@ final class OfflinePlayerViewModel {
     func start(at position: TimeInterval? = nil) async {
         guard !closed else { return }
         error = nil
+        manager.offlinePlaybackActive = true
         startGeneration += 1
         let generation = startGeneration
         let url: URL
@@ -182,6 +183,7 @@ final class OfflinePlayerViewModel {
     /// 保存位置并停止播放.
     func close() {
         closed = true
+        manager.offlinePlaybackActive = false
         restartTask?.cancel()
         checkpoint()
         coordinator.cleanup()

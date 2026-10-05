@@ -6,9 +6,11 @@ import SwiftUI
 /// iOS 根 tab, 每个 tab 维护独立 navigation path. 搜索和播放目标保留在发起流程的 tab 内.
 struct ContentView: View {
     @Environment(AppViewModel.self) private var appVM
+    @Environment(DownloadManager.self) private var downloads
     @State private var homePath = NavigationPath()
     @State private var categoriesPath = NavigationPath()
     @State private var favoritesPath = NavigationPath()
+    @State private var downloadsPath = NavigationPath()
 
     var body: some View {
         TabView {
@@ -45,6 +47,15 @@ struct ContentView: View {
                         }
                 }
             }
+            Tab("Downloads", systemImage: "arrow.down.circle") {
+                NavigationStack(path: $downloadsPath) {
+                    DownloadsView(mode: .online)
+                        .navigationDestination(for: PlayDestination.self) { dest in
+                            PlayerView(destination: dest)
+                        }
+                }
+            }
+            .badge(downloads.activeEpisodeCount)
             Tab("Me", systemImage: "person.fill") {
                 NavigationStack {
                     ProfileView()

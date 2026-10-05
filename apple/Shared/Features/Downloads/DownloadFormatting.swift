@@ -1,5 +1,7 @@
 #if os(iOS)
 import Foundation
+import SwiftUI
+import UIKit
 
 /// User-facing text for downloads.
 ///
@@ -52,6 +54,34 @@ enum DownloadFormatting {
         case .network: String(localized: "Network error")
         case .damaged: String(localized: "File damaged, download again")
         }
+    }
+}
+
+/// Poster of a downloaded show from its local cover file, or a tinted placeholder with the
+/// title's first character, so it renders offline.
+///
+/// 已下载剧集的海报, 来自本地封面文件; 没有封面时显示带标题首字的着色占位图, 因此离线也能显示.
+struct DownloadPoster: View {
+    let show: DownloadShow
+    let width: CGFloat
+    @Environment(DownloadManager.self) private var downloads
+
+    var body: some View {
+        Group {
+            if let url = downloads.coverFileURL(for: show), let image = UIImage(contentsOfFile: url.path) {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                ZStack {
+                    Theme.bgSecondary
+                    Text(String(show.title.prefix(1)))
+                        .font(.system(size: width * 0.36, weight: .bold))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+        }
+        .frame(width: width, height: width * 1.42)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .accessibilityHidden(true)
     }
 }
 #endif

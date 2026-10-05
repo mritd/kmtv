@@ -96,6 +96,10 @@ final class DownloadManager {
     ///
     /// 新任务是否可以使用蜂窝数据.
     private(set) var allowsCellular: Bool
+    /// Whether an offline player is on screen; an automatic reconnect waits until it closes.
+    ///
+    /// 离线播放器是否正在显示; 自动重连会等到它关闭之后.
+    var offlinePlaybackActive = false
     /// Network path monitor; nil means the path is assumed usable.
     ///
     /// 网络路径监视器; 为 nil 时视为网络可用.
