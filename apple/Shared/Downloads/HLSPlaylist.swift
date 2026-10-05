@@ -75,6 +75,10 @@ enum HLSParseError: Error, Equatable, Sendable {
     case separateAudio
     case noSegments
     case noVariants
+    /// A URI resolves to a scheme other than http or https (for example `file:` or `data:`).
+    ///
+    /// 某个 URI 解析后的 scheme 不是 http 或 https (例如 `file:` 或 `data:`).
+    case unsupportedURI
 }
 
 /// Parses the HLS subset that downloads support: VOD media playlists with AES-128 or no
@@ -83,6 +87,12 @@ enum HLSParseError: Error, Equatable, Sendable {
 /// 解析下载所支持的 HLS 子集: 使用 AES-128 或不加密, 带 init map 与 discontinuity 的 VOD media
 /// playlist, 以及音频已混流的 master playlist.
 enum HLSParser {
+    /// Longest `EXTINF` accepted, one day; anything longer is not a real segment and would overflow
+    /// the derived target duration.
+    ///
+    /// 可接受的最长 `EXTINF`, 即一天; 更长的值不可能是真实分片, 而且会让推导出的目标时长溢出.
+    static let maxSegmentDuration: Double = 86_400
+
     /// Parses playlist text; relative URIs resolve against `baseURL`.
     ///
     /// 解析 playlist 文本; 相对 URI 基于 `baseURL` 解析.
@@ -120,12 +130,12 @@ enum HLSParser {
             if line.hasPrefix("#EXT-X-MEDIA:") {
                 let attrs = attributes(line.dropFirst("#EXT-X-MEDIA:".count))
                 renditions.append(HLSRendition(type: attrs["TYPE"] ?? "", groupID: attrs["GROUP-ID"] ?? "",
-                                               uri: attrs["URI"].flatMap { resolve($0, baseURL) }))
+                                               uri: try attrs["URI"].flatMap { try resolve($0, baseURL) }))
             } else if line.hasPrefix("#EXT-X-STREAM-INF:") {
                 pending = attributes(line.dropFirst("#EXT-X-STREAM-INF:".count))
             } else if !line.hasPrefix("#"), let attrs = pending {
                 pending = nil
-                guard let uri = resolve(line, baseURL) else { continue }
+                guard let uri = try resolve(line, baseURL) else { continue }
                 variants.append(HLSVariant(uri: uri, bandwidth: Int(attrs["BANDWIDTH"] ?? "") ?? 0,
                                            audioGroup: attrs["AUDIO"]))
             }
@@ -159,12 +169,13 @@ enum HLSParser {
             } else if line.hasPrefix("#EXT-X-MAP:") {
                 let attrs = attributes(line.dropFirst("#EXT-X-MAP:".count))
                 if attrs["BYTERANGE"] != nil { throw HLSParseError.byteRange }
-                map = attrs["URI"].flatMap { resolve($0, baseURL) }
+                map = try attrs["URI"].flatMap { try resolve($0, baseURL) }
             } else if line.hasPrefix("#EXT-X-BYTERANGE") {
                 throw HLSParseError.byteRange
             } else if line.hasPrefix("#EXTINF:") {
                 let value = line.dropFirst("#EXTINF:".count).split(separator: ",", maxSplits: 1).first ?? ""
-                guard let parsed = Double(value.trimmingCharacters(in: .whitespaces)), parsed.isFinite, parsed >= 0 else {
+                guard let parsed = Double(value.trimmingCharacters(in: .whitespaces)), parsed.isFinite, parsed >= 0,
+                      parsed <= maxSegmentDuration else {
                     throw HLSParseError.notHLS
                 }
                 duration = parsed
@@ -173,7 +184,7 @@ enum HLSParser {
             } else if line == "#EXT-X-ENDLIST" {
                 hasEndList = true
             } else if !line.hasPrefix("#"), let segmentDuration = duration {
-                guard let uri = resolve(line, baseURL) else { throw HLSParseError.notHLS }
+                guard let uri = try resolve(line, baseURL) else { throw HLSParseError.notHLS }
                 let (sequence, overflow) = firstSequence.addingReportingOverflow(segments.count)
                 guard !overflow else { throw HLSParseError.notHLS }
                 segments.append(HLSSegment(uri: uri, duration: segmentDuration, key: key, map: map,
@@ -184,7 +195,9 @@ enum HLSParser {
         }
         guard hasEndList else { throw segments.isEmpty ? HLSParseError.noSegments : HLSParseError.live }
         guard !segments.isEmpty else { throw HLSParseError.noSegments }
-        if targetDuration == 0 { targetDuration = Int((segments.map(\.duration).max() ?? 1).rounded(.up)) }
+        if targetDuration == 0 {
+            targetDuration = Int(min(segments.map(\.duration).max() ?? 1, maxSegmentDuration).rounded(.up))
+        }
         return HLSMediaPlaylist(version: version, targetDuration: targetDuration, mediaSequence: firstSequence,
                                 segments: segments)
     }
@@ -195,7 +208,7 @@ enum HLSParser {
         case "NONE":
             return .none
         case "AES-128":
-            guard let uri = attrs["URI"].flatMap({ resolve($0, baseURL) }) else { throw HLSParseError.notHLS }
+            guard let uri = try attrs["URI"].flatMap({ try resolve($0, baseURL) }) else { throw HLSParseError.notHLS }
             return .aes128(uri: uri, iv: attrs["IV"].flatMap(parseIV))
         default:
             throw HLSParseError.unsupportedKey(method)
@@ -251,7 +264,17 @@ enum HLSParser {
         return Data(bytes)
     }
 
-    private static func resolve(_ reference: String, _ baseURL: URL) -> URL? {
-        URL(string: reference, relativeTo: baseURL)?.absoluteURL
+    /// Resolves a reference against the playlist URL; nil when it is not a URL. Throws
+    /// `unsupportedURI` for any scheme but http and https, so a playlist cannot make the
+    /// background session read local files or inline data.
+    ///
+    /// 基于 playlist URL 解析引用; 不是 URL 时返回 nil. 除 http 与 https 外的 scheme 均抛出
+    /// `unsupportedURI`, 因此 playlist 无法让后台会话读取本地文件或内联数据.
+    private static func resolve(_ reference: String, _ baseURL: URL) throws -> URL? {
+        guard let url = URL(string: reference, relativeTo: baseURL)?.absoluteURL else { return nil }
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            throw HLSParseError.unsupportedURI
+        }
+        return url
     }
 }

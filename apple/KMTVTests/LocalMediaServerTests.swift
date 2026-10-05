@@ -90,7 +90,11 @@ final class LocalMediaServerTests: XCTestCase {
     func testWriterOutputPlaysAESFixtureWithDerivedIV() async throws {
         let dir = root.appending(path: "aes")
         let text = try String(contentsOf: dir.appending(path: "index.m3u8"), encoding: .utf8)
-        guard case .media(let playlist) = try HLSParser.parse(text, baseURL: dir.appending(path: "index.m3u8")) else {
+        // The parser accepts only http(s) URIs; the writer names files by kind, so the base is irrelevant.
+        //
+        // 解析器只接受 http(s) URI; 写入器按类型命名文件, 因此基准 URL 无关紧要.
+        let base = try XCTUnwrap(URL(string: "https://fixtures.example/aes/index.m3u8"))
+        guard case .media(let playlist) = try HLSParser.parse(text, baseURL: base) else {
             return XCTFail("expected media playlist")
         }
         let manifest = DownloadManifest.build(from: playlist, generation: 1)

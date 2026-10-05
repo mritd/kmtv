@@ -139,4 +139,42 @@ final class HLSParserTests: XCTestCase {
             XCTAssertEqual(error("#EXTM3U\n#EXTINF:\(bad),\na.ts\n#EXT-X-ENDLIST"), .notHLS, bad)
         }
     }
+
+    func testRejectsDurationsLongerThanADay() throws {
+        func error(_ text: String) -> HLSParseError? {
+            do { _ = try HLSParser.parse(text, baseURL: base); return nil } catch { return error as? HLSParseError }
+        }
+        // Without a target duration the parser derives one from the longest segment; these used to
+        // overflow `Int` there and crash.
+        //
+        // 没有目标时长时, 解析器会根据最长分片推导; 这些值以前会在此处溢出 `Int` 并导致崩溃.
+        for bad in ["1e300", "99999999999999999999", "86400.5"] {
+            XCTAssertEqual(error("#EXTM3U\n#EXTINF:\(bad),\na.ts\n#EXT-X-ENDLIST"), .notHLS, bad)
+        }
+        guard case .media(let playlist) = try HLSParser.parse("#EXTM3U\n#EXTINF:86400,\na.ts\n#EXT-X-ENDLIST",
+                                                              baseURL: base) else { return XCTFail() }
+        XCTAssertEqual(playlist.targetDuration, 86_400)
+    }
+
+    func testRejectsNonHTTPURIs() {
+        func error(_ text: String) -> HLSParseError? {
+            do { _ = try HLSParser.parse(text, baseURL: base); return nil } catch { return error as? HLSParseError }
+        }
+        XCTAssertEqual(error("#EXTM3U\n#EXTINF:2,\nfile:///etc/passwd\n#EXT-X-ENDLIST"), .unsupportedURI)
+        XCTAssertEqual(error("#EXTM3U\n#EXTINF:2,\ndata:text/plain,hello\n#EXT-X-ENDLIST"), .unsupportedURI)
+        XCTAssertEqual(error("#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"file:///k\"\n#EXTINF:2,\na.ts\n#EXT-X-ENDLIST"),
+                       .unsupportedURI)
+        XCTAssertEqual(error("#EXTM3U\n#EXT-X-MAP:URI=\"data:,x\"\n#EXTINF:2,\na.m4s\n#EXT-X-ENDLIST"), .unsupportedURI)
+        XCTAssertEqual(error("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nfile:///v.m3u8"), .unsupportedURI)
+        XCTAssertEqual(error("#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",URI=\"ftp://x/a.m3u8\"\n"
+                             + "#EXT-X-STREAM-INF:BANDWIDTH=1\nv.m3u8"), .unsupportedURI)
+        // A file base URL resolves relative references to file URLs, which are refused too.
+        //
+        // 以文件 URL 为基准时, 相对引用会解析为文件 URL, 同样会被拒绝.
+        XCTAssertThrowsError(try HLSParser.parse("#EXTM3U\n#EXTINF:2,\na.ts\n#EXT-X-ENDLIST",
+                                                 baseURL: URL(fileURLWithPath: "/tmp/index.m3u8"))) {
+            XCTAssertEqual($0 as? HLSParseError, .unsupportedURI)
+        }
+        XCTAssertNil(error("#EXTM3U\n#EXTINF:2,\nHTTP://CDN.example/a.ts\n#EXT-X-ENDLIST"))
+    }
 }
