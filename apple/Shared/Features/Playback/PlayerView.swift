@@ -109,7 +109,10 @@ struct PlayerView: View {
                                 Text("\(vm.detail?.title ?? destination.title) \(vm.currentEpisodeName)")
                                     .font(.headline)
                                     .foregroundStyle(Theme.textPrimary)
-                                Text("\(vm.currentSourceName) | \(vm.detail?.type ?? "") \(vm.detail?.year ?? "")")
+                                Text(DisplayFormatters.metaLine([
+                                    vm.currentSourceName,
+                                    DisplayFormatters.metaLine([vm.detail?.type, vm.detail?.year], separator: " "),
+                                ]))
                                     .font(.caption)
                                     .foregroundStyle(Theme.textSecondary)
                             }

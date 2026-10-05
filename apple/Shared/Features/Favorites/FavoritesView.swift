@@ -91,7 +91,7 @@ struct FavoritesView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.title).font(.body)
                     .foregroundStyle(Theme.textPrimary)
-                Text("\(item.type) | \(item.year)")
+                Text(DisplayFormatters.metaLine([item.type, item.year]))
                     .font(.caption)
                     .foregroundStyle(Theme.textSecondary)
             }
@@ -108,7 +108,7 @@ struct FavoritesView: View {
                         onSearch?(SearchQuery(query: item.title, coverHint: item.cover))
                     } label: {
                         VideoCard(title: item.title, cover: item.cover,
-                                  subtitle: "\(item.type) | \(item.year)",
+                                  subtitle: DisplayFormatters.metaLine([item.type, item.year]),
                                   apiClient: appVM.apiClient)
                     }
                     .buttonStyle(.tvScale)

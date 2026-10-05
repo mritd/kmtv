@@ -173,7 +173,7 @@ struct TVSearchContentView: View {
                     VideoCard(
                         title: result.title,
                         cover: result.cover,
-                        subtitle: "\(result.type) | \(result.year)",
+                        subtitle: DisplayFormatters.metaLine([result.type, result.year]),
                         rating: nil,
                         apiClient: appVM.apiClient
                     )
@@ -316,7 +316,7 @@ struct SearchContentView: View {
                     .font(.body.bold())
                     .foregroundStyle(Theme.textPrimary)
                     .lineLimit(2)
-                Text("\(result.type) | \(result.year)")
+                Text(DisplayFormatters.metaLine([result.type, result.year]))
                     .font(.subheadline)
                     .foregroundStyle(Theme.textSecondary)
                 if let desc = DisplayFormatters.bestDescription(title: result.title, desc: result.desc) {

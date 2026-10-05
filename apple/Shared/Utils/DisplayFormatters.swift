@@ -16,6 +16,17 @@ enum DisplayFormatters {
         name.replacingOccurrences(of: "^(🎬|🔞)\\s?", with: "", options: .regularExpression)
     }
 
+    /// Joins the non-empty parts of a metadata line, so a missing type, year, or area leaves no
+    /// stray separator.
+    ///
+    /// 拼接元数据行中的非空部分, 缺少类型, 年份或地区时不会留下多余的分隔符.
+    static func metaLine(_ parts: [String?], separator: String = " | ") -> String {
+        parts
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: separator)
+    }
+
     /// Returns a useful description or nil when upstream text is empty or duplicate.
     ///
     /// 当上游简介为空或与标题重复时返回 nil.
