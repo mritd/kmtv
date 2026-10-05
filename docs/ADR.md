@@ -285,4 +285,4 @@ Durable architectural decisions for the KMTV Go backend, native Apple clients, a
 - tvOS and Android have no downloads.
 - Media tokens stay valid after logout until they expire; tracked as a separate security follow-up.
 - A playback failure deletes a download only when its files are missing; intact files are kept and the item is rebuilt.
-- Deviations from the design spec: the Downloads screen shows no aggregate speed, and the "downloads restarted after a source change" notice is logged only, not shown.
+- Deviations from the design spec: the Downloads screen shows no aggregate speed, and the "downloads restarted after a source change" notice is logged only, not shown. The offline player uses the system player controls (`FullScreenPlayerRepresentable`) instead of the online player's custom controls. The background session identifier is `com.mritd.kmtv.downloads`, not the spec's `kmtv.downloads`. An entry fails on its 4th failure (3 retries), where the spec said it fails after 3 attempts. Downloading rows show a percentage but no byte counts.

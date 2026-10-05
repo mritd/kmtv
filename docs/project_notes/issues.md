@@ -5,7 +5,7 @@ Completed and in-progress work, newest first. There is no issue tracker; entries
 ### 2026-10-06 - feat/ios-offline-downloads: iOS offline downloads (ADR-017)
 - **Status**: Implemented on branch `feat/ios-offline-downloads`; ready for review.
 - **Description**: The iOS app downloads HLS episodes through a background `URLSession` and plays them through a loopback media server. It opens in offline mode when the server is unreachable at launch. The server proxies `EXT-X-MAP`, `EXT-X-MEDIA`, `EXT-X-I-FRAME-STREAM-INF`, and `EXT-X-SESSION-KEY` URIs too.
-- **Verification**: Full `KMTVTests` suite passed (306 tests at the last run), server tests passed, tvOS builds.
+- **Verification**: Full `KMTVTests` suite passed (313 tests at the last run), server tests passed, tvOS builds.
 - **Simulator smoke check (2026-10-06, proxy mode)**: empty state, picker download through `/api/v1/proxy` with `mt` tokens, files and AES IVs on disk, local-first "Downloaded" label, offline launch with TS, fMP4, and AES playback through loopback, reconnect, zh-Hans strings; all passed.
 - **Not verified on simulator**: direct mode, background and terminated downloads, token refresh, per-episode failure/retry/pause, auto-reconnect on network return.
 - **Open before release**:
@@ -15,11 +15,18 @@ Completed and in-progress work, newest first. There is no issue tracker; entries
     - Queue episodes and let iOS terminate KMTV under memory pressure (not a force-quit); downloads continue and the next launch shows them completed.
     - With `media_token_ttl` set to 2 minutes on a dev server, start a long episode; it refreshes and completes, and the log shows a second `/playback/url`.
     - Turn on airplane mode and launch; the app opens in offline mode and plays.
+    - Trigger a background wake that must prepare several queued episodes; it persists and finishes within the time budget, and the rest continue on the next launch.
+    - Play a local copy in the online player, lock the phone, then return; playback resumes from the loopback server.
 - **Follow-ups**:
   - Media tokens stay valid after logout until they expire; needs a separate security change.
   - tvOS and Android have no downloads.
   - Spec deviations: no aggregate speed on the Downloads screen; the "downloads restarted after a source change" notice is logged only.
   - App-wide visual redesign.
+  - ID-reuse window: `activate` resumes the previous user's `.signedOut` episodes before the first pull's `onScopeDropped`; resume them only after the scope's first successful pull.
+  - Sweep orphan download directories at launch.
+  - `LocalMediaServer.start()` is not reentrant.
+  - The loopback server also serves `manifest.json`; restrict it to media file names.
+  - Throttle the `changeCount` bumps from download progress.
 - **Notes**: Bugs found along the way are in `bugs.md` under 2026-10-06; ADR-017 in `docs/ADR.md`.
 
 ### 2026-10-03 - fix/apple-meta-separator: Drop empty parts from Apple metadata lines
