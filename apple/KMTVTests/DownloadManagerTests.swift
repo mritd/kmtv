@@ -1,3 +1,4 @@
+import Observation
 import SwiftData
 import XCTest
 @testable import KMTV
@@ -455,6 +456,60 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertEqual(transport.enqueued.count, 4)
     }
 
+    func testAcceptedEntriesDoNotChangeStructure() async throws {
+        preparer.segments["https://cdn.example/ep0.m3u8"] = 20
+        try await enqueueAndSettle()
+        let structure = manager.changeCount
+        for id in liveIDs(0).prefix(10) { await transport.finish(id, layout: layout) }
+        // Rows still see every entry; views keyed on structure do not re-render per entry.
+        //
+        // 数据行仍会反映每个条目; 依赖结构变化的视图不会因每个条目而重新渲染.
+        XCTAssertEqual(episode(0)?.doneEntries, 10)
+        XCTAssertEqual(manager.changeCount, structure)
+    }
+
+    func testProgressNotificationsCoalesceAndStopWhenIdle() async throws {
+        preparer.segments["https://cdn.example/ep0.m3u8"] = 20
+        try await enqueueAndSettle()
+        XCTAssertNil(manager.progressTask)
+        let tick = manager.progressTick
+        let used = manager.storage.activeBytes
+        for id in liveIDs(0).prefix(10) { await transport.finish(id, layout: layout) }
+        XCTAssertEqual(manager.progressTick, tick)
+        let pending = try XCTUnwrap(manager.progressTask)
+        await pending.value
+        // Ten entries within one interval produce a single notification.
+        //
+        // 一个间隔内完成的十个条目只产生一次通知.
+        XCTAssertEqual(manager.progressTick, tick + 1)
+        XCTAssertEqual(manager.storage.activeBytes, used + 40)
+        // No timer keeps running once entries stop finishing.
+        //
+        // 条目不再完成后, 不会有计时器继续运行.
+        XCTAssertNil(manager.progressTask)
+        await transport.finish(liveIDs(0)[0], layout: layout)
+        await manager.progressTask?.value
+        XCTAssertEqual(manager.progressTick, tick + 2)
+    }
+
+    func testActiveEpisodeCountChangesOnlyOnStateTransitions() async throws {
+        try await enqueueAndSettle([0, 1])
+        XCTAssertEqual(manager.activeEpisodeCount, 2)
+        let changed = ObservationFlag()
+        withObservationTracking { _ = manager.activeEpisodeCount } onChange: { changed.set() }
+        await transport.finish(liveIDs(0)[0], layout: layout)
+        await transport.finish(liveIDs(0)[0], layout: layout)
+        XCTAssertFalse(changed.value)
+        await manager.pause(try XCTUnwrap(episode(1)))
+        XCTAssertTrue(changed.value)
+        XCTAssertEqual(manager.activeEpisodeCount, 1)
+        await transport.finish(liveIDs(0)[0], layout: layout)
+        XCTAssertEqual(episode(0)?.state, .completed)
+        XCTAssertEqual(manager.activeEpisodeCount, 0)
+        manager.resume(try XCTUnwrap(episode(1)))
+        XCTAssertEqual(manager.activeEpisodeCount, 1)
+    }
+
     func testDeleteEpisodeRemovesEmptyShowAndMarkDamagedClearsFiles() async throws {
         try await enqueueAndSettle([0, 1])
         for id in liveIDs(0) { await transport.finish(id, layout: layout) }
@@ -470,6 +525,18 @@ final class DownloadManagerTests: XCTestCase {
     }
 }
 
+
+/// A flag set from an observation change handler, which may run off the test's actor.
+///
+/// 由 observation 变化回调设置的标记, 该回调可能不在测试所在的 actor 上运行.
+private final class ObservationFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value = false
+
+    var value: Bool { lock.withLock { _value } }
+
+    func set() { lock.withLock { _value = true } }
+}
 
 /// Records cover fetches and returns canned bytes (nil simulates a failed download).
 ///

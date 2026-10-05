@@ -17,9 +17,13 @@ struct DownloadShowRoute: Hashable {
 }
 
 /// The Downloads tab, and the only screen in offline mode: active summary, one row per show, and
-/// storage use.
+/// storage use. The body depends only on structural changes and fetches the scope's episodes once;
+/// the summary, each show row, and the footer are their own views, so a finished entry re-renders
+/// only the views that show its progress.
 ///
-/// 下载 tab, 也是离线模式下唯一的页面: 进行中汇总, 每部剧一行, 以及存储占用.
+/// 下载 tab, 也是离线模式下唯一的页面: 进行中汇总, 每部剧一行, 以及存储占用. 页面主体只依赖结构变化,
+/// 并且只读取一次作用域内的剧集; 汇总, 每部剧的行与底部各自是独立视图, 因此完成一个条目只会重新渲染
+/// 展示其进度的视图.
 struct DownloadsView: View {
     let mode: DownloadsMode
     @Environment(DownloadManager.self) private var downloads
@@ -31,23 +35,25 @@ struct DownloadsView: View {
         let _ = downloads.changeCount
         let scope = downloads.activeScopeKey
         let shows = scope.map { downloads.shows(in: $0) } ?? []
+        let episodes = scope.map { downloads.episodes(in: $0) } ?? []
+        let byShow = Dictionary(grouping: episodes, by: \.showKey)
         List(selection: $selection) {
             if mode == .offline {
                 Section { offlineBanner }
             }
-            if mode == .online, let scope {
-                activeSummary(scope)
+            if mode == .online, scope != nil {
+                DownloadsActiveSummary(episodes: episodes)
             }
             if shows.isEmpty {
                 Section {
                     ContentUnavailableView("No downloads yet", systemImage: "arrow.down.circle",
                                            description: Text("Download episodes from a show's page to watch them offline."))
                 }
-            } else if let scope {
+            } else {
                 Section {
                     ForEach(shows, id: \.showKey) { show in
                         NavigationLink(value: DownloadShowRoute(showKey: show.showKey)) {
-                            showRow(show, episodes: downloads.episodes(in: scope, showKey: show.showKey))
+                            DownloadShowRow(show: show, episodes: byShow[show.showKey] ?? [], mode: mode)
                         }
                         .tag(show.showKey)
                     }
@@ -57,8 +63,8 @@ struct DownloadsView: View {
                     }
                 }
             }
-            if let scope {
-                Section { storageFooter(scope) }
+            if scope != nil {
+                Section { DownloadsStorageFooter() }
             }
         }
         .navigationTitle("Downloads")
@@ -105,11 +111,18 @@ struct DownloadsView: View {
                 .buttonStyle(.bordered)
         }
     }
+}
 
-    @ViewBuilder
-    private func activeSummary(_ scope: String) -> some View {
-        let active = downloads.episodes(in: scope).filter { $0.state == .downloading || $0.state == .queued }
-        let paused = downloads.episodes(in: scope).filter { $0.state == .paused }
+/// Counts of downloading, waiting, and paused episodes with pause all or resume all.
+///
+/// 下载中, 等待中与已暂停的集数, 以及全部暂停或全部继续.
+private struct DownloadsActiveSummary: View {
+    let episodes: [DownloadEpisode]
+    @Environment(DownloadManager.self) private var downloads
+
+    var body: some View {
+        let active = episodes.filter { $0.state == .downloading || $0.state == .queued }
+        let paused = episodes.filter { $0.state == .paused }
         if !active.isEmpty || !paused.isEmpty {
             Section {
                 HStack(spacing: 12) {
@@ -133,14 +146,24 @@ struct DownloadsView: View {
             }
         }
     }
+}
 
-    private func showRow(_ show: DownloadShow, episodes: [DownloadEpisode]) -> some View {
+/// One show in the downloads list: poster, counts, sources, size, progress, and watch position.
+///
+/// 下载列表中的一部剧: 海报, 数量, 来源, 大小, 进度与观看位置.
+private struct DownloadShowRow: View {
+    let show: DownloadShow
+    let episodes: [DownloadEpisode]
+    let mode: DownloadsMode
+    @Environment(DownloadManager.self) private var downloads
+
+    var body: some View {
         let done = episodes.filter { $0.state == .completed }
         let failed = episodes.filter { $0.state == .failed }.count
         let active = episodes.filter { $0.state == .downloading || $0.state == .queued }
         let sources = Set(episodes.map(\.sourceName))
         let bytes = episodes.reduce(Int64(0)) { $0 + $1.bytes }
-        return HStack(spacing: 12) {
+        HStack(spacing: 12) {
             DownloadPoster(show: show, width: 56)
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
@@ -153,11 +176,11 @@ struct DownloadsView: View {
                     .font(.caption)
                     .foregroundStyle(Theme.textSecondary)
                 if let first = active.first {
-                    Text(mode == .offline ? String(localized: "Will continue when online")
-                         : DownloadFormatting.text(for: downloads.displayState(of: first)))
+                    let state = downloads.displayState(of: first)
+                    Text(mode == .offline ? String(localized: "Will continue when online") : DownloadFormatting.text(for: state))
                         .font(.caption)
                         .foregroundStyle(Theme.accent)
-                    if mode == .online, case .downloading(let progress) = downloads.displayState(of: first) {
+                    if mode == .online, case .downloading(let progress) = state {
                         ProgressView(value: progress).tint(Theme.accent)
                     }
                 } else if failed > 0 {
@@ -174,15 +197,23 @@ struct DownloadsView: View {
         }
         .padding(.vertical, 4)
     }
+}
 
-    private func storageFooter(_ scope: String) -> some View {
+/// Storage used by this account's downloads and the device's free space, from the manager's cache.
+///
+/// 本账号下载占用的存储与设备剩余空间, 取自管理器的缓存.
+private struct DownloadsStorageFooter: View {
+    @Environment(DownloadManager.self) private var downloads
+
+    var body: some View {
         HStack {
-            Text("Used \(DownloadFormatting.bytes(downloads.usedBytes(in: scope)))")
+            Text("Used \(DownloadFormatting.bytes(downloads.storage.activeBytes))")
             Spacer()
-            Text("Free \(DownloadFormatting.bytes(DownloadManager.deviceFreeSpace()))")
+            Text("Free \(DownloadFormatting.bytes(downloads.storage.freeBytes))")
         }
         .font(.caption)
         .foregroundStyle(Theme.textSecondary)
+        .onAppear { downloads.refreshStorage() }
     }
 }
 

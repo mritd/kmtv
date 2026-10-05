@@ -153,4 +153,58 @@ struct EpisodePickerSheet: View {
         .background(.bar)
     }
 }
+
+/// Download rows of one show and the badges of one source and video, captured when the manager's
+/// display revision changes rather than read while rendering.
+///
+/// 某部剧的下载数据行, 以及某个来源与视频的角标; 在管理器的展示版本变化时捕获, 而不是在渲染时读取.
+struct DownloadBadgeSnapshot: Equatable {
+    var badges: [Int: EpisodeDownloadBadge] = [:]
+    var episodes: [DownloadEpisode] = []
+}
+
+/// Hands its content a `DownloadBadgeSnapshot` that refreshes on structural changes and throttled
+/// progress only. The snapshot is computed in `onChange`, outside body evaluation, so this view
+/// does not observe the rows' per-entry progress, and its content re-renders at most about twice
+/// a second while downloads run.
+///
+/// 向内容提供一个 `DownloadBadgeSnapshot`, 它只在结构变化与节流后的进度通知时刷新. 快照在 `onChange`
+/// 中计算, 不在 body 求值期间, 因此本视图不会观察数据行逐条目的进度, 下载进行时其内容每秒至多重新
+/// 渲染约两次.
+struct DownloadBadgesReader<Content: View>: View {
+    let downloads: DownloadManager
+    let title: String
+    let sourceKey: String
+    let videoId: String
+    @ViewBuilder let content: (DownloadBadgeSnapshot) -> Content
+    @State private var snapshot = DownloadBadgeSnapshot()
+
+    /// Everything the snapshot depends on.
+    ///
+    /// 快照所依赖的全部输入.
+    private struct Inputs: Equatable {
+        let revision: DownloadDisplayRevision
+        let title: String
+        let sourceKey: String
+        let videoId: String
+    }
+
+    var body: some View {
+        content(snapshot)
+            .onChange(of: Inputs(revision: downloads.displayRevision, title: title, sourceKey: sourceKey, videoId: videoId),
+                      initial: true) {
+                let next = capture()
+                if next != snapshot { snapshot = next }
+            }
+    }
+
+    private func capture() -> DownloadBadgeSnapshot {
+        guard let scope = downloads.activeScopeKey, !title.isEmpty else { return DownloadBadgeSnapshot() }
+        let all = downloads.episodes(in: scope, showKey: normalizeSyncKey(title))
+        return DownloadBadgeSnapshot(
+            badges: EpisodePickerModel.badges(episodes: all, sourceKey: sourceKey, videoId: videoId,
+                                              state: downloads.displayState(of:)),
+            episodes: all)
+    }
+}
 #endif

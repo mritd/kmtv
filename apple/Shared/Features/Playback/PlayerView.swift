@@ -88,17 +88,18 @@ struct PlayerView: View {
         }
         #endif
         .sheet(isPresented: $showPicker) {
-            if let vm = viewModel, let downloads = appVM.downloadManager, let scope = downloads.activeScopeKey,
+            if let vm = viewModel, let downloads = appVM.downloadManager, downloads.activeScopeKey != nil,
                let detail = vm.detail {
-                let all = downloads.episodes(in: scope, showKey: normalizeSyncKey(detail.title))
-                EpisodePickerSheet(
-                    title: detail.title, sourceName: vm.currentSourceName, episodes: vm.episodes,
-                    badges: EpisodePickerModel.badges(episodes: all, sourceKey: vm.currentSourceKey,
-                                                      videoId: vm.currentVideoID, state: downloads.displayState(of:)),
-                    hints: EpisodePickerModel.otherSourceHints(episodes: vm.episodes, downloads: all,
-                                                               sourceKey: vm.currentSourceKey),
-                    freeSpace: DownloadManager.deviceFreeSpace(), allowsCellular: downloads.allowsCellular
-                ) { indexes in download(vm, indexes: indexes) }
+                DownloadBadgesReader(downloads: downloads, title: detail.title, sourceKey: vm.currentSourceKey,
+                                     videoId: vm.currentVideoID) { snapshot in
+                    EpisodePickerSheet(
+                        title: detail.title, sourceName: vm.currentSourceName, episodes: vm.episodes,
+                        badges: snapshot.badges,
+                        hints: EpisodePickerModel.otherSourceHints(episodes: vm.episodes, downloads: snapshot.episodes,
+                                                                   sourceKey: vm.currentSourceKey),
+                        freeSpace: downloads.storage.freeBytes, allowsCellular: downloads.allowsCellular
+                    ) { indexes in download(vm, indexes: indexes) }
+                }
             }
         }
     }
@@ -214,10 +215,7 @@ struct PlayerView: View {
                                 Spacer()
                                 downloadButton(vm)
                             }
-                            EpisodeGrid(episodes: vm.episodes, currentIndex: vm.currentEpisodeIndex,
-                                        badges: downloadBadges(vm)) { index in
-                                vm.switchEpisode(index)
-                            }
+                            episodeGrid(vm)
                         }
 
                         if let error = vm.error {
@@ -263,37 +261,38 @@ struct PlayerView: View {
         }
     }
 
-    private func downloadBadges(_ vm: PlayerViewModel) -> [Int: EpisodeDownloadBadge] {
-        guard let downloads = appVM.downloadManager, let scope = downloads.activeScopeKey, let detail = vm.detail else {
-            return [:]
+    /// The episode grid; with downloads, its badges come from a `DownloadBadgesReader`, so download
+    /// progress re-renders the grid at most about twice a second and never this whole page.
+    ///
+    /// 剧集网格; 启用下载时, 角标来自 `DownloadBadgesReader`, 因此下载进度每秒至多让网格重新渲染约两次,
+    /// 且不会重新渲染整个页面.
+    @ViewBuilder
+    private func episodeGrid(_ vm: PlayerViewModel) -> some View {
+        if let downloads = appVM.downloadManager, let detail = vm.detail {
+            DownloadBadgesReader(downloads: downloads, title: detail.title, sourceKey: vm.currentSourceKey,
+                                 videoId: vm.currentVideoID) { snapshot in
+                EpisodeGrid(episodes: vm.episodes, currentIndex: vm.currentEpisodeIndex, badges: snapshot.badges) { index in
+                    vm.switchEpisode(index)
+                }
+            }
+        } else {
+            EpisodeGrid(episodes: vm.episodes, currentIndex: vm.currentEpisodeIndex) { index in
+                vm.switchEpisode(index)
+            }
         }
-        _ = downloads.changeCount
-        return EpisodePickerModel.badges(episodes: downloads.episodes(in: scope, showKey: normalizeSyncKey(detail.title)),
-                                         sourceKey: vm.currentSourceKey, videoId: vm.currentVideoID,
-                                         state: downloads.displayState(of:))
     }
 
     @ViewBuilder
     private func downloadButton(_ vm: PlayerViewModel) -> some View {
-        if let downloads = appVM.downloadManager, downloads.canDownload, vm.detail != nil {
-            Button {
-                if vm.episodes.count > 1 { showPicker = true } else { download(vm, indexes: [vm.currentEpisodeIndex]) }
-            } label: {
-                // `labelStyle` takes a concrete style type, so the two styles cannot share a ternary.
-                //
-                // `labelStyle` 需要具体的样式类型, 两种样式无法写进同一个三元表达式.
-                Group {
-                    if vm.episodes.count > 1 {
-                        Label("Download", systemImage: "arrow.down.circle").labelStyle(.titleAndIcon)
-                    } else {
-                        Label("Download", systemImage: "arrow.down.circle").labelStyle(.iconOnly)
-                    }
+        if let downloads = appVM.downloadManager, vm.detail != nil {
+            PlayerDownloadButton(downloads: downloads, multiple: vm.episodes.count > 1) {
+                if vm.episodes.count > 1 {
+                    downloads.refreshStorage()
+                    showPicker = true
+                } else {
+                    download(vm, indexes: [vm.currentEpisodeIndex])
                 }
-                .font(.subheadline)
-                .foregroundStyle(Theme.accent)
-                .frame(minWidth: 44, minHeight: 44)
             }
-            .accessibilityIdentifier("downloadButton")
         }
     }
     // MARK: - Player Section
@@ -530,6 +529,37 @@ struct PlayerView: View {
         Text(title)
             .font(.subheadline.bold())
             .foregroundStyle(Theme.textSecondary)
+    }
+}
+
+/// The player page's download button. Its own view, so the manager state it reads re-renders only
+/// this button.
+///
+/// 播放页的下载按钮. 作为独立视图, 它读取的管理器状态只会重新渲染这个按钮.
+private struct PlayerDownloadButton: View {
+    let downloads: DownloadManager
+    let multiple: Bool
+    let action: () -> Void
+
+    var body: some View {
+        if downloads.canDownload {
+            Button(action: action) {
+                // `labelStyle` takes a concrete style type, so the two styles cannot share a ternary.
+                //
+                // `labelStyle` 需要具体的样式类型, 两种样式无法写进同一个三元表达式.
+                Group {
+                    if multiple {
+                        Label("Download", systemImage: "arrow.down.circle").labelStyle(.titleAndIcon)
+                    } else {
+                        Label("Download", systemImage: "arrow.down.circle").labelStyle(.iconOnly)
+                    }
+                }
+                .font(.subheadline)
+                .foregroundStyle(Theme.accent)
+                .frame(minWidth: 44, minHeight: 44)
+            }
+            .accessibilityIdentifier("downloadButton")
+        }
     }
 }
 

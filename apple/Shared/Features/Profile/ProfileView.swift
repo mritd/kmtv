@@ -321,8 +321,12 @@ private struct DownloadsSettingsSection: View {
     @State private var confirmDeleteOthers = false
 
     var body: some View {
-        let _ = downloads.changeCount
-        let others = downloads.otherScopesBytes(excluding: scope)
+        // Cached by the manager: the scope is the active one, or nil for the anonymous user, whose
+        // "other accounts" are every scope.
+        //
+        // 由管理器缓存: 作用域即当前作用域; 匿名用户为 nil, 其 "其他账号" 即所有作用域.
+        let storage = downloads.storage
+        let others = scope == nil ? storage.activeBytes + storage.otherBytes : storage.otherBytes
         if scope != nil || others > 0 {
             content(others: others)
         }
@@ -334,7 +338,7 @@ private struct DownloadsSettingsSection: View {
                 Toggle("Allow downloads over cellular", isOn: Binding(
                     get: { downloads.allowsCellular },
                     set: { value in Task { await downloads.setAllowsCellular(value) } }))
-                LabeledContent("Storage used", value: DownloadFormatting.bytes(downloads.usedBytes(in: scope)))
+                LabeledContent("Storage used", value: DownloadFormatting.bytes(downloads.storage.activeBytes))
                 Button("Delete all downloads", role: .destructive) { confirmDeleteAll = true }
             }
             if others > 0 {

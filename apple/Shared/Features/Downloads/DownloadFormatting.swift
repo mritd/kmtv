@@ -1,5 +1,6 @@
 #if os(iOS)
 import Foundation
+import ImageIO
 import SwiftUI
 import UIKit
 
@@ -58,17 +59,24 @@ enum DownloadFormatting {
 }
 
 /// Poster of a downloaded show from its local cover file, or a tinted placeholder with the
-/// title's first character, so it renders offline.
+/// title's first character, so it renders offline. The file is decoded once, off the main thread
+/// and downsampled to the display size, then served from `DownloadPosterCache`.
 ///
-/// 已下载剧集的海报, 来自本地封面文件; 没有封面时显示带标题首字的着色占位图, 因此离线也能显示.
+/// 已下载剧集的海报, 来自本地封面文件; 没有封面时显示带标题首字的着色占位图, 因此离线也能显示. 文件
+/// 只在主线程之外解码一次, 并按显示尺寸缩小, 之后由 `DownloadPosterCache` 提供.
 struct DownloadPoster: View {
     let show: DownloadShow
     let width: CGFloat
     @Environment(DownloadManager.self) private var downloads
+    @Environment(\.displayScale) private var displayScale
+    @State private var loaded: UIImage?
 
     var body: some View {
+        let key = downloads.coverFileURL(for: show).map {
+            DownloadPosterCache.Key(url: $0, maxPixels: Int((width * 1.42 * displayScale).rounded(.up)))
+        }
         Group {
-            if let url = downloads.coverFileURL(for: show), let image = UIImage(contentsOfFile: url.path) {
+            if let image = key.flatMap(DownloadPosterCache.image(for:)) ?? loaded {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
                 ZStack {
@@ -82,6 +90,62 @@ struct DownloadPoster: View {
         .frame(width: width, height: width * 1.42)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .accessibilityHidden(true)
+        .task(id: key) {
+            guard let key else { return }
+            loaded = await DownloadPosterCache.load(key)
+        }
+    }
+}
+
+/// Decoded, downsampled posters by file and pixel size. A miss is not cached, so a cover that
+/// arrives later loads on the next appearance.
+///
+/// 按文件与像素尺寸缓存已解码并缩小的海报. 未命中不会被缓存, 因此稍后到达的封面会在下次出现时加载.
+@MainActor
+enum DownloadPosterCache {
+    /// Cache key: the cover file and the longest side in pixels.
+    ///
+    /// 缓存键: 封面文件与最长边像素数.
+    struct Key: Hashable, Sendable {
+        let url: URL
+        let maxPixels: Int
+    }
+
+    private static let cache = NSCache<NSString, UIImage>()
+
+    /// The cached image for a key, if decoded already.
+    ///
+    /// 某个键对应的已缓存图片 (如已解码).
+    static func image(for key: Key) -> UIImage? {
+        cache.object(forKey: name(key))
+    }
+
+    /// Returns the cached image or decodes the file off the main thread and caches it.
+    ///
+    /// 返回已缓存的图片, 或在主线程之外解码文件并缓存.
+    static func load(_ key: Key) async -> UIImage? {
+        if let hit = image(for: key) { return hit }
+        let decoded = await Task.detached(priority: .userInitiated) { decode(key) }.value
+        if let decoded { cache.setObject(decoded, forKey: name(key)) }
+        return decoded
+    }
+
+    private static func name(_ key: Key) -> NSString {
+        "\(key.url.path)#\(key.maxPixels)" as NSString
+    }
+
+    private nonisolated static func decode(_ key: Key) -> UIImage? {
+        guard let source = CGImageSourceCreateWithURL(key.url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else {
+            return nil
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, key.maxPixels),
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return UIImage(cgImage: image)
     }
 }
 #endif

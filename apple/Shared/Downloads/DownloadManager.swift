@@ -30,6 +30,32 @@ struct DownloadEpisodeRequest: Sendable, Equatable {
     let episodeURL: String
 }
 
+/// Bytes used by the active scope and by every other scope, and the device's free space, cached so
+/// views never fetch rows or query the volume while rendering.
+///
+/// 当前作用域与其他所有作用域占用的字节数, 以及设备剩余空间; 缓存起来, 视图渲染时无需读取数据行或查询
+/// 磁盘卷.
+struct DownloadStorageUsage: Equatable {
+    var activeBytes: Int64 = 0
+    var otherBytes: Int64 = 0
+    var freeBytes: Int64 = 0
+}
+
+/// Every observed input of `DownloadManager.displayState(of:)` besides the row itself, plus the
+/// structural and progress counters; views that compute download state outside their body refresh
+/// when it changes.
+///
+/// 除数据行本身外, `DownloadManager.displayState(of:)` 的全部被观察输入, 加上结构与进度计数; 在 body
+/// 之外计算下载状态的视图会在它变化时刷新.
+struct DownloadDisplayRevision: Equatable {
+    var structure: Int
+    var progress: Int
+    var satisfied: Bool
+    var expensive: Bool
+    var constrained: Bool
+    var allowsCellular: Bool
+}
+
 /// Why episodes could not be queued.
 ///
 /// 无法加入队列的原因.
@@ -76,6 +102,11 @@ final class DownloadManager {
     ///
     /// 后台唤醒在持久化并结束之前可用的时间; iOS 为后台 session 事件提供约 30 秒.
     static let backgroundWakeBudget: Duration = .seconds(20)
+    /// Shortest gap between two progress notifications; finished entries in between coalesce into
+    /// one.
+    ///
+    /// 两次进度通知之间的最短间隔; 期间完成的条目会合并为一次通知.
+    static let progressInterval: Duration = .milliseconds(500)
 
     /// On-disk layout of the downloads root.
     ///
@@ -85,10 +116,27 @@ final class DownloadManager {
     ///
     /// UI 展示且引擎正在处理其下载的作用域.
     private(set) var activeScopeKey: String?
-    /// Bumped on every change, so views re-read rows.
+    /// Bumped on structural changes (rows added or removed, state transitions, scope, cover), so
+    /// views re-read rows. A finished entry does not bump it; see `progressTick`.
     ///
-    /// 每次变化都会递增, 视图据此重新读取数据行.
+    /// 在结构变化 (增删数据行, 状态切换, 作用域, 封面) 时递增, 视图据此重新读取数据行. 完成单个条目不会
+    /// 使其递增; 参见 `progressTick`.
     private(set) var changeCount = 0
+    /// Bumped at most once per `progressInterval` while entries finish, for views that show
+    /// aggregate progress without observing every row.
+    ///
+    /// 条目完成期间, 每个 `progressInterval` 至多递增一次, 供展示汇总进度但不逐行观察的视图使用.
+    private(set) var progressTick = 0
+    /// Episodes downloading or queued in the active scope (the tab badge); recomputed on
+    /// structural changes only.
+    ///
+    /// 当前作用域中正在下载或排队的集数 (tab 角标); 只在结构变化时重新计算.
+    private(set) var activeEpisodeCount = 0
+    /// Cached storage use and free space; refreshed on structural changes, progress ticks, and
+    /// `refreshStorage()`.
+    ///
+    /// 缓存的存储占用与剩余空间; 在结构变化, 进度通知以及 `refreshStorage()` 时刷新.
+    private(set) var storage = DownloadStorageUsage()
     /// Episodes currently being prepared, by `episodeKey`.
     ///
     /// 正在准备的剧集, 以 `episodeKey` 标识.
@@ -132,6 +180,12 @@ final class DownloadManager {
     @ObservationIgnored private var wakeDeadline: ContinuousClock.Instant?
     @ObservationIgnored private let wakeBudget: Duration
     @ObservationIgnored private var server: LocalMediaServer?
+    @ObservationIgnored private let progressInterval: Duration
+    /// The pending progress notification; nil when none is scheduled, so nothing runs while no
+    /// entry finishes. Exposed for tests.
+    ///
+    /// 待发出的进度通知; 未安排时为 nil, 因此没有条目完成时不会运行任何任务. 供测试使用.
+    @ObservationIgnored private(set) var progressTask: Task<Void, Never>?
     @ObservationIgnored private let logger = Logger(subsystem: "com.mritd.kmtv", category: "downloads")
 
     /// Creates the manager and subscribes to transport events before any task can be enqueued.
@@ -142,7 +196,8 @@ final class DownloadManager {
          now: @escaping () -> Date = Date.init, outstandingLimit: Int = 3000,
          network: DownloadNetworkMonitor? = nil,
          coverFetcher: @escaping @Sendable (URL) async -> Data? = DownloadManager.fetchCoverData,
-         backgroundWakeBudget: Duration = DownloadManager.backgroundWakeBudget) {
+         backgroundWakeBudget: Duration = DownloadManager.backgroundWakeBudget,
+         progressInterval: Duration = DownloadManager.progressInterval) {
         self.context = context
         self.layout = layout
         self.transport = transport
@@ -154,6 +209,7 @@ final class DownloadManager {
         self.network = network
         self.coverFetcher = coverFetcher
         self.wakeBudget = backgroundWakeBudget
+        self.progressInterval = progressInterval
         transport.onEvent = { [weak self] event in await self?.process(event) }
         network?.onRestore = { [weak self] in self?.schedulePump() }
     }
@@ -244,15 +300,6 @@ final class DownloadManager {
         return layout.showDir(scopeHash: show.scopeHash, showDir: show.showDir).appending(path: show.coverFile)
     }
 
-    /// Episodes downloading or queued in the active scope (the tab badge).
-    ///
-    /// 当前作用域中正在下载或排队的集数 (tab 角标).
-    var activeEpisodeCount: Int {
-        _ = changeCount
-        guard let scope = activeScopeKey else { return 0 }
-        return episodes(in: scope).filter { $0.state == .queued || $0.state == .downloading }.count
-    }
-
     /// Bytes stored for a scope.
     ///
     /// 某个作用域占用的字节数.
@@ -305,6 +352,17 @@ final class DownloadManager {
             if state == .queued { return .queued }
             return .downloading(total > 0 ? Double(done) / Double(total) : 0)
         }
+    }
+
+    /// The current `DownloadDisplayRevision`; reading it observes structure, throttled progress,
+    /// the network path, and the cellular setting, but no row.
+    ///
+    /// 当前的 `DownloadDisplayRevision`; 读取它会观察结构, 节流后的进度, 网络路径与蜂窝数据设置,
+    /// 但不观察任何数据行.
+    var displayRevision: DownloadDisplayRevision {
+        DownloadDisplayRevision(structure: changeCount, progress: progressTick, satisfied: network?.isSatisfied ?? true,
+                                expensive: network?.isExpensive ?? false, constrained: network?.isConstrained ?? false,
+                                allowsCellular: allowsCellular)
     }
 
     // MARK: - Scope
@@ -614,8 +672,10 @@ final class DownloadManager {
     func recordWatch(_ ep: DownloadEpisode, positionSec: Double, finished: Bool) {
         ep.positionSec = positionSec
         ep.finished = finished
+        // Not structural: rows that show the watch position observe the episode itself.
+        //
+        // 不属于结构变化: 展示观看位置的数据行直接观察该剧集.
         saveContext()
-        bump()
     }
 
     /// Changes the cellular setting and re-enqueues in-flight tasks with the new policy.
@@ -973,8 +1033,8 @@ final class DownloadManager {
         manifests[ep.episodeKey] = manifest
         ep.doneEntries = manifest.doneCount
         ep.bytes = manifest.totalBytes
-        ep.refreshCount = 0
-        bump()
+        if ep.refreshCount != 0 { ep.refreshCount = 0 }
+        scheduleProgress()
         if manifest.isComplete {
             await complete(ep, manifest)
             schedulePump()
@@ -1140,8 +1200,58 @@ final class DownloadManager {
         }
     }
 
+    /// Marks a structural change and refreshes the values derived from rows.
+    ///
+    /// 标记一次结构变化, 并刷新由数据行推导出的值.
     private func bump() {
         changeCount &+= 1
+        refreshDerived()
+    }
+
+    /// Schedules one progress notification at the end of the current interval; entries finishing
+    /// before it fires share it.
+    ///
+    /// 在当前间隔结束时安排一次进度通知; 在它发出之前完成的条目共用这一次通知.
+    private func scheduleProgress() {
+        guard progressTask == nil else { return }
+        let interval = progressInterval
+        progressTask = Task { [weak self] in
+            try? await Task.sleep(for: interval)
+            guard let self else { return }
+            self.progressTask = nil
+            self.progressTick &+= 1
+            self.refreshDerived()
+        }
+    }
+
+    /// Re-reads free space and storage use, for example when a screen showing them appears.
+    ///
+    /// 重新读取剩余空间与存储占用, 例如在展示它们的页面出现时.
+    func refreshStorage() {
+        refreshDerived()
+    }
+
+    /// Recomputes cached storage use, free space, and the active count from one fetch; assigns only
+    /// changed values, so unchanged ones notify no view. The active count only changes with state,
+    /// so a progress tick never moves the tab badge.
+    ///
+    /// 通过一次读取重新计算缓存的存储占用, 剩余空间与进行中集数; 只赋值发生变化的值, 未变化的值不会
+    /// 通知任何视图. 进行中集数只随状态变化, 因此进度通知不会改变 tab 角标.
+    private func refreshDerived() {
+        let all = (try? context.fetch(FetchDescriptor<DownloadEpisode>())) ?? []
+        let scope = activeScopeKey
+        var usage = DownloadStorageUsage(freeBytes: freeSpace())
+        var active = 0
+        for ep in all {
+            if ep.scopeKey == scope {
+                usage.activeBytes += ep.bytes
+                if ep.state == .queued || ep.state == .downloading { active += 1 }
+            } else {
+                usage.otherBytes += ep.bytes
+            }
+        }
+        if usage != storage { storage = usage }
+        if active != activeEpisodeCount { activeEpisodeCount = active }
     }
 }
 

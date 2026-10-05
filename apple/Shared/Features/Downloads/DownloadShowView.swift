@@ -2,9 +2,12 @@
 import SwiftUI
 
 /// One show's downloaded episodes grouped by source, with continue, download more, per-episode
-/// actions, and the offline player.
+/// actions, and the offline player. The body depends only on structural changes; the header and
+/// each row are their own views, so a finished entry or a saved watch position re-renders only
+/// the row that shows it.
 ///
-/// 某部剧按来源分组的已下载剧集, 提供继续观看, 下载更多, 单集操作以及离线播放器.
+/// 某部剧按来源分组的已下载剧集, 提供继续观看, 下载更多, 单集操作以及离线播放器. 页面主体只依赖结构
+/// 变化; 头部与每一行都是独立视图, 因此完成一个条目或保存观看位置只会重新渲染展示它的那一行.
 struct DownloadShowView: View {
     let showKey: String
     let mode: DownloadsMode
@@ -13,13 +16,13 @@ struct DownloadShowView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var playing: PlayingEpisode?
 
-    /// The episode the fullscreen offline player shows.
+    /// The fullscreen offline player's view model, built once when playback is requested so
+    /// re-renders of this screen never rebuild it.
     ///
-    /// 全屏离线播放器正在显示的剧集.
+    /// 全屏离线播放器的视图模型, 在请求播放时构建一次, 因此本页面重新渲染时不会重建它.
     private struct PlayingEpisode: Identifiable {
-        let id: String
-        let episode: DownloadEpisode
-        let show: DownloadShow
+        let id = UUID()
+        let viewModel: OfflinePlayerViewModel
     }
 
     var body: some View {
@@ -27,11 +30,13 @@ struct DownloadShowView: View {
         if let scope = downloads.activeScopeKey, let show = downloads.show(scopeKey: scope, showKey: showKey) {
             let episodes = downloads.episodes(in: scope, showKey: showKey)
             List {
-                Section { header(show, episodes: episodes) }
+                Section {
+                    DownloadShowHeader(show: show, episodes: episodes, mode: mode) { play($0, show: show) }
+                }
                 ForEach(Dictionary(grouping: episodes, by: \.sourceKey).sorted { $0.key < $1.key }, id: \.key) { _, group in
                     Section(group.first?.sourceName ?? "") {
                         ForEach(group, id: \.episodeKey) { ep in
-                            row(ep, show: show)
+                            DownloadEpisodeRow(episode: ep, mode: mode) { play(ep, show: show) }
                                 .swipeActions {
                                     Button("Delete", role: .destructive) { Task { await downloads.delete(ep) } }
                                 }
@@ -42,19 +47,33 @@ struct DownloadShowView: View {
             .navigationTitle(show.title)
             .navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(item: $playing) { item in
-                OfflinePlayerView(viewModel: OfflinePlayerViewModel(
-                    manager: downloads, show: item.show, episode: item.episode, modelContext: modelContext,
-                    serverURL: appVM.serverURL, syncStore: appVM.sync?.store))
+                OfflinePlayerView(viewModel: item.viewModel)
             }
         } else {
             ContentUnavailableView("No downloads yet", systemImage: "arrow.down.circle")
         }
     }
 
-    private func header(_ show: DownloadShow, episodes: [DownloadEpisode]) -> some View {
+    private func play(_ ep: DownloadEpisode, show: DownloadShow) {
+        playing = PlayingEpisode(viewModel: OfflinePlayerViewModel(
+            manager: downloads, show: show, episode: ep, modelContext: modelContext,
+            serverURL: appVM.serverURL, syncStore: appVM.sync?.store))
+    }
+}
+
+/// Header of a show's downloads: poster, counts, size, continue, and download more.
+///
+/// 某部剧下载内容的头部: 海报, 数量, 大小, 继续观看与下载更多.
+private struct DownloadShowHeader: View {
+    let show: DownloadShow
+    let episodes: [DownloadEpisode]
+    let mode: DownloadsMode
+    let play: (DownloadEpisode) -> Void
+
+    var body: some View {
         let completed = episodes.filter { $0.state == .completed }
         let resume = completed.first { !$0.finished } ?? completed.first
-        return HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .top, spacing: 14) {
             DownloadPoster(show: show, width: 84)
             VStack(alignment: .leading, spacing: 8) {
                 Text(show.title).font(.title3.bold())
@@ -64,7 +83,7 @@ struct DownloadShowView: View {
                 HStack {
                     if let resume {
                         Button {
-                            playing = PlayingEpisode(id: resume.episodeKey, episode: resume, show: show)
+                            play(resume)
                         } label: {
                             Label("Continue \(resume.episodeName)", systemImage: "play.fill")
                         }
@@ -88,12 +107,23 @@ struct DownloadShowView: View {
         }
         .padding(.vertical, 4)
     }
+}
 
-    private func row(_ ep: DownloadEpisode, show: DownloadShow) -> some View {
+/// One downloaded episode: state, size or progress, watch position, and its tap action.
+///
+/// 一集已下载的剧集: 状态, 大小或进度, 观看位置及点按操作.
+private struct DownloadEpisodeRow: View {
+    let episode: DownloadEpisode
+    let mode: DownloadsMode
+    let play: () -> Void
+    @Environment(DownloadManager.self) private var downloads
+
+    var body: some View {
+        let ep = episode
         let state = downloads.displayState(of: ep)
-        return Button {
+        Button {
             switch state {
-            case .completed: playing = PlayingEpisode(id: ep.episodeKey, episode: ep, show: show)
+            case .completed: play()
             case .paused: downloads.resume(ep)
             case .failed: downloads.retry(ep)
             default: Task { await downloads.pause(ep) }
