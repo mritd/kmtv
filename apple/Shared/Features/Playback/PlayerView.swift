@@ -13,6 +13,7 @@ struct PlayerView: View {
     @State private var showControls = false
     @State private var hideControlsTask: Task<Void, Never>?
     @State private var isFullScreen = false
+    @State private var showPicker = false
 
     var body: some View {
         Group {
@@ -86,6 +87,20 @@ struct PlayerView: View {
             }
         }
         #endif
+        .sheet(isPresented: $showPicker) {
+            if let vm = viewModel, let downloads = appVM.downloadManager, let scope = downloads.activeScopeKey,
+               let detail = vm.detail {
+                let all = downloads.episodes(in: scope, showKey: normalizeSyncKey(detail.title))
+                EpisodePickerSheet(
+                    title: detail.title, sourceName: vm.currentSourceName, episodes: vm.episodes,
+                    badges: EpisodePickerModel.badges(episodes: all, sourceKey: vm.currentSourceKey,
+                                                      videoId: vm.currentVideoID, state: downloads.displayState(of:)),
+                    hints: EpisodePickerModel.otherSourceHints(episodes: vm.episodes, downloads: all,
+                                                               sourceKey: vm.currentSourceKey),
+                    freeSpace: DownloadManager.deviceFreeSpace(), allowsCellular: downloads.allowsCellular
+                ) { indexes in download(vm, indexes: indexes) }
+            }
+        }
     }
 
     // MARK: - Content
@@ -123,6 +138,7 @@ struct PlayerView: View {
                                 }
                             }
                             Spacer()
+                            if vm.episodes.count <= 1 { downloadButton(vm) }
                             Button { vm.toggleFavorite() } label: {
                                 Image(systemName: vm.isFavorited ? "star.fill" : "star")
                                     .foregroundStyle(vm.isFavorited ? .yellow : Theme.textSecondary)
@@ -193,8 +209,13 @@ struct PlayerView: View {
                         skipSettingsSection(vm)
 
                         if vm.episodes.count > 1 {
-                            sectionTitle("Episodes")
-                            EpisodeGrid(episodes: vm.episodes, currentIndex: vm.currentEpisodeIndex) { index in
+                            HStack {
+                                sectionTitle("Episodes")
+                                Spacer()
+                                downloadButton(vm)
+                            }
+                            EpisodeGrid(episodes: vm.episodes, currentIndex: vm.currentEpisodeIndex,
+                                        badges: downloadBadges(vm)) { index in
                                 vm.switchEpisode(index)
                             }
                         }
@@ -212,6 +233,69 @@ struct PlayerView: View {
         }
     }
 
+    // MARK: - Downloads
+
+    private func coverURL(_ cover: String) -> URL? {
+        guard !cover.isEmpty else { return nil }
+        if cover.hasPrefix("/"), let client = appVM.apiClient { return URL(string: client.baseURL + cover) }
+        return URL(string: cover)
+    }
+
+    private func download(_ vm: PlayerViewModel, indexes: [Int]) {
+        guard let downloads = appVM.downloadManager, let detail = vm.detail else { return }
+        let requests = indexes.compactMap { index -> DownloadEpisodeRequest? in
+            guard vm.episodes.indices.contains(index) else { return nil }
+            return DownloadEpisodeRequest(sourceKey: vm.currentSourceKey, sourceName: vm.currentSourceName,
+                                          videoId: vm.currentVideoID, episodeIndex: index,
+                                          episodeName: vm.episodes[index].name, lineIndex: vm.currentLineIndex,
+                                          episodeCount: vm.episodes.count, episodeURL: vm.episodes[index].url)
+        }
+        do {
+            let added = try downloads.enqueue(show: DownloadShowInfo(title: detail.title, cover: detail.cover,
+                                                                     type: detail.type, year: detail.year,
+                                                                     coverURL: coverURL(detail.cover)),
+                                              episodes: requests)
+            ToastManager.shared.show(String(localized: "Added \(added) episodes to downloads"))
+        } catch DownloadEnqueueError.notEnoughSpace {
+            ToastManager.shared.show(String(localized: "Not enough storage"))
+        } catch {
+            ToastManager.shared.show(String(localized: "Sign in to download"))
+        }
+    }
+
+    private func downloadBadges(_ vm: PlayerViewModel) -> [Int: EpisodeDownloadBadge] {
+        guard let downloads = appVM.downloadManager, let scope = downloads.activeScopeKey, let detail = vm.detail else {
+            return [:]
+        }
+        _ = downloads.changeCount
+        return EpisodePickerModel.badges(episodes: downloads.episodes(in: scope, showKey: normalizeSyncKey(detail.title)),
+                                         sourceKey: vm.currentSourceKey, videoId: vm.currentVideoID,
+                                         state: downloads.displayState(of:))
+    }
+
+    @ViewBuilder
+    private func downloadButton(_ vm: PlayerViewModel) -> some View {
+        if let downloads = appVM.downloadManager, downloads.canDownload, vm.detail != nil {
+            Button {
+                if vm.episodes.count > 1 { showPicker = true } else { download(vm, indexes: [vm.currentEpisodeIndex]) }
+            } label: {
+                // `labelStyle` takes a concrete style type, so the two styles cannot share a ternary.
+                //
+                // `labelStyle` 需要具体的样式类型, 两种样式无法写进同一个三元表达式.
+                Group {
+                    if vm.episodes.count > 1 {
+                        Label("Download", systemImage: "arrow.down.circle").labelStyle(.titleAndIcon)
+                    } else {
+                        Label("Download", systemImage: "arrow.down.circle").labelStyle(.iconOnly)
+                    }
+                }
+                .font(.subheadline)
+                .foregroundStyle(Theme.accent)
+                .frame(minWidth: 44, minHeight: 44)
+            }
+            .accessibilityIdentifier("downloadButton")
+        }
+    }
     // MARK: - Player Section
 
     @ViewBuilder

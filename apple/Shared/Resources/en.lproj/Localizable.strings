@@ -264,3 +264,16 @@
 "Downloads stay on this device and are not synced to other devices." = "Downloads stay on this device and are not synced to other devices.";
 "Delete all downloads of this account?" = "Delete all downloads of this account?";
 "Delete downloads of other accounts?" = "Delete downloads of other accounts?";
+"Download" = "Download";
+"Download Episodes" = "Download Episodes";
+"Select None" = "Select None";
+"Select All Not Downloaded" = "Select All Not Downloaded";
+"Downloading" = "Downloading";
+"Selected" = "Selected";
+"From %@" = "From %@";
+"Downloads over cellular allowed" = "Downloads over cellular allowed";
+"WiFi only · change in Me" = "WiFi only · change in Me";
+"Select episodes to download" = "Select episodes to download";
+"Download %lld episodes" = "Download %lld episodes";
+"Added %lld episodes to downloads" = "Added %lld episodes to downloads";
+"Sign in to download" = "Sign in to download";

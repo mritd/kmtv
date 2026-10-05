@@ -264,3 +264,16 @@
 "Downloads stay on this device and are not synced to other devices." = "下载内容只保存在本机, 不会同步到其他设备.";
 "Delete all downloads of this account?" = "删除本账号的全部下载?";
 "Delete downloads of other accounts?" = "删除其他账号的下载?";
+"Download" = "下载";
+"Download Episodes" = "下载剧集";
+"Select None" = "全不选";
+"Select All Not Downloaded" = "全选未下载";
+"Downloading" = "下载中";
+"Selected" = "已选";
+"From %@" = "已从 %@ 下载";
+"Downloads over cellular allowed" = "已允许蜂窝数据下载";
+"WiFi only · change in Me" = "仅 WiFi 下载 · 可在\"我的\"中修改";
+"Select episodes to download" = "选择要下载的剧集";
+"Download %lld episodes" = "下载 %lld 集";
+"Added %lld episodes to downloads" = "已添加 %lld 集到下载";
+"Sign in to download" = "登录后才能下载";
