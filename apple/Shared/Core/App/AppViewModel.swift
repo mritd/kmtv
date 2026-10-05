@@ -6,7 +6,33 @@ enum AppState {
     case loading
     case serverSetup
     case authenticated
+    case offline(DownloadIdentity)
     case incompatibleServer(serverVersion: String, requiredVersion: String)
+}
+
+/// Classifies why `me()` failed at launch.
+///
+/// 判断启动时 `me()` 失败的原因.
+enum BootstrapFailure {
+    /// Whether the failure means the server could not be reached: a transport error, a gateway
+    /// error (5xx), or a response that is not the API's JSON (for example a captive portal page).
+    /// Cancellation and API errors such as 401 are not.
+    ///
+    /// 失败是否表示无法连接服务器: 传输错误, 网关错误 (5xx), 或不是 API JSON 的响应 (例如 captive
+    /// portal 页面). 取消以及 401 等 API 错误不算.
+    static func isUnreachable(_ error: Error) -> Bool {
+        if let urlError = error as? URLError { return urlError.code != .cancelled }
+        switch error as? APIError {
+        case .networkError(let inner):
+            return (inner as? URLError)?.code != .cancelled
+        case .serverError(let status, _, _):
+            return (500..<600).contains(status)
+        case .decodingError:
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 @Observable
@@ -111,10 +137,12 @@ final class AppViewModel {
             await startSyncIfCompatible()
             if case .authenticated = state { await activateDownloads(for: user) }
         } catch let error as URLError where error.code == .timedOut {
+            if enterOfflineIfPossible(serverURL: server.url, error: error) { return }
             prefillServerURL = server.url
             state = .serverSetup
             ToastManager.shared.show(String(localized: "Connection timed out"))
         } catch let error as APIError {
+            if enterOfflineIfPossible(serverURL: server.url, error: error) { return }
             prefillServerURL = server.url
             state = .serverSetup
             if case .unauthorized = error {
@@ -129,10 +157,35 @@ final class AppViewModel {
             //
             // 父任务被取消, 通常是视图已经消失, 这里不再更新 UI 状态.
         } catch {
+            if enterOfflineIfPossible(serverURL: server.url, error: error) { return }
             prefillServerURL = server.url
             state = .serverSetup
             ToastManager.shared.show(error.localizedDescription)
         }
+    }
+
+    /// Opens the last identity's downloads when the server is unreachable and that identity on this
+    /// server has completed downloads. Returns whether the app went offline.
+    ///
+    /// 服务器无法连接, 且该服务器上最后登录的身份有已完成的下载时, 打开这些下载. 返回 App 是否进入离线状态.
+    private func enterOfflineIfPossible(serverURL: String, error: Error) -> Bool {
+        guard BootstrapFailure.isUnreachable(error), let identity = identityStore.load(),
+              identity.matches(serverURL: serverURL), let downloads,
+              downloads.hasCompleted(in: identity.scopeKey) else { return false }
+        let user = User(id: Int(identity.userID), username: identity.username, role: "user")
+        sync?.stop()
+        sync = SyncSession(context: modelContext, serverURL: serverURL, user: user, api: nil)
+        downloads.openOffline(scopeKey: identity.scopeKey)
+        state = .offline(identity)
+        return true
+    }
+
+    /// Retries the connection from offline mode.
+    ///
+    /// 在离线模式下重新尝试连接.
+    func reconnect() async {
+        state = .loading
+        await bootstrap()
     }
 
     func connectServer(url: String, username: String, password: String) async throws {

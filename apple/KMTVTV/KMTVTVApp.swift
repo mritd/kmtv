@@ -54,6 +54,12 @@ struct TVRootView: View {
             case .authenticated:
                 TVContentView()
                     .environment(appVM)
+            case .offline:
+                // tvOS has no downloads, so it never goes offline; keep the switch exhaustive.
+                //
+                // tvOS 没有下载功能, 因此不会进入离线状态; 此分支只为保持 switch 穷尽.
+                ServerSetupView()
+                    .environment(appVM)
             case .incompatibleServer(let serverVersion, let requiredVersion):
                 VStack(spacing: 24) {
                     Image(systemName: "exclamationmark.triangle")

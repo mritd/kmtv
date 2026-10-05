@@ -73,6 +73,8 @@ struct RootView: View {
             case .authenticated:
                 ContentView()
                     .environment(appVM)
+            case .offline:
+                Text("Offline")
             case .incompatibleServer(let serverVersion, let requiredVersion):
                 VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle")

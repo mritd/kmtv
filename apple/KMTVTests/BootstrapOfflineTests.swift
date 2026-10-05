@@ -108,4 +108,83 @@ final class BootstrapOfflineTests: XCTestCase {
         for _ in 0..<50 where scope.deleted.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertEqual(scope.deleted, [syncScopeKey(serverURL: serverURL, userID: 5)])
     }
+
+    private func seedIdentity(server: String = "https://kmtv.example", completed: Bool = true) -> DownloadIdentity {
+        let identity = DownloadIdentity(serverURL: server, userID: 5, username: "alice")
+        LastIdentityStore(defaults: defaults).save(identity)
+        if completed { scope.completedScopes.insert(identity.scopeKey) }
+        return identity
+    }
+
+    private func failing(_ error: Error) -> (URLRequest) throws -> (HTTPURLResponse, Data) {
+        { _ in throw error }
+    }
+
+    private func status(_ code: Int, _ body: String) -> (URLRequest) throws -> (HTTPURLResponse, Data) {
+        { request in (HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: nil, headerFields: nil)!, Data(body.utf8)) }
+    }
+
+    func testUnreachableServerWithDownloadsEntersOffline() async throws {
+        let identity = seedIdentity()
+        let vm = try makeViewModel(me: failing(URLError(.cannotConnectToHost)))
+        await vm.bootstrap()
+        guard case .offline(let found) = vm.state else { return XCTFail("expected offline, got \(vm.state)") }
+        XCTAssertEqual(found, identity)
+        XCTAssertEqual(scope.offline, [identity.scopeKey])
+        XCTAssertEqual(vm.sync?.store.scopeKey, identity.scopeKey)
+        XCTAssertNil(vm.sync?.engine)
+    }
+
+    func testGatewayErrorsAndCaptivePortalsCountAsUnreachable() async throws {
+        _ = seedIdentity()
+        let gateway = try makeViewModel(me: status(502, "<html>bad gateway</html>"))
+        await gateway.bootstrap()
+        guard case .offline = gateway.state else { return XCTFail("502 should go offline") }
+        let portal = try makeViewModel(me: status(200, "<html>login to wifi</html>"))
+        await portal.bootstrap()
+        guard case .offline = portal.state else { return XCTFail("captive portal should go offline") }
+    }
+
+    func testOfflineNeedsCompletedDownloadsMatchingServerAndReachability() async throws {
+        _ = seedIdentity(completed: false)
+        let noDownloads = try makeViewModel(me: failing(URLError(.notConnectedToInternet)))
+        await noDownloads.bootstrap()
+        guard case .serverSetup = noDownloads.state else { return XCTFail("no downloads should go to setup") }
+
+        _ = seedIdentity(server: "https://other.example")
+        let otherServer = try makeViewModel(me: failing(URLError(.notConnectedToInternet)))
+        await otherServer.bootstrap()
+        guard case .serverSetup = otherServer.state else { return XCTFail("other server should go to setup") }
+
+        _ = seedIdentity()
+        let unauthorized = try makeViewModel(me: status(401, #"{"code":1002,"error":"not logged in"}"#))
+        await unauthorized.bootstrap()
+        guard case .serverSetup = unauthorized.state else { return XCTFail("401 should go to setup") }
+    }
+
+    func testReconnectLeavesOfflineWhenServerAnswers() async throws {
+        _ = seedIdentity()
+        var reachable = false
+        let vm = try makeViewModel { request in
+            guard reachable else { throw URLError(.cannotConnectToHost) }
+            return self.ok(request)
+        }
+        await vm.bootstrap()
+        guard case .offline = vm.state else { return XCTFail("expected offline") }
+        reachable = true
+        await vm.reconnect()
+        guard case .authenticated = vm.state else { return XCTFail("expected authenticated, got \(vm.state)") }
+        XCTAssertEqual(scope.activated.count, 1)
+    }
+
+    func testUnreachableClassification() {
+        XCTAssertTrue(BootstrapFailure.isUnreachable(URLError(.timedOut)))
+        XCTAssertTrue(BootstrapFailure.isUnreachable(APIError.networkError(URLError(.dnsLookupFailed))))
+        XCTAssertTrue(BootstrapFailure.isUnreachable(APIError.serverError(503, 1300, "")))
+        XCTAssertTrue(BootstrapFailure.isUnreachable(APIError.decodingError(URLError(.cannotDecodeContentData))))
+        XCTAssertFalse(BootstrapFailure.isUnreachable(APIError.serverError(401, 1002, "")))
+        XCTAssertFalse(BootstrapFailure.isUnreachable(APIError.serverError(404, 1300, "")))
+        XCTAssertFalse(BootstrapFailure.isUnreachable(URLError(.cancelled)))
+        XCTAssertFalse(BootstrapFailure.isUnreachable(CancellationError()))
+    }
 }
