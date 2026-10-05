@@ -187,4 +187,20 @@ final class BootstrapOfflineTests: XCTestCase {
         XCTAssertFalse(BootstrapFailure.isUnreachable(URLError(.cancelled)))
         XCTAssertFalse(BootstrapFailure.isUnreachable(CancellationError()))
     }
+
+    func testHangingServerTimesOutIntoOfflineWhenDownloadsExist() async throws {
+        _ = seedIdentity()
+        let vm = try makeViewModel(me: failing(URLProtocolStub.Hang()))
+        vm.bootstrapTimeout = .milliseconds(200)
+        await vm.bootstrap()
+        guard case .offline = vm.state else { return XCTFail("expected offline, got \(vm.state)") }
+    }
+
+    func testHangingServerWithoutDownloadsGoesToSetup() async throws {
+        _ = seedIdentity(completed: false)
+        let vm = try makeViewModel(me: failing(URLProtocolStub.Hang()))
+        vm.bootstrapTimeout = .milliseconds(200)
+        await vm.bootstrap()
+        guard case .serverSetup = vm.state else { return XCTFail("expected setup, got \(vm.state)") }
+    }
 }

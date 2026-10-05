@@ -68,6 +68,11 @@ final class AppViewModel {
     var downloadManager: DownloadManager? { downloads as? DownloadManager }
     #endif
 
+    /// How long `bootstrap()` waits for `me()` before treating the server as unreachable; tests lower it.
+    ///
+    /// `bootstrap()` 等待 `me()` 的时长, 超时后视为服务器不可达; 测试会调低该值.
+    var bootstrapTimeout: Duration = .seconds(5)
+
     /// `session` replaces the API client's URL session; tests pass a stubbed one.
     ///
     /// `session` 替换 API 客户端使用的 URL 会话; 测试会传入桩会话.
@@ -111,18 +116,26 @@ final class AppViewModel {
             let innerTask = Task {
                 try await client.me()
             }
+            // `APIClient` wraps cancellation as `APIError.networkError`, so record that the timeout
+            // fired instead of relying on the thrown error type.
+            //
+            // `APIClient` 会把取消包装成 `APIError.networkError`, 因此显式记录超时已触发, 而不依赖错误类型.
+            var timedOut = false
+            let timeout = bootstrapTimeout
             let timeoutTask = Task {
-                try await Task.sleep(for: .seconds(5))
+                try await Task.sleep(for: timeout)
+                timedOut = true
                 innerTask.cancel()
             }
             let user: User
             do {
                 user = try await innerTask.value
                 timeoutTask.cancel()
-            } catch is CancellationError {
+            } catch {
                 timeoutTask.cancel()
                 try Task.checkCancellation()
-                throw URLError(.timedOut)
+                if timedOut { throw URLError(.timedOut) }
+                throw error
             }
 
             currentUser = user
