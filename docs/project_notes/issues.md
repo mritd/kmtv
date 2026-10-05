@@ -5,7 +5,7 @@ Completed and in-progress work, newest first. There is no issue tracker; entries
 ### 2026-10-06 - feat/ios-offline-downloads: iOS offline downloads (ADR-017)
 - **Status**: Implemented on branch `feat/ios-offline-downloads`; ready for review.
 - **Description**: The iOS app downloads HLS episodes through a background `URLSession` and plays them through a loopback media server. It opens in offline mode when the server is unreachable at launch. The server proxies `EXT-X-MAP`, `EXT-X-MEDIA`, `EXT-X-I-FRAME-STREAM-INF`, and `EXT-X-SESSION-KEY` URIs too.
-- **Verification**: Full `KMTVTests` suite passed (313 tests at the last run), server tests passed, tvOS builds.
+- **Verification**: Full `KMTVTests` suite passed (317 tests at the last run), server tests passed, tvOS builds.
 - **Simulator smoke check (2026-10-06, proxy mode)**: empty state, picker download through `/api/v1/proxy` with `mt` tokens, files and AES IVs on disk, local-first "Downloaded" label, offline launch with TS, fMP4, and AES playback through loopback, reconnect, zh-Hans strings; all passed.
 - **Not verified on simulator**: direct mode, background and terminated downloads, token refresh, per-episode failure/retry/pause, auto-reconnect on network return.
 - **Open before release**:
@@ -20,7 +20,7 @@ Completed and in-progress work, newest first. There is no issue tracker; entries
 - **Follow-ups**:
   - Media tokens stay valid after logout until they expire; needs a separate security change.
   - tvOS and Android have no downloads.
-  - Spec deviations: no aggregate speed on the Downloads screen; the "downloads restarted after a source change" notice is logged only.
+  - Spec deviations: see the deviations bullet of ADR-017 in `docs/ADR.md` (no aggregate speed, source-change notice logged only, system offline player controls, session identifier, retry count, percentage-only rows).
   - App-wide visual redesign.
   - ID-reuse window: `activate` resumes the previous user's `.signedOut` episodes before the first pull's `onScopeDropped`; resume them only after the scope's first successful pull.
   - Sweep orphan download directories at launch.
