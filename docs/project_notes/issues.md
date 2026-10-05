@@ -26,7 +26,7 @@ Completed and in-progress work, newest first. There is no issue tracker; entries
   - Sweep orphan download directories at launch.
   - `LocalMediaServer.start()` is not reentrant.
   - The loopback server also serves `manifest.json`; restrict it to media file names.
-  - Throttle the `changeCount` bumps from download progress.
+- **Device feedback fixes (2026-10-06)**: download progress no longer re-renders whole screens per segment, offline scrubbing no longer saves per jump, and the offline player has one close button. Frame rate not re-measured on a device yet.
 - **Notes**: Bugs found along the way are in `bugs.md` under 2026-10-06; ADR-017 in `docs/ADR.md`.
 
 ### 2026-10-03 - fix/apple-meta-separator: Drop empty parts from Apple metadata lines

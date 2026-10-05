@@ -3,6 +3,12 @@
 Bugs worth remembering, newest first: what broke, why, how it was fixed, and how to avoid it again.
 Keep entries short; remove entries that no longer teach anything.
 
+### 2026-10-06 - Download progress and offline scrubbing dropped frames; two close buttons
+- **Issue**: On devices, the Downloads screen and the online player page dropped frames while downloads ran; dragging the offline player's scrubber dropped frames; the offline player showed two close buttons.
+- **Root Cause**: `DownloadManager.bump()` ran once per finished segment, re-rendering the root `TabView`, the whole `PlayerView`, and the Downloads screens (per-row fetches, JPEG decodes, `statfs`). The offline player saved progress on position jumps, and each save rebuilt its view model through `fullScreenCover`. It also drew its own close button over the system one.
+- **Solution**: `changeCount` is structural only; progress coalesces into `progressTick` (500 ms), `activeEpisodeCount` and `storage` are cached; rows are their own views; badges come from `DownloadBadgesReader`; posters are cached and decoded off the main thread; offline saves are wall-clock throttled; the view model is built once on tap; the system close button and item metadata replace the overlay.
+- **Prevention**: Never bump an observed counter per transfer event; keep fetches and decodes out of bodies; build presented view models outside `fullScreenCover` content.
+
 ### 2026-10-06 - Bootstrap timeout showed a cancel toast instead of "Connection timed out"
 - **Issue**: With a hanging server, the app went to server setup with a cancel toast instead of "Connection timed out".
 - **Root Cause**: The 5 s bootstrap timeout cancels the `me()` task, but `APIRequestExecutor` wraps `URLError.cancelled` as `APIError.networkError`, so `catch is CancellationError` never fired. Predates the downloads work.
