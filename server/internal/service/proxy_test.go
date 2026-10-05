@@ -934,3 +934,40 @@ func TestProxySegmentAbortsSilentUpstream(t *testing.T) {
 		t.Fatal("ProxySegment never returned; the idle timeout did not fire")
 	}
 }
+
+func TestRewriteM3U8URIAttributes(t *testing.T) {
+	content := `#EXTM3U
+#EXT-X-VERSION:7
+#EXT-X-MEDIA-SEQUENCE:5
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="English",URI="audio/en.m3u8"
+#EXT-X-MEDIA:TYPE=CLOSED-CAPTIONS,GROUP-ID="cc",NAME="CC1",INSTREAM-ID="CC1"
+#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=86000,URI="iframe.m3u8"
+#EXT-X-SESSION-KEY:METHOD=AES-128,URI="session.key"
+#EXT-X-MAP:URI="init.mp4"
+#EXT-X-KEY:METHOD=NONE
+#EXTINF:4.0,
+seg-0.m4s
+`
+	signer := func(kind, rawURL, sourceKey string) (string, error) {
+		return "token-" + kind, nil
+	}
+	got, err := RewriteM3U8(content, "https://stream.example.com/vod/", "https://proxy.example", "src", signer)
+	if err != nil {
+		t.Fatalf("RewriteM3U8 error: %v", err)
+	}
+	wants := []string{
+		`#EXT-X-MAP:URI="https://proxy.example/api/v1/proxy/segment?url=https%3A%2F%2Fstream.example.com%2Fvod%2Finit.mp4&source=src&mt=token-segment"`,
+		`URI="https://proxy.example/api/v1/proxy/m3u8?url=https%3A%2F%2Fstream.example.com%2Fvod%2Faudio%2Fen.m3u8&source=src&mt=token-m3u8"`,
+		`URI="https://proxy.example/api/v1/proxy/m3u8?url=https%3A%2F%2Fstream.example.com%2Fvod%2Fiframe.m3u8&source=src&mt=token-m3u8"`,
+		`URI="https://proxy.example/api/v1/proxy/key?url=https%3A%2F%2Fstream.example.com%2Fvod%2Fsession.key&source=src&mt=token-key"`,
+		"#EXT-X-MEDIA-SEQUENCE:5",
+		`#EXT-X-MEDIA:TYPE=CLOSED-CAPTIONS,GROUP-ID="cc",NAME="CC1",INSTREAM-ID="CC1"`,
+		"#EXT-X-KEY:METHOD=NONE",
+		"/api/v1/proxy/segment?url=https%3A%2F%2Fstream.example.com%2Fvod%2Fseg-0.m4s",
+	}
+	for _, want := range wants {
+		if !strings.Contains(got, want) {
+			t.Errorf("rewritten playlist missing %q:\n%s", want, got)
+		}
+	}
+}

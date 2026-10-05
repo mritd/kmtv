@@ -687,6 +687,8 @@ payload 长度限制 (按 Unicode 码点计): `title`, `episode` 和 `query` 512
 
 公开媒体接口. 获取上游 M3U8, 并把 segment/key URL 改写回 KMTV 代理接口. 需要携带为精确 M3U8 URL 签发的 media token.
 
+改写的 URI: 分片行和 `EXT-X-MAP` 的 URI 指向 `/proxy/segment`; `EXT-X-KEY` 与 `EXT-X-SESSION-KEY` 的 URI 指向 `/proxy/key`; `EXT-X-STREAM-INF` 之后的变体行, 以及 `EXT-X-MEDIA` 与 `EXT-X-I-FRAME-STREAM-INF` 的 URI 指向 `/proxy/m3u8`. 每个改写后的 URL 都带有自己的媒体 token. 其他标签原样透传.
+
 查询参数:
 
 | Name     | Required | 说明                           |

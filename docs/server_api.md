@@ -697,6 +697,8 @@ Common errors: `400 MissingParam`, `400 InvalidURL`, `403 Blocked`, `404 NotFoun
 
 Public media endpoint. Fetches an upstream M3U8 and rewrites segment/key URLs back through KMTV proxy endpoints. Requires a valid media token issued for the exact M3U8 URL.
 
+Rewritten URIs: segment lines and `EXT-X-MAP` URIs go to `/proxy/segment`; `EXT-X-KEY` and `EXT-X-SESSION-KEY` URIs go to `/proxy/key`; variant lines after `EXT-X-STREAM-INF`, and `EXT-X-MEDIA` and `EXT-X-I-FRAME-STREAM-INF` URIs, go to `/proxy/m3u8`. Every rewritten URL carries its own media token. Other tags pass through unchanged.
+
 Query parameters:
 
 | Name     | Required | Description                        |
