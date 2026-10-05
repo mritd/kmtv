@@ -9,6 +9,13 @@ struct APIRequestExecutor: Sendable {
     let tokenProvider: @Sendable () -> String?
     let logger: Logger
 
+    /// Whether a 401 on a request that carried a bearer posts `.authExpired`. Download
+    /// preparation runs without it, so a background download can never sign the user out.
+    ///
+    /// 携带 bearer 的请求收到 401 时是否发送 `.authExpired`. 下载准备不发送, 因此后台下载永远不会把
+    /// 用户登出.
+    var notifiesAuthExpired: Bool = true
+
     /// Adds the current opaque bearer token to API requests when available.
     ///
     /// 如果存在当前 opaque bearer token, 将其加入 API 请求.
@@ -27,7 +34,7 @@ struct APIRequestExecutor: Sendable {
     func data(for input: URLRequest) async throws -> Data {
         var request = input
         authorize(&request)
-        let shouldNotifyAuthExpired = request.value(forHTTPHeaderField: "Authorization") != nil
+        let shouldNotifyAuthExpired = notifiesAuthExpired && request.value(forHTTPHeaderField: "Authorization") != nil
 
         let data: Data
         let response: URLResponse

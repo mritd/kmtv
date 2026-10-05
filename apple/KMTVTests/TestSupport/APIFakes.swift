@@ -19,12 +19,14 @@ final class PlaybackAPIFake: PlaybackAPIProtocol, DetailAPIProtocol, @unchecked 
         url: "https://kmtv.example/api/v1/proxy/m3u8?mt=Base58MediaToken"
     )
     var playbackRequests: [(url: String, source: String)] = []
+    var playbackError: Error?
 
     func detail(sourceKey: String, videoId: String) async throws -> VideoDetail {
         detailResponse
     }
 
     func playbackURL(url: String, source: String) async throws -> PlaybackURLResponse {
+        if let playbackError { throw playbackError }
         playbackRequests.append((url: url, source: source))
         return playbackResponse
     }
