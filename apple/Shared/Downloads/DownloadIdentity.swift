@@ -60,6 +60,10 @@ struct LastIdentityStore {
 /// App 视图模型需要的下载能力; 借此在所有平台上都能编译, 测试中也可以使用假实现.
 @MainActor
 protocol DownloadScopeControlling: AnyObject {
+    /// The scope whose downloads are shown, signed in or offline; nil when none is.
+    ///
+    /// 正在展示其下载的作用域 (已登录或离线); 没有时为 nil.
+    var activeScopeKey: String? { get }
     func activate(scopeKey: String, preparer: any DownloadPreparing) async
     func openOffline(scopeKey: String)
     func deactivate() async

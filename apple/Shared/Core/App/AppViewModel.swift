@@ -143,19 +143,26 @@ final class AppViewModel {
             //
             // 在页面出现之前打开存储, 页面因此不会在没有存储的情况下渲染.
             openSync(for: user)
+            await releaseDownloads(keeping: downloadScopeKey(for: user))
             state = .authenticated
             // Check server compatibility after authentication because settings are fetched best-effort.
             //
             // 认证成功后再检查服务端兼容性, 因为设置接口是尽力获取.
             await startSyncIfCompatible()
-            if case .authenticated = state { await activateDownloads(for: user) }
+            if case .authenticated = state {
+                await activateDownloads(for: user)
+            } else {
+                await releaseDownloads()
+            }
         } catch let error as URLError where error.code == .timedOut {
             if enterOfflineIfPossible(serverURL: server.url, error: error) { return }
+            await releaseDownloads()
             prefillServerURL = server.url
             state = .serverSetup
             ToastManager.shared.show(String(localized: "Connection timed out"))
         } catch let error as APIError {
             if enterOfflineIfPossible(serverURL: server.url, error: error) { return }
+            await releaseDownloads()
             prefillServerURL = server.url
             state = .serverSetup
             if case .unauthorized = error {
@@ -171,6 +178,7 @@ final class AppViewModel {
             // 父任务被取消, 通常是视图已经消失, 这里不再更新 UI 状态.
         } catch {
             if enterOfflineIfPossible(serverURL: server.url, error: error) { return }
+            await releaseDownloads()
             prefillServerURL = server.url
             state = .serverSetup
             ToastManager.shared.show(error.localizedDescription)
@@ -229,9 +237,14 @@ final class AppViewModel {
                 currentUser = try await client.me()
             }
             if let currentUser { openSync(for: currentUser) }
+            await releaseDownloads(keeping: currentUser.flatMap(downloadScopeKey(for:)))
             state = .authenticated
             await startSyncIfCompatible()
-            if case .authenticated = state, let user = currentUser { await activateDownloads(for: user) }
+            if case .authenticated = state, let user = currentUser {
+                await activateDownloads(for: user)
+            } else {
+                await releaseDownloads()
+            }
         } catch {
             // Rollback
             //
@@ -279,6 +292,24 @@ final class AppViewModel {
         sync = SyncSession(context: modelContext, serverURL: serverURL, user: user, api: apiClient,
                            activeUserID: { [weak self] in self?.currentUser.map { Int64(max(0, $0.id)) } },
                            onScopeDropped: { [weak self] in Task { await self?.downloads?.deleteScope(scopeKey) } })
+    }
+
+    /// The download scope of `user`; nil for the anonymous user, who has no downloads.
+    ///
+    /// `user` 的下载作用域; 匿名用户没有下载, 返回 nil.
+    private func downloadScopeKey(for user: User) -> String? {
+        user.id > 0 ? syncScopeKey(serverURL: serverURL, userID: Int64(user.id)) : nil
+    }
+
+    /// Deactivates downloads unless the active scope is `scopeKey`. Runs on every transition that
+    /// leaves offline or signed-in state, so a previous identity's downloads (for example those
+    /// opened offline) never show under another account or on the setup screen.
+    ///
+    /// 除非当前作用域就是 `scopeKey`, 否则停用下载. 每次离开离线或已登录状态时都会执行, 因此之前身份的
+    /// 下载 (例如离线打开的下载) 不会显示在其他账号下或设置页中.
+    private func releaseDownloads(keeping scopeKey: String? = nil) async {
+        guard let downloads, let active = downloads.activeScopeKey, active != scopeKey else { return }
+        await downloads.deactivate()
     }
 
     /// Records the identity and activates its download scope; the anonymous user has no downloads.

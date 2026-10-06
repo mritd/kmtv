@@ -12,10 +12,30 @@ final class FakeDownloadScope: DownloadScopeControlling {
     var deactivations = 0
     var deleted: [String] = []
     var completedScopes: Set<String> = []
+    private(set) var activeScopeKey: String?
+    /// Calls in order, as `activate:<scope>`, `offline:<scope>`, and `deactivate`.
+    ///
+    /// 按顺序记录的调用, 形如 `activate:<scope>`, `offline:<scope>` 与 `deactivate`.
+    private(set) var events: [String] = []
 
-    func activate(scopeKey: String, preparer: any DownloadPreparing) async { activated.append(scopeKey) }
-    func openOffline(scopeKey: String) { offline.append(scopeKey) }
-    func deactivate() async { deactivations += 1 }
+    func activate(scopeKey: String, preparer: any DownloadPreparing) async {
+        activated.append(scopeKey)
+        activeScopeKey = scopeKey
+        events.append("activate:\(scopeKey)")
+    }
+
+    func openOffline(scopeKey: String) {
+        offline.append(scopeKey)
+        activeScopeKey = scopeKey
+        events.append("offline:\(scopeKey)")
+    }
+
+    func deactivate() async {
+        deactivations += 1
+        guard activeScopeKey != nil else { return }
+        activeScopeKey = nil
+        events.append("deactivate")
+    }
     func deleteScope(_ scopeKey: String) async { deleted.append(scopeKey) }
     func hasCompleted(in scopeKey: String) -> Bool { completedScopes.contains(scopeKey) }
 }
@@ -175,6 +195,70 @@ final class BootstrapOfflineTests: XCTestCase {
         await vm.reconnect()
         guard case .authenticated = vm.state else { return XCTFail("expected authenticated, got \(vm.state)") }
         XCTAssertEqual(scope.activated.count, 1)
+    }
+
+    func testFailedReconnectFromOfflineReleasesTheOfflineScope() async throws {
+        let identity = seedIdentity()
+        var answer: (URLRequest) throws -> (HTTPURLResponse, Data) = failing(URLError(.cannotConnectToHost))
+        let vm = try makeViewModel { try answer($0) }
+        await vm.bootstrap()
+        guard case .offline = vm.state else { return XCTFail("expected offline") }
+        answer = status(401, #"{"code":1002,"error":"not logged in"}"#)
+        await vm.reconnect()
+        guard case .serverSetup = vm.state else { return XCTFail("expected setup, got \(vm.state)") }
+        XCTAssertNil(scope.activeScopeKey)
+        XCTAssertEqual(scope.events, ["offline:\(identity.scopeKey)", "deactivate"])
+    }
+
+    func testReconnectAsAnotherUserReleasesTheOfflineScopeBeforeAuthenticating() async throws {
+        let identity = seedIdentity()
+        var reachable = false
+        let vm = try makeViewModel { request in
+            guard reachable else { throw URLError(.cannotConnectToHost) }
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"id":7,"username":"bob","role":"user","allow_adult_content":false}"#.utf8))
+        }
+        await vm.bootstrap()
+        reachable = true
+        await vm.reconnect()
+        guard case .authenticated = vm.state else { return XCTFail("expected authenticated, got \(vm.state)") }
+        let bob = syncScopeKey(serverURL: serverURL, userID: 7)
+        XCTAssertEqual(scope.events, ["offline:\(identity.scopeKey)", "deactivate", "activate:\(bob)"])
+    }
+
+    func testReconnectAsTheSameUserKeepsTheScope() async throws {
+        let identity = seedIdentity()
+        var reachable = false
+        let vm = try makeViewModel { request in
+            guard reachable else { throw URLError(.cannotConnectToHost) }
+            return self.ok(request)
+        }
+        await vm.bootstrap()
+        reachable = true
+        await vm.reconnect()
+        XCTAssertEqual(scope.events, ["offline:\(identity.scopeKey)", "activate:\(identity.scopeKey)"])
+    }
+
+    func testIncompatibleServerReleasesTheOfflineScope() async throws {
+        let identity = seedIdentity()
+        var reachable = false
+        let vm = try makeViewModel { request in
+            guard reachable else { throw URLError(.cannotConnectToHost) }
+            return self.ok(request)
+        }
+        await vm.bootstrap()
+        reachable = true
+        let handler = URLProtocolStub.requestHandler
+        URLProtocolStub.requestHandler = { request in
+            guard request.url?.path == "/api/v1/settings" else { return try handler!(request) }
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                    headerFields: ["Content-Type": "application/json"])!,
+                    Data(#"{"settings":{"version":"v0.0.1"}}"#.utf8))
+        }
+        await vm.reconnect()
+        guard case .incompatibleServer = vm.state else { return XCTFail("expected incompatible, got \(vm.state)") }
+        XCTAssertNil(scope.activeScopeKey)
+        XCTAssertEqual(scope.events, ["offline:\(identity.scopeKey)", "deactivate"])
     }
 
     func testUnreachableClassification() {
