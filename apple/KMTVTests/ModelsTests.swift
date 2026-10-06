@@ -276,4 +276,17 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(response.subscriptions[0].interval, 86400)
         XCTAssertTrue(response.subscriptions[0].autoUpdate)
     }
+
+    func testBestCoverPrefersTheTappedCardForItsOwnTitle() {
+        let card = "https://img.douban.example/card.jpg"
+        let own = "https://img.source.example/own.jpg"
+        XCTAssertEqual(SearchView.bestCover(resultCover: own, resultTitle: " Deep  Abyss ", query: "deep abyss",
+                                            coverHint: card), card)
+        XCTAssertEqual(SearchView.bestCover(resultCover: own, resultTitle: "Deep Abyss 2", query: "Deep Abyss",
+                                            coverHint: card), own)
+        XCTAssertEqual(SearchView.bestCover(resultCover: "", resultTitle: "Deep Abyss 2", query: "Deep Abyss",
+                                            coverHint: card), card)
+        XCTAssertEqual(SearchView.bestCover(resultCover: own, resultTitle: "Deep Abyss", query: "Deep Abyss",
+                                            coverHint: ""), own)
+    }
 }

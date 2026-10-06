@@ -795,8 +795,14 @@ final class PlayerViewModel {
         }
     }
 
+    /// The detail with the hint's cover. The hint is the cover the user tapped (see
+    /// `SearchView.bestCover`) or a saved record's cover, so it wins over the source's own, which
+    /// some sources block.
+    ///
+    /// 换用提示封面的详情. 提示封面是用户点按的封面 (见 `SearchView.bestCover`) 或已保存记录中的封面,
+    /// 因此优先于源站自己的封面, 后者可能被部分源站拦截.
     private func detailApplyingCoverHint(_ detail: VideoDetail) -> VideoDetail {
-        guard detail.cover.isEmpty, !coverHint.isEmpty else { return detail }
+        guard !coverHint.isEmpty, detail.cover != coverHint else { return detail }
         var updated = detail
         updated.cover = coverHint
         return updated

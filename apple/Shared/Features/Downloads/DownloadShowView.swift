@@ -15,6 +15,7 @@ struct DownloadShowView: View {
     @Environment(AppViewModel.self) private var appVM
     @Environment(\.modelContext) private var modelContext
     @State private var playing: PlayingEpisode?
+    @State private var moreDestination: PlayDestination?
 
     /// The fullscreen offline player's view model, built once when playback is requested so
     /// re-renders of this screen never rebuild it.
@@ -31,7 +32,9 @@ struct DownloadShowView: View {
             let episodes = downloads.episodes(in: scope, showKey: showKey)
             List {
                 Section {
-                    DownloadShowHeader(show: show, episodes: episodes, mode: mode) { play($0, show: show) }
+                    DownloadShowHeader(show: show, episodes: episodes, mode: mode,
+                                       play: { play($0, show: show) },
+                                       downloadMore: { moreDestination = $0 })
                 }
                 ForEach(Dictionary(grouping: episodes, by: \.sourceKey).sorted { $0.key < $1.key }, id: \.key) { _, group in
                     Section(group.first?.sourceName ?? "") {
@@ -49,6 +52,12 @@ struct DownloadShowView: View {
             .fullScreenCover(item: $playing) { item in
                 OfflinePlayerView(viewModel: item.viewModel)
             }
+            // A NavigationLink inside a List row renders as a disclosure row and drops its button
+            // style, so the header's button pushes the player from here.
+            //
+            // List 行内的 NavigationLink 会渲染为带箭头的行并丢失按钮样式, 因此头部按钮改为从这里推入
+            // 播放页.
+            .navigationDestination(item: $moreDestination) { PlayerView(destination: $0) }
         } else {
             ContentUnavailableView("No downloads yet", systemImage: "arrow.down.circle")
         }
@@ -69,43 +78,63 @@ private struct DownloadShowHeader: View {
     let episodes: [DownloadEpisode]
     let mode: DownloadsMode
     let play: (DownloadEpisode) -> Void
+    let downloadMore: (PlayDestination) -> Void
 
     var body: some View {
-        let completed = episodes.filter { $0.state == .completed }
-        let resume = completed.first { !$0.finished } ?? completed.first
         HStack(alignment: .top, spacing: 14) {
             DownloadPoster(show: show, width: 84)
             VStack(alignment: .leading, spacing: 8) {
                 Text(show.title).font(.title3.bold())
-                Text("\(completed.count)/\(episodes.count) episodes · \(DownloadFormatting.bytes(episodes.reduce(0) { $0 + $1.bytes }))")
+                Text("\(episodes.filter { $0.state == .completed }.count)/\(episodes.count) episodes · \(DownloadFormatting.bytes(episodes.reduce(0) { $0 + $1.bytes }))")
                     .font(.caption)
                     .foregroundStyle(Theme.textSecondary)
-                HStack {
-                    if let resume {
-                        Button {
-                            play(resume)
-                        } label: {
-                            Label("Continue \(resume.episodeName)", systemImage: "play.fill")
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                    // The most recently added download names the source to continue with.
-                    //
-                    // 以最近添加的下载所在的源作为继续下载的源.
-                    if mode == .online, let source = episodes.max(by: { $0.createdAt < $1.createdAt }) {
-                        NavigationLink(value: PlayDestination(
-                            title: show.title,
-                            sources: [SourceResult(sourceKey: source.sourceKey, sourceName: source.sourceName,
-                                                   videoId: source.videoId, durationMs: 0, episodes: [])],
-                            sourceKey: source.sourceKey, videoId: source.videoId, coverHint: show.cover)) {
-                            Text("Download More")
-                        }
-                        .buttonStyle(.bordered)
-                    }
+                // Side by side when they fit at full width, stacked otherwise; titles never wrap or
+                // truncate, since a fixed-size label makes a squeezed row not fit.
+                //
+                // 完整宽度放得下时并排, 否则上下排列; 标题不换行也不截断, 因为固定尺寸的标签会让被挤压的
+                // 一行判定为放不下.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { actions }
+                    VStack(alignment: .leading, spacing: 8) { actions }
                 }
+                .font(.subheadline.weight(.medium))
+                .controlSize(.small)
             }
         }
         .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private var actions: some View {
+        let completed = episodes.filter { $0.state == .completed }
+        if let resume = completed.first(where: { !$0.finished }) ?? completed.first {
+            Button {
+                play(resume)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "play.fill")
+                    Text("Continue \(resume.episodeName)")
+                }
+                .lineLimit(1)
+                .fixedSize()
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        // The most recently added download names the source to continue with.
+        //
+        // 以最近添加的下载所在的源作为继续下载的源.
+        if mode == .online, let source = episodes.max(by: { $0.createdAt < $1.createdAt }) {
+            Button {
+                downloadMore(PlayDestination(
+                    title: show.title,
+                    sources: [SourceResult(sourceKey: source.sourceKey, sourceName: source.sourceName,
+                                           videoId: source.videoId, durationMs: 0, episodes: [])],
+                    sourceKey: source.sourceKey, videoId: source.videoId, coverHint: show.cover))
+            } label: {
+                Text("Download More").lineLimit(1).fixedSize()
+            }
+            .buttonStyle(.bordered)
+        }
     }
 }
 

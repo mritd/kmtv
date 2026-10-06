@@ -42,9 +42,9 @@ protocol DownloadTransport: AnyObject {
     ///
     /// 逐个接收事件; 下一个事件会等到本次处理返回后才投递.
     var onEvent: (@MainActor (DownloadTransportEvent) async -> Void)? { get set }
-    /// Creates and resumes tasks.
+    /// Creates and resumes tasks without blocking the caller; `cancel` and `outstanding` see them.
     ///
-    /// 创建并启动任务.
+    /// 创建并启动任务, 不阻塞调用方; `cancel` 与 `outstanding` 能看到这些任务.
     func enqueue(_ requests: [DownloadTaskRequest])
     /// Cancels matching tasks.
     ///

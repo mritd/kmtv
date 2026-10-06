@@ -166,6 +166,13 @@ final class BackgroundDownloadTransport: DownloadTransport {
     private let session: URLSession
     private let delegate: DownloadSessionDelegate
     private var consumer: Task<Void, Never>?
+    /// Creates tasks off the main thread: each background task is a synchronous round trip to
+    /// `nsurlsessiond`, and an episode can queue thousands at once. `cancel` and `outstanding`
+    /// wait for it first, so they see every task enqueued before them.
+    ///
+    /// 在主线程之外创建任务: 每个后台任务都要与 `nsurlsessiond` 同步往返一次, 而一集可能一次加入
+    /// 数千个任务. `cancel` 与 `outstanding` 会先等它完成, 因此能看到在它们之前加入的每个任务.
+    private let submitQueue = DispatchQueue(label: "com.mritd.kmtv.downloads.submit", qos: .userInitiated)
 
     init(layout: DownloadLayout, identifier: String = BackgroundDownloadTransport.identifier) {
         let (stream, continuation) = AsyncStream.makeStream(of: DownloadTransportEvent.self)
@@ -189,20 +196,33 @@ final class BackgroundDownloadTransport: DownloadTransport {
     }
 
     func enqueue(_ requests: [DownloadTaskRequest]) {
-        for item in requests {
-            var request = URLRequest(url: item.url)
-            request.allowsCellularAccess = item.allowsCellular
-            request.allowsExpensiveNetworkAccess = item.allowsCellular
-            request.allowsConstrainedNetworkAccess = false
-            let task = session.downloadTask(with: request)
-            task.taskDescription = item.id.description
-            task.earliestBeginDate = item.earliestBegin
-            task.priority = item.priority
-            task.resume()
+        let session = session
+        submitQueue.async {
+            for item in requests {
+                var request = URLRequest(url: item.url)
+                request.allowsCellularAccess = item.allowsCellular
+                request.allowsExpensiveNetworkAccess = item.allowsCellular
+                request.allowsConstrainedNetworkAccess = false
+                let task = session.downloadTask(with: request)
+                task.taskDescription = item.id.description
+                task.earliestBeginDate = item.earliestBegin
+                task.priority = item.priority
+                task.resume()
+            }
+        }
+    }
+
+    /// Returns once every task enqueued so far exists in the session.
+    ///
+    /// 目前已加入的所有任务都已在会话中创建后返回.
+    private func submitted() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            submitQueue.async { continuation.resume() }
         }
     }
 
     func cancel(where predicate: @escaping @Sendable (DownloadTaskID) -> Bool) async {
+        await submitted()
         for task in await session.allTasks {
             if let id = task.taskDescription.flatMap(DownloadTaskID.init(description:)), predicate(id) {
                 task.cancel()
@@ -211,7 +231,8 @@ final class BackgroundDownloadTransport: DownloadTransport {
     }
 
     func outstanding() async -> [DownloadTaskID] {
-        await session.allTasks
+        await submitted()
+        return await session.allTasks
             .filter { $0.state == .running || $0.state == .suspended }
             .compactMap { $0.taskDescription.flatMap(DownloadTaskID.init(description:)) }
     }

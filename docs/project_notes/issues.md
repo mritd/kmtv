@@ -31,6 +31,14 @@ Completed and in-progress work, newest first. There is no issue tracker; entries
   - `LocalMediaServer.start()` is not reentrant.
   - The loopback server also serves `manifest.json`; restrict it to media file names.
 - **Device feedback fixes (2026-10-06)**: download progress no longer re-renders whole screens per segment, offline scrubbing no longer saves per jump, and the offline player has one close button. Frame rate not re-measured on a device yet.
+- **Simulator feedback fixes (2026-10-06)**:
+  - Resume no longer restarts episodes whose source moves its ads on every fetch; entries match by upstream identity (`DownloadManifest.remapping(onto:)`).
+  - Proxied playlists drop inserted ads behind `ad_filter_enabled` (ADR-018); admin toggles on Web, Android, and Apple.
+  - Task creation runs off the main thread, so queueing thousands of entries no longer freezes the UI; finished entries cost O(1) on the main actor.
+  - The show header's "Continue" and "Download More" buttons keep their style in the List row and never wrap.
+  - Favorites, watch history, and downloads keep the cover of the card the user tapped when the result has its title; a show without a saved poster takes the new cover on the next enqueue.
+  - Verified: `KMTVTests` 372/372 on the iPhone 17 Pro simulator, `task test`, `task lint`, Web 951 and Android 571 tests, i18n and bilingual checks, tvOS build. Not yet re-measured: CPU during a long download, and pause/resume on a device.
+  - Follow-ups: Web and Android still prefer the source cover; a re-enqueued or refreshed episode waits behind tasks already queued in `nsurlsessiond`.
 - **Adversarial review fixes (2026-10-06)**:
   - Parser: rejects `EXTINF` above one day (a crash) and non-http(s) URIs.
   - Writer: keeps a clear fMP4 init ahead of the key (it used to stall AVPlayer); covered by the `fmp4-aes-clearinit` fixture.

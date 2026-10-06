@@ -193,6 +193,22 @@ final class DownloadManager {
         }
     }
     @ObservationIgnored private var manifests: [String: DownloadManifest] = [:]
+    /// Facts of one manifest generation, so a finished entry costs O(1) instead of a pass over a
+    /// long episode: the ciphertext entries (fixed per generation) and a running count of missing
+    /// entries, which is rechecked against the manifest whenever it reaches zero.
+    ///
+    /// 某一代 manifest 的派生信息, 让完成一个条目的开销为 O(1), 而不是遍历一整集长剧: 密文条目 (每代
+    /// 固定不变) 与缺失条目的计数; 计数降到零时会对照 manifest 重新核实.
+    private struct ManifestFacts {
+        let generation: Int
+        let encrypted: Set<Int>
+        var remaining: Int
+    }
+    @ObservationIgnored private var facts: [String: ManifestFacts] = [:]
+    /// Rows by `episodeKey`, so transport events skip a fetch; a deleted row is fetched again.
+    ///
+    /// 以 `episodeKey` 为键的数据行, 传输事件因此无需每次查询; 已删除的行会重新查询.
+    @ObservationIgnored private var rows: [String: DownloadEpisode] = [:]
     @ObservationIgnored private(set) var inFlight: Set<DownloadTaskID> = []
     /// IDs that `cancelClaimed` cancelled while a reconcile awaited the transport, per running
     /// reconcile; that reconcile must not adopt them from its older snapshot.
@@ -357,13 +373,25 @@ final class DownloadManager {
     }
 
     private func episode(forKey key: String) -> DownloadEpisode? {
+        if let row = rows[key], isLive(row), row.episodeKey == key { return row }
+        rows[key] = nil
         let parts = key.split(separator: "/").map(String.init)
         guard parts.count == 3 else { return nil }
         let (scopeHash, showDir, episodeDir) = (parts[0], parts[1], parts[2])
         let descriptor = FetchDescriptor<DownloadEpisode>(predicate: #Predicate {
             $0.scopeHash == scopeHash && $0.showDir == showDir && $0.episodeDir == episodeDir
         })
-        return try? context.fetch(descriptor).first
+        let row = try? context.fetch(descriptor).first
+        rows[key] = row
+        return row
+    }
+
+    private func facts(for key: String, _ manifest: DownloadManifest) -> ManifestFacts {
+        if let cached = facts[key], cached.generation == manifest.generation { return cached }
+        let made = ManifestFacts(generation: manifest.generation, encrypted: manifest.encryptedEntries,
+                                 remaining: manifest.missingCount)
+        facts[key] = made
+        return made
     }
 
     /// Local poster file of a show, if downloaded.
@@ -592,11 +620,16 @@ final class DownloadManager {
         }
         saveContext()
         bump()
-        if show.coverURLString.isEmpty, let coverURL = info.coverURL {
-            show.coverURLString = coverURL.absoluteString
-            saveContext()
-        }
+        // A show without a saved poster takes the latest cover, so enqueueing again with a cover
+        // that loads replaces one that failed.
+        //
+        // 尚未保存海报的剧集采用最新的封面, 因此再次加入下载时, 可加载的封面会替换此前失败的封面.
         if show.coverFile.isEmpty, let coverURL = info.coverURL {
+            if show.coverURLString != coverURL.absoluteString {
+                show.coverURLString = coverURL.absoluteString
+                show.cover = info.cover
+                saveContext()
+            }
             Task { await fetchCover(scopeKey: scopeKey, showKey: showKey, from: coverURL) }
         }
         schedulePump()
@@ -730,6 +763,7 @@ final class DownloadManager {
         await manifestWriter.discard { $0.hasPrefix(hash + "/") }
         for ep in episodes(in: scopeKey) {
             manifests[ep.episodeKey] = nil
+            facts[ep.episodeKey] = nil
             unsaved[ep.episodeKey] = nil
             setBytes(ep, 0)
             context.delete(ep)
@@ -1046,7 +1080,17 @@ final class DownloadManager {
             //
             // 在 await 之后读取: 期间若被删除并重新加入队列, 旧文件已被移除.
             if let existing = manifest(for: current) {
-                if existing.matches(fresh) {
+                if let remapped = existing.remapping(onto: fresh) {
+                    next = remapped
+                    let layout = remapped.lines == fresh.lines ? "fresh" : "saved"
+                    logger.info("download resume remaps manifest episode=\(key, privacy: .public) done=\(existing.doneCount, privacy: .public)/\(existing.entries.count, privacy: .public) layout=\(layout, privacy: .public)")
+                } else if !(existing.hasUpstreamIdentities && fresh.hasUpstreamIdentities), existing.matches(fresh) {
+                    // Direct URLs can change on every fetch (signed CDNs), so files that line up by
+                    // index and duration are kept. Proxied identities are reliable: when they differ,
+                    // the files differ, even if the durations match.
+                    //
+                    // 直连 URL 每次获取都可能变化 (带签名的 CDN), 因此按序号与时长对得上的文件会被保留.
+                    // 代理身份是可靠的: 身份不同即文件不同, 即使时长一致.
                     next = existing.adopting(urlsFrom: fresh)
                     logger.info("download resume adopts manifest episode=\(key, privacy: .public) done=\(existing.doneCount, privacy: .public)/\(existing.entries.count, privacy: .public)")
                 } else {
@@ -1163,17 +1207,31 @@ final class DownloadManager {
         pumpIfRoomOpened()
     }
 
-    private func handleFinished(_ id: DownloadTaskID, _ info: DownloadResponseInfo) async {
+    /// The row, entry, and ciphertext flag of a finished task, or nil when the task is stale. It
+    /// returns no manifest, so the caller holds no second reference and can mark the cached one
+    /// done in place instead of copying every entry of a long episode.
+    ///
+    /// 已完成任务对应的数据行, 条目与密文标记; 任务已过期时返回 nil. 它不返回 manifest, 因此调用方不持有
+    /// 第二个引用, 可以就地标记缓存中的 manifest, 而不必复制长剧集的每个条目.
+    private func finishedEntry(_ id: DownloadTaskID) -> (DownloadEpisode, DownloadManifest.Entry, Bool)? {
         guard let ep = episode(forKey: id.episodeKey), ep.state == .downloading,
-              var manifest = manifest(for: ep), manifest.generation == id.generation,
+              let manifest = manifest(for: ep), manifest.generation == id.generation,
               manifest.entries.indices.contains(id.entryIndex), !manifest.entries[id.entryIndex].done else {
+            return nil
+        }
+        let encrypted = facts(for: ep.episodeKey, manifest).encrypted.contains(id.entryIndex)
+        return (ep, manifest.entries[id.entryIndex], encrypted)
+    }
+
+    private func handleFinished(_ id: DownloadTaskID, _ info: DownloadResponseInfo) async {
+        guard let (ep, entry, encrypted) = finishedEntry(id) else {
             try? FileManager.default.removeItem(at: info.file)
             return
         }
-        let entry = manifest.entries[id.entryIndex]
+        let key = ep.episodeKey
         let outcome = DownloadEntryValidator.classify(url: info.url, status: info.status, contentType: info.contentType,
                                                       head: info.head, size: info.size, kind: entry.kind,
-                                                      encrypted: manifest.isEncrypted(entry: id.entryIndex))
+                                                      encrypted: encrypted)
         guard outcome == .accept else {
             try? FileManager.default.removeItem(at: info.file)
             await apply(outcome, to: id)
@@ -1191,31 +1249,42 @@ final class DownloadManager {
             }
             return
         }
-        manifest.entries[id.entryIndex].done = true
-        manifest.entries[id.entryIndex].bytes = info.size
-        manifests[ep.episodeKey] = manifest
+        manifests[key]?.entries[id.entryIndex].done = true
+        manifests[key]?.entries[id.entryIndex].bytes = info.size
+        guard let manifest = manifests[key] else { return }
         // The row catches up on the progress tick (or the next state transition), not per entry.
         //
         // 数据行在进度通知 (或下一次状态切换) 时同步, 而不是每个条目同步一次.
-        progressPending.insert(ep.episodeKey)
+        progressPending.insert(key)
         if ep.refreshCount != 0 { ep.refreshCount = 0 }
         scheduleProgress()
-        if manifest.isComplete {
-            await complete(ep, manifest)
-            schedulePump()
-            return
+        facts[key]?.remaining -= 1
+        if (facts[key]?.remaining ?? 0) <= 0 {
+            // Recheck the count against the manifest; a mismatch resets it.
+            //
+            // 对照 manifest 重新核实计数; 不一致时重置计数.
+            let missing = manifest.missingCount
+            facts[key]?.remaining = missing
+            if missing == 0 {
+                await complete(ep, manifest)
+                schedulePump()
+                return
+            }
         }
-        let pending = (unsaved[ep.episodeKey] ?? 0) + 1
-        if pending >= Self.saveEvery {
+        let pending = (unsaved[key] ?? 0) + 1
+        // Long episodes save less often: every save encodes the whole manifest.
+        //
+        // 长剧集降低保存频率: 每次保存都要编码整个 manifest.
+        if pending >= max(Self.saveEvery, manifest.entries.count / 50) {
             saveManifest(manifest, for: ep)
             flushProgress(of: ep)
             // Keep the episode pending, so the tick still records its show for badge readers.
             //
             // 让该集保持待同步, 进度通知因此仍会为选集角标记录其所属剧集.
-            progressPending.insert(ep.episodeKey)
+            progressPending.insert(key)
             saveContext()
         } else {
-            unsaved[ep.episodeKey] = pending
+            unsaved[key] = pending
         }
     }
 
@@ -1314,6 +1383,7 @@ final class DownloadManager {
         guard isLive(ep), ep.state != .failed else { return }
         ep.pauseReason = nil
         manifests[ep.episodeKey] = nil
+        facts[ep.episodeKey] = nil
         unsaved[ep.episodeKey] = nil
         progressPending.remove(ep.episodeKey)
         ep.state = .completed
@@ -1407,6 +1477,7 @@ final class DownloadManager {
         let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
         guard let loaded = DownloadManifest.load(from: layout.manifestURL(episodeDir: dir)) else { return nil }
         manifests[ep.episodeKey] = loaded
+        facts[ep.episodeKey] = nil
         return loaded
     }
 
@@ -1426,6 +1497,7 @@ final class DownloadManager {
     /// 丢弃某集缓存的 manifest 与待写入快照, 之后不会再提交它.
     private func dropCachedManifest(_ key: String) {
         manifests[key] = nil
+        facts[key] = nil
         unsaved[key] = nil
         progressPending.remove(key)
         manifestWriter.cancel(key)
@@ -1443,6 +1515,7 @@ final class DownloadManager {
     private func removeEpisodeFiles(_ ep: DownloadEpisode) {
         manifestWriter.cancel(ep.episodeKey)
         manifests[ep.episodeKey] = nil
+        facts[ep.episodeKey] = nil
         unsaved[ep.episodeKey] = nil
         progressPending.remove(ep.episodeKey)
         try? FileManager.default.removeItem(at: layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir,

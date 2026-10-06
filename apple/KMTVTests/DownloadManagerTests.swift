@@ -97,6 +97,33 @@ final class DownloadManagerTests: XCTestCase {
         await manager.waitForIdle()
     }
 
+    func testEnqueueAgainReplacesACoverThatNeverLoaded() async throws {
+        let blocked = URL(string: "https://img.source.example/blocked.jpg")!
+        let working = URL(string: "https://img.douban.example/ok.jpg")!
+        _ = try manager.enqueue(show: DownloadShowInfo(title: "Show", cover: blocked.absoluteString, type: "tv",
+                                                       year: "2026", coverURL: blocked), episodes: [request(0)])
+        for _ in 0..<1000 where covers.count < 1 { await Task.yield() }
+        let show = try XCTUnwrap(manager.show(scopeKey: scope, showKey: normalizeSyncKey("Show")))
+        XCTAssertEqual(show.coverFile, "")
+
+        covers.data = Data([1, 2, 3])
+        _ = try manager.enqueue(show: DownloadShowInfo(title: "Show", cover: working.absoluteString, type: "tv",
+                                                       year: "2026", coverURL: working), episodes: [request(1)])
+        for _ in 0..<1000 where show.coverFile.isEmpty { await Task.yield() }
+        XCTAssertEqual(covers.urls, [blocked, working])
+        XCTAssertEqual(show.cover, working.absoluteString)
+        XCTAssertEqual(show.coverFile, "cover.jpg")
+
+        // A saved poster is kept.
+        //
+        // 已保存的海报保持不变.
+        _ = try manager.enqueue(show: DownloadShowInfo(title: "Show", cover: blocked.absoluteString, type: "tv",
+                                                       year: "2026", coverURL: blocked), episodes: [request(2)])
+        for _ in 0..<50 { await Task.yield() }
+        XCTAssertEqual(covers.count, 2)
+        XCTAssertEqual(show.cover, working.absoluteString)
+    }
+
     func testActivateRetriesMissingCoverOnly() async throws {
         let coverURL = URL(string: "https://img.example/c.jpg")
         let withCover = DownloadShowInfo(title: "Show", cover: "https://img.example/c.jpg", type: "tv", year: "2026",
@@ -248,6 +275,62 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertEqual(episode(0)?.totalEntries, 4)
         XCTAssertEqual(episode(0)?.doneEntries, 0)
         XCTAssertEqual(liveIDs(0).count, 4)
+    }
+
+    func testResumeKeepsProgressWhenTheSourceMovesItsAds() async throws {
+        // The source inserts the same ad at a random place on every fetch.
+        //
+        // 源站每次获取都把同一段广告插入到随机位置.
+        func playlist(adAfter: Int) -> String {
+            var text = "#EXTM3U\n#EXT-X-TARGETDURATION:5\n"
+            for content in 0..<3 {
+                text += "#EXTINF:2,\nhttps://kmtv.example/api/v1/proxy/segment?url=c\(content)&mt=g{g}\n"
+                if content == adAfter {
+                    text += "#EXT-X-DISCONTINUITY\n#EXTINF:5,\nhttps://kmtv.example/api/v1/proxy/segment?url=ad&mt=g{g}\n"
+                    text += "#EXT-X-DISCONTINUITY\n"
+                }
+            }
+            return text + "#EXT-X-ENDLIST\n"
+        }
+        let url = "https://cdn.example/ep0.m3u8"
+        preparer.playlists[url] = playlist(adAfter: 0)
+        try await enqueueAndSettle()
+        await transport.finish(liveIDs(0)[0], layout: layout)
+        await transport.finish(liveIDs(0)[0], layout: layout)
+        await manager.pause(try XCTUnwrap(episode(0)))
+        preparer.playlists[url] = playlist(adAfter: 1)
+        manager.resume(try XCTUnwrap(episode(0)))
+        await manager.waitForIdle()
+        XCTAssertEqual(episode(0)?.doneEntries, 2)
+        XCTAssertEqual(liveIDs(0).map(\.entryIndex), [2, 3])
+        XCTAssertEqual(liveIDs(0).compactMap { transport.live[$0]?.url.absoluteString },
+                       ["https://kmtv.example/api/v1/proxy/segment?url=c1&mt=g2",
+                        "https://kmtv.example/api/v1/proxy/segment?url=c2&mt=g2"])
+    }
+
+    func testResumeRestartsWhenAProxiedFileChangesBehindEqualDurations() async throws {
+        // The ad file gets a new name on every fetch; every segment lasts 2 s, so index and duration
+        // still line up, but the proxied identities show the file changed.
+        //
+        // 广告文件每次获取都换名; 每个分片都是 2 秒, 序号与时长仍然对得上, 但代理身份表明文件已变.
+        func playlist(ad: String) -> String {
+            var text = "#EXTM3U\n#EXT-X-TARGETDURATION:2\n"
+            for name in ["c0", ad, "c1"] {
+                text += "#EXTINF:2,\nhttps://kmtv.example/api/v1/proxy/segment?url=\(name)&mt=g{g}\n"
+            }
+            return text + "#EXT-X-ENDLIST\n"
+        }
+        let url = "https://cdn.example/ep0.m3u8"
+        preparer.playlists[url] = playlist(ad: "adX")
+        try await enqueueAndSettle()
+        await transport.finish(liveIDs(0)[0], layout: layout)
+        await transport.finish(liveIDs(0)[0], layout: layout)
+        await manager.pause(try XCTUnwrap(episode(0)))
+        preparer.playlists[url] = playlist(ad: "adY")
+        manager.resume(try XCTUnwrap(episode(0)))
+        await manager.waitForIdle()
+        XCTAssertEqual(episode(0)?.doneEntries, 0)
+        XCTAssertEqual(liveIDs(0).count, 3)
     }
 
     func testBackgroundDefersPreparationUntilInactive() async throws {
@@ -900,8 +983,10 @@ private final class CoverFetchRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var _count = 0
     private var _data: Data?
+    private var _urls: [URL] = []
 
     var count: Int { lock.withLock { _count } }
+    var urls: [URL] { lock.withLock { _urls } }
     var data: Data? {
         get { lock.withLock { _data } }
         set { lock.withLock { _data = newValue } }
@@ -910,6 +995,7 @@ private final class CoverFetchRecorder: @unchecked Sendable {
     func fetch(_ url: URL) -> Data? {
         lock.withLock {
             _count += 1
+            _urls.append(url)
             return _data
         }
     }

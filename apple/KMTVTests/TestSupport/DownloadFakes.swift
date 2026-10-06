@@ -97,12 +97,23 @@ final class FakePreparer: DownloadPreparing, @unchecked Sendable {
     ///
     /// 设置后, 每次准备都会挂起, 直到测试打开该闸门.
     var gate: PrepareGate?
+    /// Playlist text per episode URL that replaces the generated one; `{g}` becomes the generation.
+    ///
+    /// 按剧集 URL 指定的 playlist 文本, 替代自动生成的内容; `{g}` 会被替换为 generation.
+    var playlists: [String: String] = [:]
     private(set) var calls: [(episodeURL: String, generation: Int)] = []
 
     func prepare(episodeURL: String, sourceKey: String, generation: Int) async throws -> DownloadManifest {
         calls.append((episodeURL, generation))
         if let gate { await gate.wait() }
         if let error = errors[episodeURL] { throw error }
+        if let custom = playlists[episodeURL] {
+            let text = custom.replacingOccurrences(of: "{g}", with: "\(generation)")
+            guard case .media(let media) = try HLSParser.parse(text, baseURL: URL(string: "https://kmtv.example/p.m3u8")!) else {
+                throw DownloadPrepareError.format(.notHLS)
+            }
+            return DownloadManifest.build(from: media, generation: generation)
+        }
         var text = "#EXTM3U\n#EXT-X-TARGETDURATION:2\n"
         if encrypted {
             text += "#EXT-X-KEY:METHOD=AES-128,URI=\"https://kmtv.example/api/v1/proxy/key?url=k&mt=g\(generation)\"\n"

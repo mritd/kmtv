@@ -215,6 +215,110 @@ final class DownloadManifestTests: XCTestCase {
         XCTAssertEqual(old.mismatchSummary(shifted), "entries=4/4 lines=3/3 first=none ivLine=0")
     }
 
+    /// A proxied playlist with explicit-IV content and one clear ad block. `adAfter` names the
+    /// content segment the ad follows; `token` stands in for the per-fetch `mt` tokens.
+    ///
+    /// 一个代理后的 playlist, 正片带显式 IV, 并含一段明文广告. `adAfter` 指定广告跟在哪个正片分片
+    /// 之后; `token` 模拟每次获取都不同的 `mt` token.
+    private func adPlaylist(adAfter: Int, token: String, explicitIV: Bool = true) -> String {
+        let proxy = "https://kmtv.example/api/v1/proxy"
+        let iv = explicitIV ? ",IV=0x00000000000000000000000000000000" : ""
+        let key = "#EXT-X-KEY:METHOD=AES-128,URI=\"\(proxy)/key?url=https%3A%2F%2Fcdn%2Fk.key&mt=\(token)\"\(iv)"
+        var text = "#EXTM3U\n#EXT-X-TARGETDURATION:5\n\(key)\n"
+        for content in 0..<3 {
+            text += "#EXTINF:2.0,\n\(proxy)/segment?url=https%3A%2F%2Fcdn%2Fc\(content).ts&mt=\(token)\n"
+            if content == adAfter {
+                text += "#EXT-X-DISCONTINUITY\n#EXT-X-KEY:METHOD=NONE\n"
+                text += "#EXTINF:5.0,\n\(proxy)/segment?url=https%3A%2F%2Fads%2Fad.ts&mt=\(token)\n"
+                text += "#EXT-X-DISCONTINUITY\n\(key)\n"
+            }
+        }
+        return text + "#EXT-X-ENDLIST\n"
+    }
+
+    func testRemappingKeepsTheSavedLayoutWhenAnAdMoves() throws {
+        var old = DownloadManifest.build(from: try media(adPlaylist(adAfter: 0, token: "a")), generation: 1)
+        old.entries[1].done = true
+        old.entries[1].bytes = 100
+        old.entries[2].done = true
+        old.entries[3].attempts = 1
+        let fresh = DownloadManifest.build(from: try media(adPlaylist(adAfter: 1, token: "b")), generation: 2)
+        XCTAssertFalse(old.matches(fresh))
+        let remapped = try XCTUnwrap(old.remapping(onto: fresh))
+        // The saved layout (files, lines, progress) stays; only URLs and the generation are new.
+        //
+        // 保留已保存的布局 (文件, 行与进度); 只有 URL 与 generation 是新的.
+        XCTAssertEqual(remapped.generation, 2)
+        XCTAssertEqual(remapped.lines, old.lines)
+        XCTAssertEqual(remapped.entries.map(\.fileName), old.entries.map(\.fileName))
+        XCTAssertEqual(remapped.entries.map(\.done), old.entries.map(\.done))
+        XCTAssertEqual(remapped.entries[1].bytes, 100)
+        XCTAssertEqual(remapped.entries[3].attempts, 1)
+        XCTAssertEqual(remapped.entries.map { DownloadManifest.dedupeKey($0.remoteURL) },
+                       old.entries.map { DownloadManifest.dedupeKey($0.remoteURL) })
+        XCTAssertTrue(remapped.entries.allSatisfy { $0.remoteURL.absoluteString.hasSuffix("mt=b") })
+    }
+
+    func testRemappingRefusesMissingFilesAndChangedIVs() throws {
+        let old = DownloadManifest.build(from: try media(adPlaylist(adAfter: 0, token: "a")), generation: 1)
+        // A content segment the fresh playlist no longer lists.
+        //
+        // 新 playlist 不再列出的正片分片.
+        let dropped = DownloadManifest.build(from: try media(adPlaylist(adAfter: 0, token: "b")
+            .replacingOccurrences(of: "c2.ts", with: "c9.ts")), generation: 2)
+        XCTAssertNil(old.remapping(onto: dropped))
+        // An extra content segment is a different episode cut, not a moved ad.
+        //
+        // 多出一个正片分片说明是另一个剪辑版本, 而不是广告换了位置.
+        let added = DownloadManifest.build(from: try media(adPlaylist(adAfter: 0, token: "b")
+            .replacingOccurrences(of: "#EXT-X-ENDLIST", with: "#EXTINF:2.0,\nhttps://kmtv.example/api/v1/proxy/segment?url=https%3A%2F%2Fcdn%2Fc3.ts&mt=b\n#EXT-X-ENDLIST")),
+                                           generation: 2)
+        XCTAssertNil(old.remapping(onto: added))
+        // Without explicit IVs, moving the ad renumbers the content, so its derived IVs change.
+        //
+        // 没有显式 IV 时, 广告移动会让正片重新编号, 推导出的 IV 随之改变.
+        let derived = DownloadManifest.build(from: try media(adPlaylist(adAfter: 0, token: "a", explicitIV: false)),
+                                             generation: 1)
+        let moved = DownloadManifest.build(from: try media(adPlaylist(adAfter: 1, token: "b", explicitIV: false)),
+                                           generation: 2)
+        XCTAssertNil(derived.remapping(onto: moved))
+    }
+
+    func testRemappingFillsMapFlagsMissingFromOldLines() throws {
+        func fmp4(adAfter: Int) -> String {
+            let key = "#EXT-X-KEY:METHOD=AES-128,URI=\"k.bin\",IV=0x0000000000000000000000000000000A"
+            var text = "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:5\n#EXT-X-MAP:URI=\"init.mp4\"\n\(key)\n"
+            for content in 0..<2 {
+                text += "#EXTINF:2,\ns\(content).m4s\n"
+                if content == adAfter {
+                    text += "#EXT-X-DISCONTINUITY\n#EXT-X-KEY:METHOD=NONE\n#EXTINF:5,\nad.m4s\n#EXT-X-DISCONTINUITY\n\(key)\n"
+                }
+            }
+            return text + "#EXT-X-ENDLIST\n"
+        }
+        var old = DownloadManifest.build(from: try media(fmp4(adAfter: 0)), generation: 1)
+        // Saved before the map flag existed, so the map reads as ciphertext under the old rule.
+        //
+        // 在 map 标记出现之前保存, 因此按旧规则 map 被视为密文.
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(old)) as? [String: Any])
+        json["lines"] = (json["lines"] as? [[String: Any]])?.map { line in line.filter { $0.key != "mapEncrypted" } }
+        old = try JSONDecoder().decode(DownloadManifest.self, from: JSONSerialization.data(withJSONObject: json))
+        let map = try XCTUnwrap(old.entries.firstIndex { $0.kind == .map })
+        XCTAssertTrue(old.isEncrypted(entry: map))
+        let fresh = DownloadManifest.build(from: try media(fmp4(adAfter: 1)), generation: 2)
+        let remapped = try XCTUnwrap(old.remapping(onto: fresh))
+        XCTAssertEqual(remapped.entries.map(\.fileName), old.entries.map(\.fileName))
+        XCTAssertFalse(remapped.isEncrypted(entry: map))
+        XCTAssertEqual(remapped.lines.map(\.mapEncrypted), [false, false, false])
+    }
+
+    func testOnlyProxiedEntriesHaveUpstreamIdentities() throws {
+        let direct = DownloadManifest.build(from: try media(encrypted), generation: 1)
+        XCTAssertFalse(direct.hasUpstreamIdentities)
+        let proxied = DownloadManifest.build(from: try media(adPlaylist(adAfter: 0, token: "a")), generation: 1)
+        XCTAssertTrue(proxied.hasUpstreamIdentities)
+    }
+
     func testWriterSkipsAMissingEpisodeDirectory() throws {
         let dir = FileManager.default.temporaryDirectory.appending(path: "gone-\(UUID().uuidString)")
         let manifest = DownloadManifest.build(from: try media(encrypted), generation: 1)

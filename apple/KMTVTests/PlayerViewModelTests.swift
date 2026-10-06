@@ -1309,6 +1309,31 @@ final class PlayerViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testCoverHintReplacesTheSourceCoverForWatchHistory() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        let api = FakePlayerAPI()
+        api.detailResponse = VideoDetail(
+            id: "video-1", title: "Video", type: "show", year: "2026",
+            cover: "https://img.source.example/blocked.jpg", desc: "", director: "", actor: "", area: "",
+            episodes: [[Episode(name: "EP1", url: "https://cdn.example/ep1.m3u8")]]
+        )
+        let vm = PlayerViewModel(
+            apiClient: api, modelContext: container.mainContext, serverURL: "https://kmtv.example", syncStore: sync,
+            sources: [SourceResult(sourceKey: "source-a", sourceName: "Source A", videoId: "video-1", durationMs: 0,
+                                   episodes: [])],
+            sourceKey: "source-a", videoId: "video-1", title: "Video", coverHint: "https://img.douban.example/ok.jpg"
+        )
+
+        let ok = await vm.loadDetail(sourceKey: "source-a", videoId: "video-1")
+        vm.onTimeUpdate(current: 10, total: 120)
+
+        XCTAssertTrue(ok)
+        XCTAssertEqual(vm.detail?.cover, "https://img.douban.example/ok.jpg")
+        XCTAssertEqual(sync.watch(title: "Video")?.cover, "https://img.douban.example/ok.jpg")
+    }
+
+    @MainActor
     func testCoverHintFillsMissingDetailCoverForWatchHistory() async throws {
         let container = try ModelContainerFactory.makeInMemory()
         let sync = makeSyncStore(container)

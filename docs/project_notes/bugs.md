@@ -80,3 +80,22 @@ Keep entries short; remove entries that no longer teach anything.
 - **Root Cause**: A wrapped Chinese line began with a backtick identifier, which the checker reads as a new English paragraph.
 - **Solution**: Rewrapped the line so it starts with Chinese text.
 - **Prevention**: Run `task bilingual-check` before committing; do not start a wrapped Chinese line with code.
+
+### 2026-10-06 - Paused iOS download restarted from 0% on resume
+- **Issue**: Resuming a paused 360zy episode logged `download playlist changed, restarting` and re-downloaded everything.
+- **Root Cause**: The source inserts the same ad runs at random places on every fetch; resume compared the saved manifest with the fresh playlist by index and duration.
+- **Solution**: Resume matches entries by upstream identity and keeps the saved layout (`remapping(onto:)`); the duration-only fallback is limited to direct URLs. The server can also drop the ads (ADR-018).
+- **Prevention**: Never pair downloaded files with playlist entries by position; treat upstream playlists as unstable (ADR-005).
+
+### 2026-10-06 - Player page froze after tapping download on a long episode
+- **Issue**: After queueing a 3285-segment episode, the UI ignored taps for about 13 s.
+- **Root Cause**: `BackgroundDownloadTransport.enqueue` created up to 3000 background tasks on the main actor, each a synchronous XPC call to `nsurlsessiond`.
+- **Solution**: Tasks are created on a serial background queue; `cancel` and `outstanding` wait for it first. Per-entry bookkeeping no longer scans or copies the manifest.
+- **Prevention**: Keep `URLSession` task creation and other per-entry system calls off the main actor.
+
+### 2026-10-06 - Favorites, watch history, and downloads lost covers for some sources
+- **Issue**: Shows opened from a Douban card showed blank covers in favorites, continue watching, and downloads.
+- **Root Cause**: Records kept the source's own cover, and that source's image host answers 403 ("请求拦截") to every request.
+- **Solution**: iOS keeps the tapped card's cover when the search result has the card's title (`SearchView.bestCover`), and the player prefers that hint over the source cover.
+- **Prevention**: Prefer covers the app already showed successfully over upstream ones (ADR-005).
+

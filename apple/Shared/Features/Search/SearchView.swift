@@ -89,8 +89,17 @@ struct SearchView: View {
         await viewModel.search(query: search.query)
     }
 
-    static func bestCover(resultCover: String, coverHint: String) -> String {
-        resultCover.isEmpty ? coverHint : resultCover
+    /// The cover a result opens the player with. The card the user tapped (`coverHint`) wins when
+    /// the result has that card's title: card covers come from Douban and load reliably, while some
+    /// sources block requests for their own covers. Other results keep their own cover and fall
+    /// back to the hint.
+    ///
+    /// 搜索结果打开播放页时使用的封面. 结果标题与用户点按的卡片一致时, 优先使用该卡片的封面
+    /// (`coverHint`): 卡片封面来自豆瓣, 能稳定加载, 而部分源站会拦截对其自身封面的请求. 其他结果保留
+    /// 自己的封面, 缺失时回退到提示封面.
+    static func bestCover(resultCover: String, resultTitle: String, query: String, coverHint: String) -> String {
+        if !coverHint.isEmpty, normalizeSyncKey(resultTitle) == normalizeSyncKey(query) { return coverHint }
+        return resultCover.isEmpty ? coverHint : resultCover
     }
 }
 
@@ -165,7 +174,8 @@ struct TVSearchContentView: View {
                         sources: result.sources,
                         sourceKey: source?.sourceKey ?? "",
                         videoId: source?.videoId ?? "",
-                        coverHint: SearchView.bestCover(resultCover: result.cover, coverHint: coverHint),
+                        coverHint: SearchView.bestCover(resultCover: result.cover, resultTitle: result.title,
+                                                        query: viewModel.query, coverHint: coverHint),
                         resumeIntent: resumeIntent
                     )
                     onPlay?(dest)
@@ -283,7 +293,8 @@ struct SearchContentView: View {
                     sources: result.sources,
                     sourceKey: source?.sourceKey ?? "",
                     videoId: source?.videoId ?? "",
-                    coverHint: SearchView.bestCover(resultCover: result.cover, coverHint: coverHint),
+                    coverHint: SearchView.bestCover(resultCover: result.cover, resultTitle: result.title,
+                                                    query: viewModel.query, coverHint: coverHint),
                     resumeIntent: resumeIntent
                 ))
             } label: {

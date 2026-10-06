@@ -199,6 +199,110 @@ struct DownloadManifest: Codable, Equatable, Sendable {
                                 entries: entries, lines: newer.lines)
     }
 
+    /// This manifest refreshed from `fresh` by upstream identity (see `dedupeKey`), or nil when
+    /// `fresh` lists other files or another number of lines, or gives a segment another key, IV,
+    /// or map. Some sources
+    /// insert ads at a random place on every fetch, so a resume cannot pair entries by index. When
+    /// every entry lines up by index, the result is `adopting(urlsFrom:)` (fresh lines and
+    /// header); otherwise it keeps this layout, whose files are on disk, with the fresh URLs.
+    /// Either way it carries the fresh generation and this manifest's progress.
+    ///
+    /// 按上游身份 (见 `dedupeKey`) 用 `fresh` 刷新本 manifest; 若 `fresh` 列出的文件或行数不同, 或给
+    /// 某个分片换了 key, IV 或 map, 则返回 nil. 有些源站每次获取都把广告插入到随机位置, 因此续传不能按
+    /// 序号配对条目. 所有条目按序号一一对应时, 结果为 `adopting(urlsFrom:)` (采用新的行与头部); 否则
+    /// 保留本 manifest 的布局 (其文件已在磁盘上), 只换用新的 URL. 两种情况都带上新的 generation 与
+    /// 本 manifest 的进度.
+    func remapping(onto fresh: DownloadManifest) -> DownloadManifest? {
+        struct Slot: Hashable {
+            let kind: Kind
+            let identity: String
+        }
+        struct Crypto: Hashable {
+            let key: String
+            let iv: Data?
+            let map: String
+        }
+        func slot(_ entry: Entry) -> Slot { Slot(kind: entry.kind, identity: Self.dedupeKey(entry.remoteURL)) }
+        // The identity of a referenced entry: "" for no reference, nil for an index out of range.
+        //
+        // 被引用条目的身份: 无引用时为 "", 序号越界时为 nil.
+        func reference(_ index: Int?, in manifest: DownloadManifest) -> String? {
+            guard let index else { return "" }
+            guard manifest.entries.indices.contains(index) else { return nil }
+            return Self.dedupeKey(manifest.entries[index].remoteURL)
+        }
+        func signature(_ line: Line, in manifest: DownloadManifest) -> (segment: String, crypto: Crypto)? {
+            guard let segment = reference(line.segment, in: manifest), let key = reference(line.key, in: manifest),
+                  let map = reference(line.map, in: manifest) else { return nil }
+            return (segment, Crypto(key: key, iv: line.iv, map: map))
+        }
+        guard lines.count == fresh.lines.count,
+              Set(entries.map(slot)) == Set(fresh.entries.map(slot)) else { return nil }
+        var urls: [Slot: URL] = [:]
+        for entry in fresh.entries where urls[slot(entry)] == nil {
+            urls[slot(entry)] = entry.remoteURL
+        }
+        var freshCrypto: [String: Set<Crypto>] = [:]
+        for line in fresh.lines {
+            guard let signed = signature(line, in: fresh) else { return nil }
+            freshCrypto[signed.segment, default: []].insert(signed.crypto)
+        }
+        for line in lines {
+            guard let signed = signature(line, in: self),
+                  freshCrypto[signed.segment]?.contains(signed.crypto) == true else { return nil }
+        }
+        let aligned = entries.count == fresh.entries.count
+            && zip(entries, fresh.entries).allSatisfy { slot($0) == slot($1) }
+        if aligned, matches(fresh) { return adopting(urlsFrom: fresh) }
+        var remappedEntries = entries
+        for index in remappedEntries.indices {
+            guard let url = urls[slot(entries[index])] else { return nil }
+            remappedEntries[index].remoteURL = url
+        }
+        // Lines saved before the map flag existed take it from the fresh line of the same segment.
+        //
+        // 在 map 标记出现之前保存的行, 从同一分片的新行取得该标记.
+        var freshMapFlags: [String: Bool] = [:]
+        for line in fresh.lines {
+            if let flag = line.mapEncrypted, let segment = reference(line.segment, in: fresh), freshMapFlags[segment] == nil {
+                freshMapFlags[segment] = flag
+            }
+        }
+        let remappedLines = lines.map { line -> Line in
+            guard line.map != nil, line.mapEncrypted == nil, let segment = reference(line.segment, in: self),
+                  let flag = freshMapFlags[segment] else { return line }
+            var updated = line
+            updated.mapEncrypted = flag
+            return updated
+        }
+        return DownloadManifest(generation: fresh.generation, version: version, targetDuration: targetDuration,
+                                mediaSequence: mediaSequence, entries: remappedEntries, lines: remappedLines)
+    }
+
+    /// Whether every entry is a proxy URL, whose `url` parameter names the upstream file reliably.
+    ///
+    /// 是否所有条目都是代理 URL; 代理 URL 的 `url` 参数能可靠地标识上游文件.
+    var hasUpstreamIdentities: Bool {
+        !entries.isEmpty && entries.allSatisfy { Self.dedupeKey($0.remoteURL) != $0.remoteURL.absoluteString }
+    }
+
+    /// Indexes of the entries that hold AES-128 ciphertext (see `isEncrypted(entry:)`), in one pass.
+    ///
+    /// 存放 AES-128 密文的条目序号 (见 `isEncrypted(entry:)`), 一次遍历得出.
+    var encryptedEntries: Set<Int> {
+        var indexes: Set<Int> = []
+        for line in lines {
+            if line.key != nil { indexes.insert(line.segment) }
+            if let map = line.map, line.mapIsEncrypted { indexes.insert(map) }
+        }
+        return indexes
+    }
+
+    /// Number of entries still to download.
+    ///
+    /// 仍需下载的条目数.
+    var missingCount: Int { entries.reduce(0) { $1.done ? $0 : $0 + 1 } }
+
     /// Entries still to download.
     ///
     /// 仍需下载的条目.
