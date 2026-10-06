@@ -200,9 +200,12 @@ private struct DownloadShowRow: View {
 }
 
 /// Storage used by this account's downloads and the device's free space, from the manager's cache.
+/// While visible it recomputes on appear and re-reads free space every `freeSpaceRefresh`.
 ///
-/// 本账号下载占用的存储与设备剩余空间, 取自管理器的缓存.
+/// 本账号下载占用的存储与设备剩余空间, 取自管理器的缓存. 显示期间会在出现时重新计算,
+/// 并每隔 `freeSpaceRefresh` 重新读取剩余空间.
 private struct DownloadsStorageFooter: View {
+    static let freeSpaceRefresh: Duration = .seconds(20)
     @Environment(DownloadManager.self) private var downloads
 
     var body: some View {
@@ -213,7 +216,14 @@ private struct DownloadsStorageFooter: View {
         }
         .font(.caption)
         .foregroundStyle(Theme.textSecondary)
-        .onAppear { downloads.refreshStorage() }
+        .task {
+            downloads.refreshStorage()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.freeSpaceRefresh)
+                guard !Task.isCancelled else { return }
+                await downloads.refreshFreeSpace()
+            }
+        }
     }
 }
 

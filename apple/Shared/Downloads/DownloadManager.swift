@@ -31,10 +31,11 @@ struct DownloadEpisodeRequest: Sendable, Equatable {
 }
 
 /// Bytes used by the active scope and by every other scope, and the device's free space, cached so
-/// views never fetch rows or query the volume while rendering.
+/// views never fetch rows or query the volume while rendering. Bytes follow row writes; free space
+/// is read on demand.
 ///
 /// 当前作用域与其他所有作用域占用的字节数, 以及设备剩余空间; 缓存起来, 视图渲染时无需读取数据行或查询
-/// 磁盘卷.
+/// 磁盘卷. 字节数随数据行写入更新; 剩余空间按需读取.
 struct DownloadStorageUsage: Equatable {
     var activeBytes: Int64 = 0
     var otherBytes: Int64 = 0
@@ -54,6 +55,7 @@ struct DownloadDisplayRevision: Equatable {
     var expensive: Bool
     var constrained: Bool
     var allowsCellular: Bool
+    var preparing: Set<String>
 }
 
 /// Why episodes could not be queued.
@@ -132,10 +134,11 @@ final class DownloadManager {
     ///
     /// 当前作用域中正在下载或排队的集数 (tab 角标); 只在结构变化时重新计算.
     private(set) var activeEpisodeCount = 0
-    /// Cached storage use and free space; refreshed on structural changes, progress ticks, and
-    /// `refreshStorage()`.
+    /// Cached storage use and free space. Bytes change with the rows (never by a full fetch per
+    /// tick); free space is read off the main actor by `refreshFreeSpace()` and at enqueue.
     ///
-    /// 缓存的存储占用与剩余空间; 在结构变化, 进度通知以及 `refreshStorage()` 时刷新.
+    /// 缓存的存储占用与剩余空间. 字节数随数据行变化 (不会每次进度通知都完整读取);
+    /// 剩余空间由 `refreshFreeSpace()` 在主 actor 之外读取, 入队时也会读取.
     private(set) var storage = DownloadStorageUsage()
     /// Episodes currently being prepared, by `episodeKey`.
     ///
@@ -145,6 +148,11 @@ final class DownloadManager {
     ///
     /// 场景是否处于 active 或 inactive; 只有此时或后台唤醒期间才会做准备.
     private(set) var isForeground = true
+    /// Whether a preparer is set, mirrored from the unobserved preparer so `canDownload` updates
+    /// views.
+    ///
+    /// 是否设置了准备器; 由不被观察的准备器同步而来, 使 `canDownload` 能够刷新视图.
+    private(set) var hasPreparer = false
     /// Whether new tasks may use cellular data.
     ///
     /// 新任务是否可以使用蜂窝数据.
@@ -166,11 +174,16 @@ final class DownloadManager {
     @ObservationIgnored private let context: ModelContext
     @ObservationIgnored private let transport: any DownloadTransport
     @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private let freeSpace: () -> Int64
+    @ObservationIgnored private let freeSpace: @Sendable () -> Int64
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let coverFetcher: @Sendable (URL) async -> Data?
     @ObservationIgnored private let outstandingLimit: Int
-    @ObservationIgnored private var preparer: (any DownloadPreparing)?
+    @ObservationIgnored private var preparer: (any DownloadPreparing)? {
+        didSet {
+            let has = preparer != nil
+            if hasPreparer != has { hasPreparer = has }
+        }
+    }
     @ObservationIgnored private var manifests: [String: DownloadManifest] = [:]
     @ObservationIgnored private var inFlight: Set<DownloadTaskID> = []
     @ObservationIgnored private var unsaved: [String: Int] = [:]
@@ -199,6 +212,10 @@ final class DownloadManager {
     @ObservationIgnored private let wakeBudget: Duration
     @ObservationIgnored private var server: LocalMediaServer?
     @ObservationIgnored private let progressInterval: Duration
+    /// Waits out one progress interval; tests replace it to fire ticks on demand.
+    ///
+    /// 等待一个进度间隔; 测试会替换它, 以便按需触发进度通知.
+    @ObservationIgnored private let progressWait: @Sendable (Duration) async -> Void
     /// The pending progress notification; nil when none is scheduled, so nothing runs while no
     /// entry finishes. Exposed for tests.
     ///
@@ -210,12 +227,14 @@ final class DownloadManager {
     ///
     /// 创建管理器, 并在任何任务入队之前订阅传输事件.
     init(context: ModelContext, layout: DownloadLayout, transport: any DownloadTransport,
-         defaults: UserDefaults = .standard, freeSpace: @escaping () -> Int64 = DownloadManager.deviceFreeSpace,
+         defaults: UserDefaults = .standard,
+         freeSpace: @escaping @Sendable () -> Int64 = DownloadManager.deviceFreeSpace,
          now: @escaping () -> Date = Date.init, outstandingLimit: Int = 3000,
          network: DownloadNetworkMonitor? = nil,
          coverFetcher: @escaping @Sendable (URL) async -> Data? = DownloadManager.fetchCoverData,
          backgroundWakeBudget: Duration = DownloadManager.backgroundWakeBudget,
-         progressInterval: Duration = DownloadManager.progressInterval) {
+         progressInterval: Duration = DownloadManager.progressInterval,
+         progressWait: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
         self.context = context
         self.layout = layout
         self.transport = transport
@@ -228,8 +247,10 @@ final class DownloadManager {
         self.coverFetcher = coverFetcher
         self.wakeBudget = backgroundWakeBudget
         self.progressInterval = progressInterval
+        self.progressWait = progressWait
         transport.onEvent = { [weak self] event in await self?.process(event) }
         network?.onRestore = { [weak self] in self?.schedulePump() }
+        recomputeBytes()
     }
 
     /// Downloads cover image bytes; nil on any failure or non-200 response.
@@ -253,7 +274,7 @@ final class DownloadManager {
     /// Whether downloads can be queued now (a signed-in scope with a preparer).
     ///
     /// 当前是否可以加入下载 (存在已登录的作用域与准备器).
-    var canDownload: Bool { activeScopeKey != nil && preparer != nil }
+    var canDownload: Bool { activeScopeKey != nil && hasPreparer }
 
     // MARK: - Queries
 
@@ -380,7 +401,7 @@ final class DownloadManager {
     var displayRevision: DownloadDisplayRevision {
         DownloadDisplayRevision(structure: changeCount, progress: progressTick, satisfied: network?.isSatisfied ?? true,
                                 expensive: network?.isExpensive ?? false, constrained: network?.isConstrained ?? false,
-                                allowsCellular: allowsCellular)
+                                allowsCellular: allowsCellular, preparing: preparingKeys)
     }
 
     // MARK: - Scope
@@ -395,7 +416,10 @@ final class DownloadManager {
             await pauseScope(previous, reason: .signedOut)
             stopServer()
         }
-        activeScopeKey = scopeKey
+        if activeScopeKey != scopeKey {
+            activeScopeKey = scopeKey
+            recomputeBytes()
+        }
         self.preparer = preparer
         for ep in episodes(in: scopeKey) where ep.state == .paused && ep.pauseReason == .signedOut {
             ep.state = .queued
@@ -442,8 +466,11 @@ final class DownloadManager {
     ///
     /// 以离线方式展示某个作用域: 只读数据与播放, 不做准备.
     func openOffline(scopeKey: String) {
-        if activeScopeKey != scopeKey { stopServer() }
-        activeScopeKey = scopeKey
+        if activeScopeKey != scopeKey {
+            stopServer()
+            activeScopeKey = scopeKey
+            recomputeBytes()
+        }
         preparer = nil
         bump()
     }
@@ -456,6 +483,7 @@ final class DownloadManager {
         preparer = nil
         await pauseScope(scope, reason: .signedOut)
         activeScopeKey = nil
+        recomputeBytes()
         stopServer()
         bump()
     }
@@ -489,7 +517,9 @@ final class DownloadManager {
     @discardableResult
     func enqueue(show info: DownloadShowInfo, episodes requests: [DownloadEpisodeRequest]) throws -> Int {
         guard let scopeKey = activeScopeKey, preparer != nil else { throw DownloadEnqueueError.notSignedIn }
-        guard freeSpace() >= Self.freeSpaceFloor else { throw DownloadEnqueueError.notEnoughSpace }
+        let free = freeSpace()
+        if storage.freeBytes != free { storage.freeBytes = free }
+        guard free >= Self.freeSpaceFloor else { throw DownloadEnqueueError.notEnoughSpace }
         let showKey = normalizeSyncKey(info.title)
         let show: DownloadShow
         if let existing = self.show(scopeKey: scopeKey, showKey: showKey) {
@@ -621,6 +651,7 @@ final class DownloadManager {
         // 等待期间, 并发的 `deleteShow` 或 `deleteScope` 可能已删除该行.
         guard isLive(ep) else { return }
         removeEpisodeFiles(ep)
+        setBytes(ep, 0)
         context.delete(ep)
         saveContext()
         if episodes(in: scopeKey, showKey: showKey).isEmpty, let show = show(scopeKey: scopeKey, showKey: showKey) {
@@ -650,6 +681,7 @@ final class DownloadManager {
         for ep in episodes(in: scopeKey) {
             manifests[ep.episodeKey] = nil
             unsaved[ep.episodeKey] = nil
+            setBytes(ep, 0)
             context.delete(ep)
         }
         for show in shows(in: scopeKey) { context.delete(show) }
@@ -676,7 +708,7 @@ final class DownloadManager {
         ep.state = .failed
         ep.failure = .damaged
         ep.doneEntries = 0
-        ep.bytes = 0
+        setBytes(ep, 0)
         saveContext()
         bump()
     }
@@ -937,8 +969,10 @@ final class DownloadManager {
     private func prepare(_ ep: DownloadEpisode, with preparer: any DownloadPreparing, priority: Float) async {
         let key = ep.episodeKey
         let generation = (manifest(for: ep)?.generation ?? 0) + 1
+        // No structural bump: rows and the picker observe `preparingKeys` directly.
+        //
+        // 不做结构递增: 数据行与选集面板直接观察 `preparingKeys`.
         preparingKeys.insert(key)
-        bump()
         let result: Result<DownloadManifest, Error>
         do {
             result = .success(try await preparer.prepare(episodeURL: ep.episodeURL, sourceKey: ep.sourceKey,
@@ -947,7 +981,6 @@ final class DownloadManager {
             result = .failure(error)
         }
         preparingKeys.remove(key)
-        bump()
         guard let current = episode(forKey: key), current.state == .queued else { return }
         switch result {
         case .success(let fresh):
@@ -973,7 +1006,7 @@ final class DownloadManager {
             progressPending.remove(key)
             current.totalEntries = next.entries.count
             current.doneEntries = next.doneCount
-            current.bytes = next.totalBytes
+            setBytes(current, next.totalBytes)
             current.state = .downloading
             saveContext()
             bump()
@@ -1197,7 +1230,7 @@ final class DownloadManager {
         ep.completedAt = now()
         ep.totalEntries = manifest.entries.count
         ep.doneEntries = manifest.doneCount
-        ep.bytes = manifest.totalBytes
+        setBytes(ep, manifest.totalBytes)
         ep.durationSec = manifest.totalDuration
         saveContext()
         bump()
@@ -1252,7 +1285,7 @@ final class DownloadManager {
         let done = manifest.doneCount
         let bytes = manifest.totalBytes
         if ep.doneEntries != done { ep.doneEntries = done }
-        if ep.bytes != bytes { ep.bytes = bytes }
+        setBytes(ep, bytes)
     }
 
     /// Flushes every episode with pending progress.
@@ -1317,12 +1350,12 @@ final class DownloadManager {
         }
     }
 
-    /// Marks a structural change and refreshes the values derived from rows.
+    /// Marks a structural change and recounts the active episodes.
     ///
-    /// 标记一次结构变化, 并刷新由数据行推导出的值.
+    /// 标记一次结构变化, 并重新统计进行中的集数.
     private func bump() {
         changeCount &+= 1
-        refreshDerived()
+        recountActive()
     }
 
     /// Schedules one progress notification at the end of the current interval; entries finishing
@@ -1332,44 +1365,78 @@ final class DownloadManager {
     private func scheduleProgress() {
         guard progressTask == nil else { return }
         let interval = progressInterval
+        let wait = progressWait
         progressTask = Task { [weak self] in
-            try? await Task.sleep(for: interval)
+            await wait(interval)
             guard let self else { return }
             self.progressTask = nil
             self.flushAllProgress()
             self.progressTick &+= 1
-            self.refreshDerived()
         }
     }
 
-    /// Re-reads free space and storage use, for example when a screen showing them appears.
+    /// Recomputes storage use from the rows and refreshes free space off the main actor, for
+    /// example when a screen showing them appears.
     ///
-    /// 重新读取剩余空间与存储占用, 例如在展示它们的页面出现时.
+    /// 依据数据行重新计算存储占用, 并在主 actor 之外刷新剩余空间, 例如在展示它们的页面出现时.
     func refreshStorage() {
-        refreshDerived()
+        recomputeBytes()
+        Task { await refreshFreeSpace() }
     }
 
-    /// Recomputes cached storage use, free space, and the active count from one fetch; assigns only
-    /// changed values, so unchanged ones notify no view. The active count only changes with state,
-    /// so a progress tick never moves the tab badge.
+    /// Reads the volume's free space off the main actor and caches it.
     ///
-    /// 通过一次读取重新计算缓存的存储占用, 剩余空间与进行中集数; 只赋值发生变化的值, 未变化的值不会
-    /// 通知任何视图. 进行中集数只随状态变化, 因此进度通知不会改变 tab 角标.
-    private func refreshDerived() {
+    /// 在主 actor 之外读取磁盘卷的剩余空间并缓存.
+    func refreshFreeSpace() async {
+        let read = freeSpace
+        let free = await Task.detached(priority: .utility) { read() }.value
+        if storage.freeBytes != free { storage.freeBytes = free }
+    }
+
+    /// Writes an episode's bytes and moves the cached totals by the difference.
+    ///
+    /// 写入某集的字节数, 并按差值调整缓存的总量.
+    private func setBytes(_ ep: DownloadEpisode, _ value: Int64) {
+        guard ep.bytes != value else { return }
+        let delta = value - ep.bytes
+        ep.bytes = value
+        if ep.scopeKey == activeScopeKey {
+            storage.activeBytes += delta
+        } else {
+            storage.otherBytes += delta
+        }
+    }
+
+    /// Recomputes the cached totals from every row; only at launch, on scope changes, and on demand.
+    ///
+    /// 依据所有数据行重新计算缓存的总量; 只在启动, 作用域变化以及按需时执行.
+    private func recomputeBytes() {
         let all = (try? context.fetch(FetchDescriptor<DownloadEpisode>())) ?? []
         let scope = activeScopeKey
-        var usage = DownloadStorageUsage(freeBytes: freeSpace())
-        var active = 0
+        var active: Int64 = 0
+        var other: Int64 = 0
         for ep in all {
-            if ep.scopeKey == scope {
-                usage.activeBytes += ep.bytes
-                if ep.state == .queued || ep.state == .downloading { active += 1 }
-            } else {
-                usage.otherBytes += ep.bytes
-            }
+            if ep.scopeKey == scope { active += ep.bytes } else { other += ep.bytes }
         }
-        if usage != storage { storage = usage }
-        if active != activeEpisodeCount { activeEpisodeCount = active }
+        if storage.activeBytes != active { storage.activeBytes = active }
+        if storage.otherBytes != other { storage.otherBytes = other }
+    }
+
+    /// Recounts queued and downloading episodes of the active scope with a count query; assigns only
+    /// a changed value, so the tab badge moves only with state.
+    ///
+    /// 用计数查询重新统计当前作用域中排队与下载中的集数; 只在数值变化时赋值, 因此 tab 角标只随状态变化.
+    private func recountActive() {
+        var count = 0
+        if let scope = activeScopeKey {
+            let queued = DownloadState.queued.rawValue
+            let downloading = DownloadState.downloading.rawValue
+            let descriptor = FetchDescriptor<DownloadEpisode>(predicate: #Predicate {
+                $0.scopeKey == scope && ($0.stateRaw == queued || $0.stateRaw == downloading)
+            })
+            count = (try? context.fetchCount(descriptor)) ?? 0
+        }
+        if count != activeEpisodeCount { activeEpisodeCount = count }
     }
 }
 

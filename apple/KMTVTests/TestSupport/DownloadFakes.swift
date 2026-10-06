@@ -153,3 +153,73 @@ final class PrepareGate: @unchecked Sendable {
         released.forEach { $0.resume() }
     }
 }
+
+/// A re-armable gate for the manager's progress wait: each `release()` lets one waiter through,
+/// or the next one when nobody waits yet, so tests decide exactly when a progress tick fires.
+///
+/// 可重复使用的闸门, 用于管理器的进度等待: 每次 `release()` 放行一个等待者; 尚无等待者时放行下一个,
+/// 因此测试可以精确决定进度通知何时发出.
+final class TickGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var permits = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Suspends until released.
+    ///
+    /// 挂起直到被放行.
+    func wait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let resumeNow = lock.withLock {
+                if permits > 0 {
+                    permits -= 1
+                    return true
+                }
+                waiters.append(continuation)
+                return false
+            }
+            if resumeNow { continuation.resume() }
+        }
+    }
+
+    /// Releases one waiter, or banks one release for the next wait.
+    ///
+    /// 放行一个等待者; 若尚无等待者, 则为下一次等待预留一次放行.
+    func release() {
+        let waiter: CheckedContinuation<Void, Never>? = lock.withLock {
+            if waiters.isEmpty {
+                permits += 1
+                return nil
+            }
+            return waiters.removeFirst()
+        }
+        waiter?.resume()
+    }
+}
+
+/// Free space for the manager, settable by tests and counting how often it is read.
+///
+/// 提供给管理器的剩余空间, 测试可以设置它, 并统计被读取的次数.
+final class FreeSpaceStub: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value: Int64
+    private var _reads = 0
+
+    init(_ value: Int64) { _value = value }
+
+    var value: Int64 {
+        get { lock.withLock { _value } }
+        set { lock.withLock { _value = newValue } }
+    }
+
+    var reads: Int { lock.withLock { _reads } }
+
+    /// Reads the value and counts the read.
+    ///
+    /// 读取数值并计数.
+    func read() -> Int64 {
+        lock.withLock {
+            _reads += 1
+            return _value
+        }
+    }
+}

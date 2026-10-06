@@ -20,7 +20,8 @@ final class DownloadManagerTests: XCTestCase {
     private var transport: FakeDownloadTransport!
     private var preparer: FakePreparer!
     private var manager: DownloadManager!
-    private var freeSpace: Int64 = 50_000_000_000
+    private let space = FreeSpaceStub(50_000_000_000)
+    private let ticks = TickGate()
     private var nowValue = Date(timeIntervalSince1970: 1_000)
     private let covers = CoverFetchRecorder()
 
@@ -42,9 +43,18 @@ final class DownloadManagerTests: XCTestCase {
     private func makeManager(wakeBudget: Duration = DownloadManager.backgroundWakeBudget,
                              outstandingLimit: Int = 100) -> DownloadManager {
         DownloadManager(context: container.mainContext, layout: layout, transport: transport, defaults: defaults,
-                        freeSpace: { [unowned self] in self.freeSpace }, now: { [unowned self] in self.nowValue },
+                        freeSpace: { [space] in space.read() }, now: { [unowned self] in self.nowValue },
                         outstandingLimit: outstandingLimit, coverFetcher: { [covers] url in covers.fetch(url) },
-                        backgroundWakeBudget: wakeBudget)
+                        backgroundWakeBudget: wakeBudget, progressWait: { [ticks] _ in await ticks.wait() })
+    }
+
+    /// Fires the pending progress tick, if any, and waits for it; independent of the real interval.
+    ///
+    /// 触发待发出的进度通知 (如有) 并等待其完成; 与真实间隔无关.
+    private func tick() async {
+        guard let pending = manager.progressTask else { return }
+        ticks.release()
+        await pending.value
     }
 
     private func savedManifest(_ index: Int) -> DownloadManifest? {
@@ -115,7 +125,7 @@ final class DownloadManagerTests: XCTestCase {
             XCTAssertEqual($0 as? DownloadEnqueueError, .notSignedIn)
         }
         await manager.activate(scopeKey: scope, preparer: preparer)
-        freeSpace = 10
+        space.value = 10
         XCTAssertThrowsError(try manager.enqueue(show: info, episodes: [request(0)])) {
             XCTAssertEqual($0 as? DownloadEnqueueError, .notEnoughSpace)
         }
@@ -376,7 +386,7 @@ final class DownloadManagerTests: XCTestCase {
         await transport.fail(id, code: .timedOut)
         XCTAssertEqual(transport.enqueued.count, 3)
         XCTAssertEqual(episode(0)?.state, .downloading)
-        await manager.progressTask?.value
+        await tick()
         XCTAssertEqual(episode(0)?.doneEntries, 1)
     }
 
@@ -467,7 +477,7 @@ final class DownloadManagerTests: XCTestCase {
         // per entry.
         //
         // 数据行在下一次进度通知时反映这些条目; 依赖结构变化的视图不会因每个条目而重新渲染.
-        await manager.progressTask?.value
+        await tick()
         XCTAssertEqual(episode(0)?.doneEntries, 10)
         XCTAssertEqual(manager.changeCount, structure)
     }
@@ -476,24 +486,24 @@ final class DownloadManagerTests: XCTestCase {
         preparer.segments["https://cdn.example/ep0.m3u8"] = 20
         try await enqueueAndSettle()
         XCTAssertNil(manager.progressTask)
-        let tick = manager.progressTick
+        let start = manager.progressTick
         let used = manager.storage.activeBytes
         for id in liveIDs(0).prefix(10) { await transport.finish(id, layout: layout) }
-        XCTAssertEqual(manager.progressTick, tick)
-        let pending = try XCTUnwrap(manager.progressTask)
-        await pending.value
+        XCTAssertEqual(manager.progressTick, start)
+        XCTAssertNotNil(manager.progressTask)
+        await tick()
         // Ten entries within one interval produce a single notification.
         //
         // 一个间隔内完成的十个条目只产生一次通知.
-        XCTAssertEqual(manager.progressTick, tick + 1)
+        XCTAssertEqual(manager.progressTick, start + 1)
         XCTAssertEqual(manager.storage.activeBytes, used + 40)
         // No timer keeps running once entries stop finishing.
         //
         // 条目不再完成后, 不会有计时器继续运行.
         XCTAssertNil(manager.progressTask)
         await transport.finish(liveIDs(0)[0], layout: layout)
-        await manager.progressTask?.value
-        XCTAssertEqual(manager.progressTick, tick + 2)
+        await tick()
+        XCTAssertEqual(manager.progressTick, start + 2)
     }
 
     func testActiveEpisodeCountChangesOnlyOnStateTransitions() async throws {
@@ -503,6 +513,10 @@ final class DownloadManagerTests: XCTestCase {
         withObservationTracking { _ = manager.activeEpisodeCount } onChange: { changed.set() }
         await transport.finish(liveIDs(0)[0], layout: layout)
         await transport.finish(liveIDs(0)[0], layout: layout)
+        // Let the progress tick fire, so the assertion covers it too.
+        //
+        // 让进度通知先发出, 断言因此也覆盖它.
+        await tick()
         XCTAssertFalse(changed.value)
         await manager.pause(try XCTUnwrap(episode(1)))
         XCTAssertTrue(changed.value)
@@ -602,7 +616,7 @@ final class DownloadManagerTests: XCTestCase {
         for id in liveIDs(0).prefix(30) {
             await counting { await transport.finish(id, layout: layout) }
         }
-        await counting { await manager.progressTask?.value }
+        await counting { await tick() }
         // Thirty entries: one write when the manifest is saved after 20, one on the tick.
         //
         // 三十个条目: 第 20 个后保存 manifest 时写一次, 进度通知时再写一次.
@@ -627,6 +641,65 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertEqual(episode(0)?.doneEntries, 1)
         XCTAssertEqual(episode(0)?.bytes, 4)
         XCTAssertEqual(savedManifest(0)?.doneCount, 1)
+    }
+
+    func testStorageTotalsFollowRowsWithoutReadingFreeSpacePerTick() async throws {
+        try await enqueueAndSettle([0, 1])
+        let reads = space.reads
+        for id in liveIDs(0) { await transport.finish(id, layout: layout) }
+        await transport.finish(liveIDs(1)[0], layout: layout)
+        await tick()
+        await manager.pause(try XCTUnwrap(episode(1)))
+        // Neither progress ticks nor structural changes touch the volume.
+        //
+        // 进度通知与结构变化都不会访问磁盘卷.
+        XCTAssertEqual(space.reads, reads)
+        XCTAssertEqual(manager.storage.activeBytes, manager.usedBytes(in: scope))
+        XCTAssertEqual(manager.storage.activeBytes, 16)
+        manager.markDamaged(try XCTUnwrap(episode(0)))
+        XCTAssertEqual(manager.storage.activeBytes, 4)
+        await manager.delete(try XCTUnwrap(episode(1)))
+        XCTAssertEqual(manager.storage.activeBytes, 0)
+        // Another scope's bytes move to "other" when the scope changes.
+        //
+        // 作用域切换后, 原作用域的字节数计入 "其他".
+        try await enqueueAndSettle([2])
+        for id in liveIDs(2) { await transport.finish(id, layout: layout) }
+        let other = syncScopeKey(serverURL: "https://kmtv.example", userID: 2)
+        await manager.activate(scopeKey: other, preparer: preparer)
+        XCTAssertEqual(manager.storage.activeBytes, 0)
+        XCTAssertEqual(manager.storage.otherBytes, manager.otherScopesBytes(excluding: other))
+        XCTAssertEqual(manager.storage.otherBytes, 12)
+        // Free space is read off the main actor, on demand.
+        //
+        // 剩余空间按需在主 actor 之外读取.
+        space.value = 7_000_000_000
+        await manager.refreshFreeSpace()
+        XCTAssertEqual(manager.storage.freeBytes, 7_000_000_000)
+    }
+
+    func testPrepareBumpsStructureOnceForTheStateChange() async throws {
+        let before = manager.displayRevision
+        let gate = try await enqueueGated([0])
+        let enqueued = manager.changeCount
+        // The picker still sees the episode start preparing, through the revision.
+        //
+        // 选集面板仍可通过版本号看到该集开始准备.
+        XCTAssertNotEqual(manager.displayRevision, before)
+        gate.open()
+        await manager.waitForIdle()
+        XCTAssertEqual(manager.changeCount - enqueued, 1)
+        XCTAssertEqual(episode(0)?.state, .downloading)
+    }
+
+    func testCanDownloadFollowsThePreparer() async throws {
+        manager.openOffline(scopeKey: scope)
+        XCTAssertFalse(manager.canDownload)
+        let changed = ObservationFlag()
+        withObservationTracking { _ = manager.canDownload } onChange: { changed.set() }
+        await manager.activate(scopeKey: scope, preparer: preparer)
+        XCTAssertTrue(changed.value)
+        XCTAssertTrue(manager.canDownload)
     }
 
     func testDeleteEpisodeRemovesEmptyShowAndMarkDamagedClearsFiles() async throws {
