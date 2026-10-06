@@ -222,6 +222,52 @@ final class DownloadManifestTests: XCTestCase {
         XCTAssertFalse(old.mismatchSummary(clear).contains("http"))
     }
 
+    func testWriterCoalescesToTheLatestSnapshotPerEpisode() async throws {
+        let recorder = WriteRecorder()
+        let writer = DownloadManifestWriter(write: { manifest, _ in recorder.record(manifest.generation) })
+        let base = DownloadManifest.build(from: try media(encrypted), generation: 1)
+        func snapshot(_ generation: Int) -> DownloadManifest {
+            var copy = base
+            copy.generation = generation
+            return copy
+        }
+        let url = FileManager.default.temporaryDirectory.appending(path: "unused.json")
+        recorder.blockNextWrite()
+        writer.submit(snapshot(1), to: url, key: "a")
+        try await recorder.waitUntilBlocked()
+        // Two newer snapshots arrive while the first write runs; only the latest is written.
+        //
+        // 第一次写入期间又来了两个更新的快照; 只有最新的那个会被写入.
+        writer.submit(snapshot(2), to: url, key: "a")
+        writer.submit(snapshot(3), to: url, key: "a")
+        recorder.unblock()
+        await writer.flush("a")
+        XCTAssertEqual(recorder.generations, [1, 3])
+    }
+
+    func testWriterDiscardDropsPendingAndWaitsForTheWriteInProgress() async throws {
+        let recorder = WriteRecorder()
+        let writer = DownloadManifestWriter(write: { manifest, _ in recorder.record(manifest.generation) })
+        var manifest = DownloadManifest.build(from: try media(encrypted), generation: 1)
+        let url = FileManager.default.temporaryDirectory.appending(path: "unused.json")
+        recorder.blockNextWrite()
+        writer.submit(manifest, to: url, key: "s/a/1")
+        try await recorder.waitUntilBlocked()
+        manifest.generation = 2
+        writer.submit(manifest, to: url, key: "s/a/1")
+        manifest.generation = 3
+        writer.submit(manifest, to: url, key: "t/b/1")
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) { recorder.unblock() }
+        // Returns only after the write in progress ends; the other scope's write still runs, and the
+        // discarded snapshot never does.
+        //
+        // 只在进行中的写入结束后返回; 其他作用域的写入照常执行, 被丢弃的快照不会执行.
+        await writer.discard { $0.hasPrefix("s/") }
+        XCTAssertEqual(recorder.generations.first, 1)
+        await writer.flushAll()
+        XCTAssertEqual(recorder.generations, [1, 3])
+    }
+
     func testSaveAndLoadRoundTrip() throws {
         let manifest = DownloadManifest.build(from: try media(encrypted), generation: 4)
         let url = FileManager.default.temporaryDirectory.appending(path: "manifest-\(UUID().uuidString).json")
@@ -229,5 +275,49 @@ final class DownloadManifestTests: XCTestCase {
         try manifest.save(to: url)
         XCTAssertEqual(DownloadManifest.load(from: url), manifest)
         XCTAssertNil(DownloadManifest.load(from: url.appending(path: "missing")))
+    }
+}
+
+/// Records manifest writes by generation and can hold the next write until released.
+///
+/// 按 generation 记录 manifest 写入, 并可在放行之前阻塞下一次写入.
+private final class WriteRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var _generations: [Int] = []
+    private var blockNext = false
+    private var blocked = false
+
+    var generations: [Int] { lock.withLock { _generations } }
+
+    /// Makes the next write wait for `unblock()`.
+    ///
+    /// 让下一次写入等待 `unblock()`.
+    func blockNextWrite() { lock.withLock { blockNext = true } }
+
+    /// Releases the held write.
+    ///
+    /// 放行被阻塞的写入.
+    func unblock() { semaphore.signal() }
+
+    /// Records a write; runs on the writer's queue.
+    ///
+    /// 记录一次写入; 在写入器的队列上运行.
+    func record(_ generation: Int) {
+        let hold = lock.withLock {
+            let hold = blockNext
+            blockNext = false
+            if hold { blocked = true }
+            return hold
+        }
+        if hold { semaphore.wait() }
+        lock.withLock { _generations.append(generation) }
+    }
+
+    /// Returns once a write is held.
+    ///
+    /// 有写入被阻塞后返回.
+    func waitUntilBlocked() async throws {
+        for _ in 0..<200 where !lock.withLock({ blocked }) { try await Task.sleep(for: .milliseconds(10)) }
     }
 }

@@ -271,3 +271,102 @@ enum LocalPlaylistWriter {
         return out.joined(separator: "\n") + "\n"
     }
 }
+
+/// Writes manifests off the main actor on one serial queue, keeping only the latest snapshot per
+/// episode: a snapshot submitted while an older one waits replaces it. Snapshots are taken after
+/// the files they describe are on disk, so a manifest on disk can lag the files but never runs
+/// ahead of them. `flush` waits for an episode's write, and `discard` drops a pending write and
+/// waits out one in progress, so deleted files are never brought back by a late write.
+///
+/// 在主 actor 之外通过一个串行队列写入 manifest, 每集只保留最新快照: 旧快照等待期间提交的新快照会
+/// 替换它. 快照在其描述的文件落盘之后才生成, 因此磁盘上的 manifest 可能落后于文件, 但不会超前.
+/// `flush` 等待某集的写入完成, `discard` 丢弃待写入的快照并等待进行中的写入结束, 因此迟到的写入
+/// 不会让已删除的文件重新出现.
+final class DownloadManifestWriter: @unchecked Sendable {
+    /// One pending write.
+    ///
+    /// 一个待执行的写入.
+    private struct Item {
+        let url: URL
+        let manifest: DownloadManifest
+    }
+
+    private let lock = NSLock()
+    private var pending: [String: Item] = [:]
+    private let queue = DispatchQueue(label: "com.mritd.kmtv.manifest-writer", qos: .utility)
+    private let write: @Sendable (DownloadManifest, URL) throws -> Void
+    private let onError: @Sendable (Error) -> Void
+
+    /// `write` saves one manifest (tests replace it); `onError` reports a failed write.
+    ///
+    /// `write` 保存一个 manifest (测试会替换它); `onError` 上报写入失败.
+    init(write: @escaping @Sendable (DownloadManifest, URL) throws -> Void = { try $0.save(to: $1) },
+         onError: @escaping @Sendable (Error) -> Void = { _ in }) {
+        self.write = write
+        self.onError = onError
+    }
+
+    /// Queues the latest snapshot of an episode; returns at once.
+    ///
+    /// 为某集排入最新快照; 立即返回.
+    func submit(_ manifest: DownloadManifest, to url: URL, key: String) {
+        let schedule = lock.withLock {
+            let first = pending[key] == nil
+            pending[key] = Item(url: url, manifest: manifest)
+            return first
+        }
+        if schedule { queue.async { self.writePending(key) } }
+    }
+
+    /// Returns once the latest snapshot of `key` submitted so far is on disk.
+    ///
+    /// 在截至目前提交的 `key` 最新快照落盘后返回.
+    func flush(_ key: String) async {
+        await onQueue { self.writePending(key) }
+    }
+
+    /// Returns once every snapshot submitted so far is on disk.
+    ///
+    /// 在截至目前提交的所有快照落盘后返回.
+    func flushAll() async {
+        await onQueue {
+            let keys = self.lock.withLock { Array(self.pending.keys) }
+            for key in keys { self.writePending(key) }
+        }
+    }
+
+    /// Drops pending writes of every key that `matches` (one episode, or every episode of a scope)
+    /// and returns once no write is in progress.
+    ///
+    /// 丢弃所有满足 `matches` 的键 (一集, 或某个作用域的所有剧集) 的待写入快照, 并在没有进行中的写入
+    /// 后返回.
+    func discard(where matches: @Sendable (String) -> Bool) async {
+        lock.withLock { pending = pending.filter { !matches($0.key) } }
+        await onQueue {}
+    }
+
+    /// Drops a pending write without waiting; for episodes known to have no write in progress.
+    ///
+    /// 丢弃待写入快照而不等待; 用于已知没有进行中写入的剧集.
+    func cancel(_ key: String) {
+        _ = lock.withLock { pending.removeValue(forKey: key) }
+    }
+
+    private func writePending(_ key: String) {
+        guard let item = lock.withLock({ pending.removeValue(forKey: key) }) else { return }
+        do {
+            try write(item.manifest, item.url)
+        } catch {
+            onError(error)
+        }
+    }
+
+    private func onQueue(_ work: @escaping @Sendable () -> Void) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async {
+                work()
+                continuation.resume()
+            }
+        }
+    }
+}

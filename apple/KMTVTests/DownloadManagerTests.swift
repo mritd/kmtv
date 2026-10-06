@@ -277,7 +277,7 @@ final class DownloadManagerTests: XCTestCase {
         transport.live[stale] = DownloadTaskRequest(id: stale, url: URL(string: "https://x.example")!,
                                                     earliestBegin: nil, priority: 0.5, allowsCellular: false)
         transport.live[ids[2]] = nil
-        manager.persistAll()
+        await manager.persistAll()
         let relaunched = makeManager()
         await relaunched.activate(scopeKey: scope, preparer: preparer)
         await relaunched.waitForIdle()
@@ -637,7 +637,7 @@ final class DownloadManagerTests: XCTestCase {
         try await enqueueAndSettle()
         await transport.finish(liveIDs(0)[0], layout: layout)
         XCTAssertEqual(episode(0)?.doneEntries, 0)
-        manager.persistAll()
+        await manager.persistAll()
         XCTAssertEqual(episode(0)?.doneEntries, 1)
         XCTAssertEqual(episode(0)?.bytes, 4)
         XCTAssertEqual(savedManifest(0)?.doneCount, 1)
@@ -700,6 +700,30 @@ final class DownloadManagerTests: XCTestCase {
         await manager.activate(scopeKey: scope, preparer: preparer)
         XCTAssertTrue(changed.value)
         XCTAssertTrue(manager.canDownload)
+    }
+
+    func testRetryKeepsAttemptsInMemoryUntilASave() async throws {
+        try await enqueueAndSettle()
+        await manager.persistAll()
+        let id = liveIDs(0)[0]
+        await transport.fail(id, code: .timedOut)
+        XCTAssertEqual(savedManifest(0)?.entries[id.entryIndex].attempts, 0)
+        await manager.persistAll()
+        XCTAssertEqual(savedManifest(0)?.entries[id.entryIndex].attempts, 1)
+    }
+
+    func testDeleteAfterAQueuedManifestWriteLeavesNoFiles() async throws {
+        preparer.segments["https://cdn.example/ep0.m3u8"] = 25
+        try await enqueueAndSettle()
+        // The 20th entry queues a manifest write; the delete right after must win.
+        //
+        // 第 20 个条目会排入一次 manifest 写入; 紧随其后的删除必须生效.
+        for id in liveIDs(0).prefix(20) { await transport.finish(id, layout: layout) }
+        let ep = try XCTUnwrap(episode(0))
+        let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
+        await manager.delete(ep)
+        await manager.persistAll()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.path))
     }
 
     func testDeleteEpisodeRemovesEmptyShowAndMarkDamagedClearsFiles() async throws {

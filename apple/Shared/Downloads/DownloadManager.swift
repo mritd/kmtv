@@ -205,6 +205,18 @@ final class DownloadManager {
     /// 已完成条目尚未写入数据行的剧集; 在进度通知以及每次状态切换时写入, 数据行因此按通知而不是按条目
     /// 重新渲染.
     @ObservationIgnored private var progressPending: Set<String> = []
+    /// Writes manifests off the main actor; see `DownloadManifestWriter`.
+    ///
+    /// 在主 actor 之外写入 manifest; 参见 `DownloadManifestWriter`.
+    @ObservationIgnored private let manifestWriter = DownloadManifestWriter(onError: { error in
+        Logger(subsystem: "com.mritd.kmtv", category: "downloads")
+            .error("download manifest save failed: \(error.localizedDescription, privacy: .public)")
+    })
+    /// Episodes whose completion is awaiting its manifest write, so a pump meanwhile does not
+    /// complete them a second time.
+    ///
+    /// 完成流程正在等待 manifest 写入的剧集, 以免期间的队列推进再次完成它们.
+    @ObservationIgnored private var completing: Set<String> = []
     @ObservationIgnored private var pumpTask: Task<Void, Never>?
     @ObservationIgnored private var pumpRequested = false
     @ObservationIgnored private var backgroundWake = false
@@ -501,6 +513,7 @@ final class DownloadManager {
         }
         saveContext()
         bump()
+        await manifestWriter.flushAll()
         // Tasks of a newer generation come from a resume during the await; they must survive.
         //
         // 更新一代的任务来自等待期间的继续操作; 它们必须保留.
@@ -578,6 +591,7 @@ final class DownloadManager {
         if let manifest = manifests[ep.episodeKey] { saveManifest(manifest, for: ep) }
         saveContext()
         bump()
+        await manifestWriter.flush(ep.episodeKey)
         await cancelTasks(of: ep)
         schedulePump()
     }
@@ -646,7 +660,11 @@ final class DownloadManager {
         ep.state = .paused
         inFlight = inFlight.filter { $0.episodeKey != key }
         await transport.cancel { $0.episodeKey == key }
-        // A concurrent `deleteShow` or `deleteScope` may have deleted the row during the await.
+        // A late manifest write must not recreate the directory after it is removed.
+        //
+        // 迟到的 manifest 写入不能在目录删除后重新创建它.
+        await manifestWriter.discard { $0 == key }
+        // A concurrent `deleteShow` or `deleteScope` may have deleted the row during the awaits.
         //
         // 等待期间, 并发的 `deleteShow` 或 `deleteScope` 可能已删除该行.
         guard isLive(ep) else { return }
@@ -678,6 +696,7 @@ final class DownloadManager {
         for ep in episodes(in: scopeKey) { ep.state = .paused }
         inFlight = inFlight.filter { $0.scopeHash != hash }
         await transport.cancel { $0.scopeHash == hash }
+        await manifestWriter.discard { $0.hasPrefix(hash + "/") }
         for ep in episodes(in: scopeKey) {
             manifests[ep.episodeKey] = nil
             unsaved[ep.episodeKey] = nil
@@ -802,7 +821,7 @@ final class DownloadManager {
             //
             // App 没有后台音频, 播放会在此停止; 释放 socket, 返回前台时重新绑定同一端口.
             server?.stop()
-            persistAll()
+            await persistAll()
         @unknown default:
             break
         }
@@ -827,7 +846,7 @@ final class DownloadManager {
         await waitForIdle(until: deadline)
         backgroundWake = false
         wakeDeadline = nil
-        persistAll()
+        await persistAll()
     }
 
     /// Rebuilds the in-flight set from the transport: keeps current-generation tasks for missing
@@ -888,16 +907,18 @@ final class DownloadManager {
         }
     }
 
-    /// Writes cached manifests and pending row changes.
+    /// Writes cached manifests and pending row changes, and returns once the manifests are on disk.
     ///
-    /// 写入缓存的 manifest 与待保存的数据行变化.
-    func persistAll() {
+    /// 写入缓存的 manifest 与待保存的数据行变化, 并在 manifest 落盘后返回.
+    func persistAll() async {
         flushAllProgress()
         for (key, manifest) in manifests {
-            try? manifest.save(to: layout.manifestURL(episodeDir: layout.root.appending(path: key, directoryHint: .isDirectory)))
+            manifestWriter.submit(manifest, to: layout.manifestURL(episodeDir: layout.root.appending(path: key, directoryHint: .isDirectory)),
+                                  key: key)
         }
         unsaved = [:]
         saveContext()
+        await manifestWriter.flushAll()
     }
 
     // MARK: - Pump
@@ -997,6 +1018,8 @@ final class DownloadManager {
                     //
                     // 摘要只包含数量, 类型与时长, 因此可以公开记录.
                     logger.notice("download playlist changed, restarting episode=\(key, privacy: .public) done=\(existing.doneCount, privacy: .public) \(existing.mismatchSummary(fresh), privacy: .public)")
+                    await manifestWriter.discard { $0 == key }
+                    guard isLive(current), current.state == .queued else { return }
                     removeEpisodeFiles(current)
                 }
             } else if current.doneEntries > 0 {
@@ -1161,7 +1184,10 @@ final class DownloadManager {
         case .retry(let failure):
             manifest.entries[id.entryIndex].attempts += 1
             let attempts = manifest.entries[id.entryIndex].attempts
-            saveManifest(manifest, for: ep)
+            // In memory only; the next coalesced save (or a pause, fail, or persist) writes it.
+            //
+            // 只保存在内存中; 下一次合并保存 (或暂停, 失败, 持久化) 时写入.
+            manifests[ep.episodeKey] = manifest
             guard attempts <= Self.retryDelays.count else {
                 await fail(ep, failure)
                 return
@@ -1203,11 +1229,16 @@ final class DownloadManager {
         if let manifest = manifests[ep.episodeKey] { saveManifest(manifest, for: ep) }
         saveContext()
         bump()
+        await manifestWriter.flush(ep.episodeKey)
         await cancelTasks(of: ep)
         schedulePump()
     }
 
     private func complete(_ ep: DownloadEpisode, _ manifest: DownloadManifest) async {
+        let key = ep.episodeKey
+        guard !completing.contains(key) else { return }
+        completing.insert(key)
+        defer { completing.remove(key) }
         let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
         do {
             try LocalPlaylistWriter.write(manifest).write(to: layout.playlistURL(episodeDir: dir), atomically: true,
@@ -1222,7 +1253,13 @@ final class DownloadManager {
             return
         }
         try? FileManager.default.removeItem(at: dir.appending(path: "incoming", directoryHint: .isDirectory))
-        try? manifest.save(to: layout.manifestURL(episodeDir: dir))
+        // The playlist is written first; the complete manifest follows, and the row turns completed
+        // only once both are on disk.
+        //
+        // 先写 playlist; 完整的 manifest 随后写入, 两者都落盘后数据行才变为已完成.
+        manifestWriter.submit(manifest, to: layout.manifestURL(episodeDir: dir), key: key)
+        await manifestWriter.flush(key)
+        guard isLive(ep), ep.state == .downloading else { return }
         manifests[ep.episodeKey] = nil
         unsaved[ep.episodeKey] = nil
         progressPending.remove(ep.episodeKey)
@@ -1308,18 +1345,26 @@ final class DownloadManager {
         return loaded
     }
 
+    /// Caches a manifest and queues it for the background writer; callers that need it on disk
+    /// before continuing await `manifestWriter.flush`.
+    ///
+    /// 缓存 manifest 并交给后台写入器; 需要在继续之前落盘的调用方会等待 `manifestWriter.flush`.
     private func saveManifest(_ manifest: DownloadManifest, for ep: DownloadEpisode) {
         manifests[ep.episodeKey] = manifest
         unsaved[ep.episodeKey] = 0
         let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
-        do {
-            try manifest.save(to: layout.manifestURL(episodeDir: dir))
-        } catch {
-            logger.error("download manifest save failed: \(error.localizedDescription, privacy: .public)")
-        }
+        manifestWriter.submit(manifest, to: layout.manifestURL(episodeDir: dir), key: ep.episodeKey)
     }
 
+    /// Removes an episode's files and cached manifest. Callers with a manifest write possibly in
+    /// progress await `manifestWriter.discard` first; `markDamaged` only sees completed episodes,
+    /// whose last write `complete` already flushed, so dropping a pending one is enough there.
+    ///
+    /// 删除某集的文件与缓存的 manifest. 可能有 manifest 写入正在进行的调用方会先等待
+    /// `manifestWriter.discard`; `markDamaged` 只处理已完成的剧集, 其最后一次写入已由 `complete`
+    /// 落盘, 因此丢弃待写入快照即可.
     private func removeEpisodeFiles(_ ep: DownloadEpisode) {
+        manifestWriter.cancel(ep.episodeKey)
         manifests[ep.episodeKey] = nil
         unsaved[ep.episodeKey] = nil
         progressPending.remove(ep.episodeKey)
