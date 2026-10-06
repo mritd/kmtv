@@ -958,10 +958,16 @@ final class DownloadManager {
             if let existing = manifest(for: current) {
                 if existing.matches(fresh) {
                     next = existing.adopting(urlsFrom: fresh)
+                    logger.info("download resume adopts manifest episode=\(key, privacy: .public) done=\(existing.doneCount, privacy: .public)/\(existing.entries.count, privacy: .public)")
                 } else {
-                    logger.info("download playlist changed, restarting episode=\(key, privacy: .public)")
+                    // The summary holds only counts, kinds, and durations, so it is safe in public.
+                    //
+                    // 摘要只包含数量, 类型与时长, 因此可以公开记录.
+                    logger.notice("download playlist changed, restarting episode=\(key, privacy: .public) done=\(existing.doneCount, privacy: .public) \(existing.mismatchSummary(fresh), privacy: .public)")
                     removeEpisodeFiles(current)
                 }
+            } else if current.doneEntries > 0 {
+                logger.notice("download manifest missing, starting over episode=\(key, privacy: .public) rowDone=\(current.doneEntries, privacy: .public)/\(current.totalEntries, privacy: .public)")
             }
             saveManifest(next, for: current)
             progressPending.remove(key)

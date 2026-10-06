@@ -203,6 +203,25 @@ final class DownloadManifestTests: XCTestCase {
         XCTAssertFalse(old.matches(shorter))
     }
 
+    func testMismatchSummaryNamesCountsAndTheFirstDifferentEntry() throws {
+        let old = DownloadManifest.build(from: try media(encrypted), generation: 1)
+        XCTAssertEqual(old.mismatchSummary(old), "entries=4/4 lines=3/3 first=none")
+        let longer = DownloadManifest.build(from: try media(encrypted.replacingOccurrences(
+            of: "#EXT-X-ENDLIST", with: "#EXTINF:2.0,\nd.ts\n#EXT-X-ENDLIST")), generation: 2)
+        XCTAssertEqual(old.mismatchSummary(longer), "entries=4/5 lines=3/4 first=none")
+        let retimed = DownloadManifest.build(from: try media(encrypted.replacingOccurrences(of: "#EXTINF:3.5,",
+                                                                                      with: "#EXTINF:3.25,")),
+                                             generation: 2)
+        XCTAssertEqual(old.mismatchSummary(retimed), "entries=4/4 lines=3/3 first=2 kind=segment/segment duration=3.500/3.250")
+        let clear = DownloadManifest.build(from: try media(encrypted.replacingOccurrences(
+            of: "#EXT-X-KEY:METHOD=AES-128,URI=\"k.bin\"\n", with: "")), generation: 2)
+        XCTAssertEqual(old.mismatchSummary(clear), "entries=4/3 lines=3/3 first=0 kind=key/segment duration=0.000/4.000")
+        // No URL ever reaches the summary.
+        //
+        // 摘要中从不包含任何 URL.
+        XCTAssertFalse(old.mismatchSummary(clear).contains("http"))
+    }
+
     func testSaveAndLoadRoundTrip() throws {
         let manifest = DownloadManifest.build(from: try media(encrypted), generation: 4)
         let url = FileManager.default.temporaryDirectory.appending(path: "manifest-\(UUID().uuidString).json")

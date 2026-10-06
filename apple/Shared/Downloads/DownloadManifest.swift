@@ -153,6 +153,23 @@ struct DownloadManifest: Codable, Equatable, Sendable {
         return zip(entries, other.entries).allSatisfy { $0.kind == $1.kind && abs($0.duration - $1.duration) < 0.01 }
     }
 
+    /// Why `other` does not match, for logs: the entry and line counts of both (this one first),
+    /// and the first entry whose kind or duration differs, with both kinds and durations. Holds
+    /// only numbers and kinds, never a URL.
+    ///
+    /// 用于日志的不匹配原因: 双方的条目数与行数 (本 manifest 在前), 以及第一个类型或时长不同的条目
+    /// 及其双方的类型与时长. 只包含数字与类型, 从不包含 URL.
+    func mismatchSummary(_ other: DownloadManifest) -> String {
+        var summary = "entries=\(entries.count)/\(other.entries.count) lines=\(lines.count)/\(other.lines.count)"
+        guard let index = zip(entries, other.entries).enumerated().first(where: { _, pair in
+            pair.0.kind != pair.1.kind || abs(pair.0.duration - pair.1.duration) >= 0.01
+        })?.offset else { return summary + " first=none" }
+        let (mine, theirs) = (entries[index], other.entries[index])
+        summary += " first=\(index) kind=\(mine.kind.rawValue)/\(theirs.kind.rawValue)"
+        summary += String(format: " duration=%.3f/%.3f", mine.duration, theirs.duration)
+        return summary
+    }
+
     /// This manifest with the newer one's URLs and generation; done flags, sizes, and attempts stay.
     ///
     /// 采用较新 manifest 的 URL 与 generation 后的本 manifest; 完成标记, 大小与尝试次数保持不变.
