@@ -27,13 +27,23 @@ final class OfflinePlayerViewModel {
     private(set) var episode: DownloadEpisode
     private(set) var player: AVPlayer?
     var error: String?
-    /// Whether playback is paused, and whether the playhead is within `upNextLead` of the end (or
-    /// of the outro skip); the next-episode button shows only then. Both change only on a flip.
+    /// Whether playback has stayed paused for `pauseDebounce`, and whether the playhead is within
+    /// `upNextLead` of the end (or of the outro skip); the next-episode button shows only then. Both
+    /// change only on a flip; the debounce keeps a scrub (which pauses briefly) from flashing it.
     ///
-    /// 播放是否已暂停, 以及播放头是否距结尾 (或片尾跳过点) 不足 `upNextLead`; 只有此时才显示下一集
-    /// 按钮. 两者只在状态翻转时才会改变.
+    /// 播放是否已持续暂停 `pauseDebounce`, 以及播放头是否距结尾 (或片尾跳过点) 不足 `upNextLead`;
+    /// 只有此时才显示下一集按钮. 两者只在状态翻转时才会改变; 防抖让拖动进度 (会短暂暂停) 不会使按钮闪现.
     private(set) var isPaused = false
     private(set) var isNearEnd = false
+    /// The next completed episode of the same source and video; recomputed on every start, so the
+    /// view never fetches rows while rendering.
+    ///
+    /// 同一来源与视频的下一个已完成剧集; 每次开始播放时重新计算, 因此视图渲染时不会读取数据行.
+    private(set) var nextEpisode: DownloadEpisode?
+    /// How long playback must stay paused before the next-episode button appears.
+    ///
+    /// 播放需持续暂停多久才显示下一集按钮.
+    static let pauseDebounce: Duration = .milliseconds(750)
 
     @ObservationIgnored private let manager: DownloadManager
     @ObservationIgnored private let progressStore: PlaybackProgressStore
@@ -46,6 +56,10 @@ final class OfflinePlayerViewModel {
     // 上一次周期性保存的实际时间点; 为 nil 时下一次回调即保存.
     @ObservationIgnored private var lastSaveAt: ContinuousClock.Instant?
     @ObservationIgnored private var pauseObservation: NSKeyValueObservation?
+    // Pending switch to paused; a resume before it fires cancels it.
+    //
+    // 待生效的暂停切换; 在其生效前恢复播放会取消它.
+    @ObservationIgnored private var pauseDebounceTask: Task<Void, Never>?
     @ObservationIgnored private var lastDuration: TimeInterval = 0
     @ObservationIgnored private var outroHandled = false
     // One automatic rebuild per episode when playback fails with intact files (for example after
@@ -99,6 +113,7 @@ final class OfflinePlayerViewModel {
         let settings = progressStore.loadSettings()
         skipIntroSeconds = settings.skipIntroSeconds
         skipOutroSeconds = settings.skipOutroSeconds
+        nextEpisode = findNextEpisode()
     }
 
     /// Start position: an unfinished watch record saved for exactly this source, video, line, and
@@ -124,10 +139,7 @@ final class OfflinePlayerViewModel {
         explicit ?? startTime(record: record, episode: episode, skipIntroSeconds: skipIntroSeconds)
     }
 
-    /// The next completed episode of the same source and video.
-    ///
-    /// 同一来源与视频的下一个已完成剧集.
-    var nextEpisode: DownloadEpisode? {
+    private func findNextEpisode() -> DownloadEpisode? {
         manager.episodes(in: episode.scopeKey, showKey: episode.showKey)
             .filter { $0.sourceKey == episode.sourceKey && $0.videoId == episode.videoId
                 && $0.state == .completed && $0.episodeIndex > episode.episodeIndex }
@@ -145,6 +157,8 @@ final class OfflinePlayerViewModel {
         guard !closed else { return }
         error = nil
         manager.offlinePlaybackActive = true
+        let next = findNextEpisode()
+        if next !== nextEpisode { nextEpisode = next }
         startGeneration += 1
         let generation = startGeneration
         let url: URL
@@ -206,10 +220,25 @@ final class OfflinePlayerViewModel {
     private func observePause() {
         pauseObservation = coordinator.player?.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
             let paused = player.timeControlStatus == .paused
-            MainActor.assumeIsolated {
-                guard let self, self.isPaused != paused else { return }
-                self.isPaused = paused
-            }
+            MainActor.assumeIsolated { self?.pauseChanged(paused) }
+        }
+    }
+
+    /// Shows the paused state only after `pauseDebounce`; playing again clears it at once.
+    ///
+    /// 只在 `pauseDebounce` 之后才显示暂停状态; 恢复播放会立即清除.
+    private func pauseChanged(_ paused: Bool) {
+        pauseDebounceTask?.cancel()
+        pauseDebounceTask = nil
+        guard paused else {
+            if isPaused { isPaused = false }
+            return
+        }
+        guard !isPaused else { return }
+        pauseDebounceTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.pauseDebounce)
+            guard !Task.isCancelled, let self, !self.isPaused else { return }
+            self.isPaused = true
         }
     }
 
@@ -264,6 +293,7 @@ final class OfflinePlayerViewModel {
         restartTask?.cancel()
         checkpoint()
         pauseObservation = nil
+        pauseDebounceTask?.cancel()
         coordinator.cleanup()
         player = nil
     }
@@ -328,6 +358,7 @@ final class OfflinePlayerViewModel {
         guard !suspended, !closed else { return }
         checkpoint()
         pauseObservation = nil
+        pauseDebounceTask?.cancel()
         coordinator.cleanup()
         player = nil
         if !manager.filesIntact(episode) {

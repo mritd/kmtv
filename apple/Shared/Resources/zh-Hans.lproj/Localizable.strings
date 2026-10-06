@@ -231,6 +231,7 @@
 "Source returned invalid data" = "源返回了无效数据";
 "Network error" = "网络错误";
 "File damaged, download again" = "文件损坏, 请重新下载";
+"Close" = "关闭";
 "Next Episode" = "下一集";
 "Playback failed, try again later" = "播放失败, 请稍后再试";
 "Downloads" = "下载";

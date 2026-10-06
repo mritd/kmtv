@@ -231,6 +231,7 @@
 "Source returned invalid data" = "Source returned invalid data";
 "Network error" = "Network error";
 "File damaged, download again" = "File damaged, download again";
+"Close" = "Close";
 "Next Episode" = "Next Episode";
 "Playback failed, try again later" = "Playback failed, try again later";
 "Downloads" = "Downloads";

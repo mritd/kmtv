@@ -69,14 +69,19 @@ struct DownloadPoster: View {
     let width: CGFloat
     @Environment(DownloadManager.self) private var downloads
     @Environment(\.displayScale) private var displayScale
-    @State private var loaded: UIImage?
+    // The image decoded for one key; ignored once the key changes, so a stale poster never shows.
+    //
+    // 为某个键解码得到的图片; 键变化后即被忽略, 因此不会显示过期的海报.
+    @State private var loaded: (key: DownloadPosterCache.Key, image: UIImage)?
 
     var body: some View {
         let key = downloads.coverFileURL(for: show).map {
-            DownloadPosterCache.Key(url: $0, maxPixels: Int((width * 1.42 * displayScale).rounded(.up)))
+            DownloadPosterCache.Key(url: $0, maxPixels: Int((width * 1.42 * displayScale).rounded(.up)),
+                                    revision: DownloadPosterCache.revision(of: show))
         }
         Group {
-            if let image = key.flatMap(DownloadPosterCache.image(for:)) ?? loaded {
+            if let image = key.flatMap(DownloadPosterCache.image(for:))
+                ?? loaded.flatMap({ $0.key == key ? $0.image : nil }) {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
                 ZStack {
@@ -91,8 +96,11 @@ struct DownloadPoster: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .accessibilityHidden(true)
         .task(id: key) {
-            guard let key else { return }
-            loaded = await DownloadPosterCache.load(key)
+            guard let key else {
+                loaded = nil
+                return
+            }
+            loaded = await DownloadPosterCache.load(key).map { (key, $0) }
         }
     }
 }
@@ -103,12 +111,24 @@ struct DownloadPoster: View {
 /// 按文件与像素尺寸缓存已解码并缩小的海报. 未命中不会被缓存, 因此稍后到达的封面会在下次出现时加载.
 @MainActor
 enum DownloadPosterCache {
-    /// Cache key: the cover file and the longest side in pixels.
+    /// Cache key: the cover file, the longest side in pixels, and the show's revision. A show
+    /// deleted and downloaded again reuses the same `cover.jpg` path, so the path alone is not
+    /// enough.
     ///
-    /// 缓存键: 封面文件与最长边像素数.
+    /// 缓存键: 封面文件, 最长边像素数以及剧集的版本. 删除后重新下载的剧集会复用同一个 `cover.jpg`
+    /// 路径, 因此仅凭路径不够.
     struct Key: Hashable, Sendable {
         let url: URL
         let maxPixels: Int
+        let revision: String
+    }
+
+    /// The revision of a show's cover: its creation time (new for a re-created show) and the remote
+    /// cover URL.
+    ///
+    /// 剧集封面的版本: 创建时间 (重新创建的剧集会不同) 与远程封面 URL.
+    static func revision(of show: DownloadShow) -> String {
+        "\(show.createdAt.timeIntervalSinceReferenceDate)|\(show.coverURLString)"
     }
 
     private static let cache = NSCache<NSString, UIImage>()
@@ -131,7 +151,7 @@ enum DownloadPosterCache {
     }
 
     private static func name(_ key: Key) -> NSString {
-        "\(key.url.path)#\(key.maxPixels)" as NSString
+        "\(key.url.path)#\(key.maxPixels)#\(key.revision)" as NSString
     }
 
     private nonisolated static func decode(_ key: Key) -> UIImage? {
