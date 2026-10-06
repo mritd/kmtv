@@ -28,12 +28,14 @@ final class APIClient: @unchecked Sendable {
     let baseURL: String
     let session: URLSession
     private let tokenProvider: @Sendable () -> String?
+    private let notifiesAuthExpired: Bool
 
     /// Lightweight request executor built from the shared session and token provider.
     ///
     /// 基于共享 session 与 token provider 构建的轻量请求执行器.
     private var executor: APIRequestExecutor {
-        APIRequestExecutor(session: session, tokenProvider: tokenProvider, logger: logger)
+        APIRequestExecutor(session: session, tokenProvider: tokenProvider, logger: logger,
+                           notifiesAuthExpired: notifiesAuthExpired)
     }
 
     /// Image helper that reuses this client's base URL and URLSession configuration.
@@ -53,13 +55,19 @@ final class APIClient: @unchecked Sendable {
     ///
     /// base URL 会移除末尾斜杠做归一化. 如果没有注入 session, 会创建禁用 cookie 的 URLSession,
     /// 因为 KMTV 使用 opaque bearer token, 不再使用 cookie session.
+    ///
+    /// Pass `notifiesAuthExpired: false` for background clients (downloads) whose 401 must never sign the user out.
+    ///
+    /// 后台客户端 (下载) 传入 `notifiesAuthExpired: false`, 其 401 永远不会让用户登出.
     init(
         baseURL: String,
         session: URLSession? = nil,
-        tokenProvider: @escaping @Sendable () -> String? = { nil }
+        tokenProvider: @escaping @Sendable () -> String? = { nil },
+        notifiesAuthExpired: Bool = true
     ) {
         self.baseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
         self.tokenProvider = tokenProvider
+        self.notifiesAuthExpired = notifiesAuthExpired
         if let session {
             self.session = session
         } else {

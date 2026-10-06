@@ -54,6 +54,12 @@ struct TVRootView: View {
             case .authenticated:
                 TVContentView()
                     .environment(appVM)
+            case .offline:
+                // tvOS has no downloads, so it never goes offline; keep the switch exhaustive.
+                //
+                // tvOS 没有下载功能, 因此不会进入离线状态; 此分支只为保持 switch 穷尽.
+                ServerSetupView()
+                    .environment(appVM)
             case .incompatibleServer(let serverVersion, let requiredVersion):
                 VStack(spacing: 24) {
                     Image(systemName: "exclamationmark.triangle")
@@ -79,7 +85,7 @@ struct TVRootView: View {
     private var tvToastBanner: some View {
         let toast = ToastManager.shared
         if let message = toast.currentMessage {
-            ToastView(message: message)
+            ToastView(message: message, style: toast.currentStyle)
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .opacity(toast.isVisible ? 1 : 0)

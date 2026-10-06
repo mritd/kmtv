@@ -397,6 +397,7 @@ struct AdminView: View {
                     Text("Backend Proxy").tag("proxy")
                     Text("Client Direct").tag("direct")
                 }
+                Toggle("Filter Inserted Ads", isOn: settingBinding(vm, key: "ad_filter_enabled"))
                 Picker("Image Proxy", selection: imageProxyBinding(vm)) {
                     Text("Backend Proxy").tag("server")
                     Text("Client Direct").tag("direct")

@@ -40,6 +40,100 @@ final class PlayerViewModelTests: XCTestCase {
     }
 
     @MainActor
+    private final class FakeLocalEpisodes: LocalEpisodeProviding {
+        var url: URL? = URL(string: "http://127.0.0.1:9/secret/show/ep/index.m3u8")
+        var asked: [(String, String, String, Int)] = []
+        var failures: [Int] = []
+
+        func localPlaybackURL(scopeKey: String, sourceKey: String, videoId: String, episodeIndex: Int) async -> URL? {
+            asked.append((scopeKey, sourceKey, videoId, episodeIndex))
+            return url
+        }
+
+        func reportPlaybackFailure(scopeKey: String, sourceKey: String, videoId: String, episodeIndex: Int) {
+            failures.append(episodeIndex)
+        }
+    }
+
+    @MainActor
+    private func localFirstViewModel(_ local: FakeLocalEpisodes, api: FakePlayerAPI,
+                                     loadTimeout: Duration = PlaybackCoordinator.localLoadTimeout) throws -> PlayerViewModel {
+        let container = try ModelContainerFactory.makeInMemory()
+        let vm = PlayerViewModel(
+            apiClient: api, modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: makeSyncStore(container), syncEngine: nil,
+            sources: [SourceResult(sourceKey: "source-a", sourceName: "Source A", videoId: "video-1", durationMs: 0,
+                                   episodes: [Episode(name: "EP1", url: "https://cdn.example/video.m3u8")])],
+            sourceKey: "source-a", videoId: "video-1", title: "Video", localEpisodes: local,
+            localLoadTimeout: loadTimeout
+        )
+        vm.detail = api.detailResponse
+        return vm
+    }
+
+    @MainActor
+    func testDownloadedEpisodePlaysLocallyWithoutPlaybackURL() async throws {
+        let api = FakePlayerAPI()
+        let local = FakeLocalEpisodes()
+        let vm = try localFirstViewModel(local, api: api)
+        await vm.startPlaybackAsync()
+        XCTAssertTrue(vm.isPlayingLocalCopy)
+        XCTAssertTrue(api.playbackRequests.isEmpty)
+        XCTAssertEqual(local.asked.first?.1, "source-a")
+        XCTAssertEqual(local.asked.first?.2, "video-1")
+        XCTAssertEqual(local.asked.first?.3, 0)
+        XCTAssertEqual(vm.player?.allowsExternalPlayback, false)
+    }
+
+    @MainActor
+    func testFailedLocalCopyIsReportedAndPlaysOnline() async throws {
+        let api = FakePlayerAPI()
+        let local = FakeLocalEpisodes()
+        let vm = try localFirstViewModel(local, api: api)
+        await vm.startPlaybackAsync()
+        await vm.handleItemError("cannot open")
+        // The real player item may fail on its own too, so allow repeated reports of episode 0.
+        //
+        // 真实的播放 item 也可能自行失败, 因此允许对第 0 集重复上报.
+        XCTAssertFalse(local.failures.isEmpty)
+        XCTAssertEqual(Set(local.failures), [0])
+        XCTAssertFalse(vm.isPlayingLocalCopy)
+        // The online retry runs in a task; wait until it asked for the playback URL.
+        //
+        // 在线重试在 task 中运行; 等到它请求播放地址为止.
+        for _ in 0..<50 where api.playbackRequests.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertFalse(api.playbackRequests.isEmpty)
+    }
+
+    @MainActor
+    func testLocalCopyThatNeverLoadsFallsBackToStreaming() async throws {
+        let hanging = HangingServer()
+        let api = FakePlayerAPI()
+        let local = FakeLocalEpisodes()
+        local.url = try await hanging.start()
+        defer { hanging.stop() }
+        let vm = try localFirstViewModel(local, api: api, loadTimeout: .milliseconds(300))
+        defer { vm.cleanup() }
+        await vm.startPlaybackAsync()
+        XCTAssertTrue(vm.isPlayingLocalCopy)
+        for _ in 0..<100 where api.playbackRequests.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(Set(local.failures), [0])
+        XCTAssertFalse(vm.isPlayingLocalCopy)
+        XCTAssertFalse(api.playbackRequests.isEmpty)
+    }
+
+    @MainActor
+    func testWithoutDownloadPlaysOnline() async throws {
+        let api = FakePlayerAPI()
+        let local = FakeLocalEpisodes()
+        local.url = nil
+        let vm = try localFirstViewModel(local, api: api)
+        await vm.startPlaybackAsync()
+        XCTAssertFalse(vm.isPlayingLocalCopy)
+        XCTAssertEqual(api.playbackRequests.count, 1)
+    }
+
+    @MainActor
     func testResumeFallsBackToTheDetailTitleRecord() async throws {
         // The navigation title ("Show") normalizes differently from the detail title ("Show S1"),
         // and the record is keyed by the detail title that checkpoints write under.
@@ -1212,6 +1306,31 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertTrue(ok)
         XCTAssertEqual(vm.currentEpisodeIndex, 2)
         XCTAssertEqual(vm.currentEpisodeName, "EP3")
+    }
+
+    @MainActor
+    func testCoverHintReplacesTheSourceCoverForWatchHistory() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        let api = FakePlayerAPI()
+        api.detailResponse = VideoDetail(
+            id: "video-1", title: "Video", type: "show", year: "2026",
+            cover: "https://img.source.example/blocked.jpg", desc: "", director: "", actor: "", area: "",
+            episodes: [[Episode(name: "EP1", url: "https://cdn.example/ep1.m3u8")]]
+        )
+        let vm = PlayerViewModel(
+            apiClient: api, modelContext: container.mainContext, serverURL: "https://kmtv.example", syncStore: sync,
+            sources: [SourceResult(sourceKey: "source-a", sourceName: "Source A", videoId: "video-1", durationMs: 0,
+                                   episodes: [])],
+            sourceKey: "source-a", videoId: "video-1", title: "Video", coverHint: "https://img.douban.example/ok.jpg"
+        )
+
+        let ok = await vm.loadDetail(sourceKey: "source-a", videoId: "video-1")
+        vm.onTimeUpdate(current: 10, total: 120)
+
+        XCTAssertTrue(ok)
+        XCTAssertEqual(vm.detail?.cover, "https://img.douban.example/ok.jpg")
+        XCTAssertEqual(sync.watch(title: "Video")?.cover, "https://img.douban.example/ok.jpg")
     }
 
     @MainActor

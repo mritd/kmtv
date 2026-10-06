@@ -39,8 +39,9 @@ tasks:
       - task: android:bilingual-check
 
   server:
-    desc: Build frontend and run backend
+    desc: Build frontend and run backend (PORT=8080 by default)
     vars:
+      PORT: '{{.PORT | default "8080"}}'
       GIT_COMMIT:
         sh: git rev-parse HEAD 2>/dev/null || echo "unknown"
       BUILD_TIME:
@@ -48,7 +49,7 @@ tasks:
     cmds:
       - rm -f dev.db dev.db-shm dev.db-wal
       - task: web:build
-      - cd server && go run -ldflags "-w -s -X github.com/mritd/kmtv/internal/version.Version=v0.0.0-dev -X github.com/mritd/kmtv/internal/version.GitCommit={{.GIT_COMMIT}} -X github.com/mritd/kmtv/internal/version.BuildTime={{.BUILD_TIME}}" . --listen :8080 --db-path ../dev.db
+      - cd server && go run -ldflags "-w -s -X github.com/mritd/kmtv/internal/version.Version=v0.0.0-dev -X github.com/mritd/kmtv/internal/version.GitCommit={{.GIT_COMMIT}} -X github.com/mritd/kmtv/internal/version.BuildTime={{.BUILD_TIME}}" . --listen :{{.PORT}} --db-path ../dev.db
 
   web:install:
     desc: Install frontend dependencies
@@ -109,7 +110,7 @@ tasks:
   ios26:
     desc: Build and run iOS app on iPhone 17 Pro (iOS 26)
     cmds:
-      - ./scripts/simulator.sh KMTV 'iOS Simulator' 'iPhone 17 Pro' '26.1' com.mritd.kmtv.ios KMTV.app
+      - ./scripts/simulator.sh KMTV 'iOS Simulator' 'iPhone 17 Pro' '26.5' com.mritd.kmtv.ios KMTV.app
 
   ipad:
     desc: Build and run iOS app on iPad Pro 11-inch M4 (iPadOS 18.6)
@@ -119,7 +120,7 @@ tasks:
   ipad26:
     desc: Build and run iOS app on iPad Pro 11-inch M5 (iPadOS 26)
     cmds:
-      - ./scripts/simulator.sh KMTV 'iOS Simulator' 'iPad Pro 11-inch (M5)' '26.1' com.mritd.kmtv.ios KMTV.app
+      - ./scripts/simulator.sh KMTV 'iOS Simulator' 'iPad Pro 11-inch (M5)' '26.5' com.mritd.kmtv.ios KMTV.app
 
   tv:
     desc: Build and run tvOS app on Apple TV (tvOS 18.5)
@@ -127,9 +128,9 @@ tasks:
       - ./scripts/simulator.sh KMTVTV 'tvOS Simulator' 'Apple TV' '18.5' com.mritd.kmtv.tv KMTVTV.app
 
   tv26:
-    desc: Build and run tvOS app on Apple TV (tvOS 26.2)
+    desc: Build and run tvOS app on Apple TV (tvOS 26.5)
     cmds:
-      - ./scripts/simulator.sh KMTVTV 'tvOS Simulator' 'Apple TV' '26.2' com.mritd.kmtv.tv KMTVTV.app
+      - ./scripts/simulator.sh KMTVTV 'tvOS Simulator' 'Apple TV' '26.5' com.mritd.kmtv.tv KMTVTV.app
 
   device:
     desc: Build and install iOS app to a connected physical device

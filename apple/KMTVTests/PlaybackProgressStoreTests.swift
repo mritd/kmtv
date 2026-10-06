@@ -60,4 +60,21 @@ final class PlaybackProgressStoreTests: XCTestCase {
                            episodeIndex: 0, current: .nan, duration: 120)
         XCTAssertNil(sync.watch(title: "Video"))
     }
+
+    @MainActor
+    func testTitleBasedSaveWritesTheSameWatchRecord() throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        let store = PlaybackProgressStore(modelContext: container.mainContext, serverURL: "https://kmtv.example",
+                                          syncStore: sync, title: "Show")
+        store.saveProgress(title: "Show", cover: "c", sourceKey: "src", videoId: "v1", episodeName: "EP2",
+                           groupIndex: 1, episodeIndex: 1, current: 42, duration: 600, completed: false)
+        let record = try XCTUnwrap(sync.watch(title: "Show"))
+        XCTAssertEqual(record.sourceKey, "src")
+        XCTAssertEqual(record.groupIndex, 1)
+        XCTAssertEqual(record.episodeIndex, 1)
+        XCTAssertEqual(record.episode, "EP2")
+        XCTAssertEqual(record.progressSec, 42)
+        XCTAssertFalse(record.completed)
+    }
 }

@@ -235,11 +235,14 @@ Admin 可见设置键:
 - `access_token_ttl`
 - `media_token_ttl`
 - `playback_mode`
+- `ad_filter_enabled`
 - `version`
 
 `public_base_url` 用于配置重写 M3U8 代理链接时使用的外部访问根地址. `KMTV_PUBLIC_BASE_URL` 的优先级高于这个 DB 设置. 两者都没有配置时, KMTV 保持当前的 forwarded header 回退逻辑.
 
 `media_token_ttl` 默认值为 21600 秒, 用于保证 URL 绑定的代理播放 token 能覆盖长剧集播放.
+
+`ad_filter_enabled` 默认为 `true`. 开启时, `/proxy/m3u8` 会移除源站拼接进 VOD media playlist 的广告段 (ADR-018). 直连播放不受影响.
 
 常见错误: `500 ServerError`.
 
@@ -685,7 +688,9 @@ payload 长度限制 (按 Unicode 码点计): `title`, `episode` 和 `query` 512
 
 ### `GET /proxy/m3u8`
 
-公开媒体接口. 获取上游 M3U8, 并把 segment/key URL 改写回 KMTV 代理接口. 需要携带为精确 M3U8 URL 签发的 media token.
+公开媒体接口. 获取上游 M3U8, 并把其中的媒体, 密钥与 playlist URI 改写回 KMTV 代理接口. 需要携带为精确 M3U8 URL 签发的 media token.
+
+改写的 URI: 分片行和 `EXT-X-MAP` 的 URI 指向 `/proxy/segment`; `EXT-X-KEY` 与 `EXT-X-SESSION-KEY` 的 URI 指向 `/proxy/key`; `EXT-X-STREAM-INF` 之后的变体行, 以及 `EXT-X-MEDIA` 与 `EXT-X-I-FRAME-STREAM-INF` 的 URI 指向 `/proxy/m3u8`. 每个改写后的 URL 都带有自己的媒体 token. 其他标签原样透传. 因此 I-frame playlist 也会经过代理, 但代理不转发 `Range`, 所以 `EXT-X-BYTERANGE` 形式的 I-frame (快进预览) 请求会得到完整响应.
 
 查询参数:
 

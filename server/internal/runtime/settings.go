@@ -24,6 +24,8 @@ type State struct {
 
 	playbackMu sync.RWMutex
 	playback   string
+
+	adFilter atomic.Bool
 }
 
 var defaultState = NewState()
@@ -40,6 +42,7 @@ func NewState() *State {
 	s.probeTimeout.Store(consts.DefaultProbeTimeout)
 	s.searchTimeout.Store(consts.DefaultSearchTimeout)
 	s.playback = consts.PlaybackModeProxy
+	s.adFilter.Store(true)
 	return s
 }
 
@@ -108,6 +111,20 @@ func (s *State) PlaybackMode() string {
 	s.playbackMu.RLock()
 	defer s.playbackMu.RUnlock()
 	return s.playback
+}
+
+// SetAdFilterEnabled turns the proxied-playlist ad filter on or off.
+//
+// SetAdFilterEnabled 开启或关闭代理 playlist 的广告过滤.
+func (s *State) SetAdFilterEnabled(enabled bool) {
+	s.adFilter.Store(enabled)
+}
+
+// AdFilterEnabled reports whether proxied playlists drop inserted ads.
+//
+// AdFilterEnabled 返回代理 playlist 是否移除插入的广告.
+func (s *State) AdFilterEnabled() bool {
+	return s.adFilter.Load()
 }
 
 func (s *State) SetSearchConcurrency(n int) {

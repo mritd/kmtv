@@ -128,6 +128,22 @@ final class PlayerViewModel {
     private let videoTitle: String
     private let coverHint: String
     private let progressStore: PlaybackProgressStore
+    /// Downloads the player may use instead of streaming.
+    ///
+    /// 播放器可以替代流媒体使用的下载内容.
+    private let localEpisodes: (any LocalEpisodeProviding)?
+    /// Whether the current item plays a downloaded copy.
+    ///
+    /// 当前 item 是否在播放下载的副本.
+    private(set) var isPlayingLocalCopy = false
+    // Set after a local copy failed, so the next start streams instead of trying it again.
+    //
+    // 本地副本失败后置位, 下一次启动直接走在线播放, 不再尝试本地副本.
+    private var skipLocalCopy = false
+    /// How long a downloaded copy may take to become ready before playback falls back to streaming.
+    ///
+    /// 下载副本变为就绪前可等待的时长, 超时后回退为在线播放.
+    private let localLoadTimeout: Duration
 
     /// Coordinates player side effects while this view model owns user-visible state.
     ///
@@ -137,7 +153,11 @@ final class PlayerViewModel {
     init(apiClient: any PlaybackDetailAPIProtocol, modelContext: ModelContext, serverURL: String,
          syncStore: SyncStore? = nil, syncEngine: SyncEngine? = nil,
          sources: [SourceResult], sourceKey: String, videoId: String, title: String,
-         coverHint: String = "", initialEpisodeIndex: Int? = nil, playerSyncWait: Duration = .milliseconds(1500)) {
+         coverHint: String = "", initialEpisodeIndex: Int? = nil, playerSyncWait: Duration = .milliseconds(1500),
+         localEpisodes: (any LocalEpisodeProviding)? = nil,
+         localLoadTimeout: Duration = PlaybackCoordinator.localLoadTimeout) {
+        self.localEpisodes = localEpisodes
+        self.localLoadTimeout = localLoadTimeout
         self.apiClient = apiClient
         self.modelContext = modelContext
 		self.serverURL = serverURL
@@ -250,6 +270,17 @@ final class PlayerViewModel {
             )
             playbackRequest += 1
             let id = playbackRequest
+            if !skipLocalCopy, let localEpisodes, let scopeKey = syncStore?.scopeKey,
+               let local = await localEpisodes.localPlaybackURL(scopeKey: scopeKey, sourceKey: currentSourceKey,
+                                                                videoId: currentVideoID,
+                                                                episodeIndex: currentEpisodeIndex) {
+                guard id == playbackRequest else { return }
+                isPlayingLocalCopy = true
+                startPlayer(with: local, allowsExternalPlayback: false, loadTimeout: localLoadTimeout)
+                return
+            }
+            skipLocalCopy = false
+            isPlayingLocalCopy = false
             let url = try await preparePlaybackURL()
             // A newer switch took over while this reply was in flight.
             //
@@ -275,16 +306,16 @@ final class PlayerViewModel {
         )
         let response = try await apiClient.playbackURL(url: ep.url, source: currentSourceKey)
         logger.info(
-            "preparePlaybackURL response mode=\(response.mode, privacy: .public) resolvedURL=\(response.url, privacy: .public)"
+            "preparePlaybackURL response mode=\(response.mode, privacy: .public) resolvedURL=\(response.url, privacy: .private)"
         )
         guard let url = URL(string: response.url) else {
-            logger.error("preparePlaybackURL invalid resolvedURL=\(response.url, privacy: .public)")
+            logger.error("preparePlaybackURL invalid resolvedURL=\(response.url, privacy: .private)")
             throw PlayerError.invalidPlaybackURL(response.url)
         }
         return url
     }
 
-    private func startPlayer(with url: URL) {
+    private func startPlayer(with url: URL, allowsExternalPlayback: Bool = true, loadTimeout: Duration? = nil) {
         skipOutroTriggered = false
         endCheckpointWritten = false
         detachedFromItem = false
@@ -301,12 +332,14 @@ final class PlayerViewModel {
         // 新 item 从自己的起点开始上报; 旧 item 的最近保存时间不能让它的第一次时间更新立刻写入.
         lastSaveTime = startTime
         logger.info(
-            "startPlayer url=\(url.absoluteString, privacy: .public) startTime=\(startTime, privacy: .public) rate=\(self.playbackRate, privacy: .public) hadPlayer=\(self.player != nil, privacy: .public)"
+            "startPlayer url=\(PlaybackCoordinator.loggableURL(url), privacy: .public) startTime=\(startTime, privacy: .public) rate=\(self.playbackRate, privacy: .public) hadPlayer=\(self.player != nil, privacy: .public)"
         )
         coordinator.start(
             url: url,
             startTime: startTime,
             rate: playbackRate,
+            allowsExternalPlayback: allowsExternalPlayback,
+            loadTimeout: loadTimeout,
             onTime: { [weak self] current, total in
                 self?.onTimeUpdate(current: current, total: total)
             },
@@ -356,6 +389,19 @@ final class PlayerViewModel {
     /// 播放器 item 报告失败. 选择正在变化时忽略, 因为旧 item 的失败与即将挂载的 item 无关.
     func handleItemError(_ message: String?) async {
         guard !detachedFromItem else { return }
+        if isPlayingLocalCopy, let localEpisodes, let scopeKey = syncStore?.scopeKey {
+            // A failed local copy falls back to streaming the same selection, not to the next line.
+            // The manager deletes the copy only when its files are missing.
+            //
+            // 本地副本失败时回退为在线播放同一选择, 而不是切换到下一条线路. 只有文件缺失时管理器才会删除该副本.
+            localEpisodes.reportPlaybackFailure(scopeKey: scopeKey, sourceKey: currentSourceKey,
+                                                videoId: currentVideoID, episodeIndex: currentEpisodeIndex)
+            isPlayingLocalCopy = false
+            skipLocalCopy = true
+            isBuffering = false
+            startPlayback()
+            return
+        }
         if let message { error = message }
         isBuffering = false
         await handlePlaybackError()
@@ -749,8 +795,14 @@ final class PlayerViewModel {
         }
     }
 
+    /// The detail with the hint's cover. The hint is the cover the user tapped (see
+    /// `SearchView.bestCover`) or a saved record's cover, so it wins over the source's own, which
+    /// some sources block.
+    ///
+    /// 换用提示封面的详情. 提示封面是用户点按的封面 (见 `SearchView.bestCover`) 或已保存记录中的封面,
+    /// 因此优先于源站自己的封面, 后者可能被部分源站拦截.
     private func detailApplyingCoverHint(_ detail: VideoDetail) -> VideoDetail {
-        guard detail.cover.isEmpty, !coverHint.isEmpty else { return detail }
+        guard !coverHint.isEmpty, detail.cover != coverHint else { return detail }
         var updated = detail
         updated.cover = coverHint
         return updated
@@ -887,6 +939,21 @@ final class PlayerViewModel {
 
     func resume() {
         coordinator.resume(rate: playbackRate)
+    }
+
+    /// Stops the local copy's load watchdog while the app is in the background, where the loopback
+    /// server is stopped.
+    ///
+    /// App 在后台时 loopback 服务已停止, 因此暂停本地副本的加载看门狗.
+    func suspendLoadWatchdog() {
+        coordinator.suspendLoadWatchdog()
+    }
+
+    /// Re-arms the load watchdog on return, when the item is still loading.
+    ///
+    /// 返回前台时, 若 item 仍在加载, 则重新启用加载看门狗.
+    func resumeLoadWatchdog() {
+        coordinator.resumeLoadWatchdog()
     }
 
     func cleanup() {

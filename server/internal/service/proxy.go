@@ -17,6 +17,7 @@ import (
 
 	"github.com/mritd/kmtv/internal/consts"
 	"github.com/mritd/kmtv/internal/model"
+	appruntime "github.com/mritd/kmtv/internal/runtime"
 	"github.com/mritd/kmtv/internal/utils"
 )
 
@@ -455,6 +456,65 @@ func (ps *ProxyService) ProbeLines(ctx context.Context, groups [][]model.Episode
 
 var keyURIPattern = regexp.MustCompile(`URI="([^"]+)"`)
 
+// uriAttributeTags lists the playlist tags whose URI attribute must be proxied, with the proxy
+// endpoint each URI goes to. The colon is part of the prefix so #EXT-X-MEDIA does not match
+// #EXT-X-MEDIA-SEQUENCE.
+//
+// uriAttributeTags 列出 URI 属性需要代理的 playlist 标签, 以及各自使用的代理端点. 前缀包含
+// 冒号, 因此 #EXT-X-MEDIA 不会匹配 #EXT-X-MEDIA-SEQUENCE.
+var uriAttributeTags = []struct {
+	prefix string
+	kind   string
+}{
+	{"#EXT-X-KEY:", MediaKindKey},
+	{"#EXT-X-SESSION-KEY:", MediaKindKey},
+	{"#EXT-X-MAP:", MediaKindSegment},
+	{"#EXT-X-MEDIA:", MediaKindM3U8},
+	{"#EXT-X-I-FRAME-STREAM-INF:", MediaKindM3U8},
+}
+
+// uriAttributeKind returns the proxy endpoint for a tag line with a URI attribute, or "" when
+// the line is not one of uriAttributeTags.
+//
+// uriAttributeKind 返回带 URI 属性的标签行所用的代理端点; 不属于 uriAttributeTags 时返回 "".
+func uriAttributeKind(trimmed string) string {
+	for _, tag := range uriAttributeTags {
+		if strings.HasPrefix(trimmed, tag.prefix) {
+			return tag.kind
+		}
+	}
+	return ""
+}
+
+// rewriteURIAttribute resolves the line's URI="..." attribute against baseURL and replaces it
+// with a signed proxy URL. A line without a URI attribute is returned unchanged.
+//
+// rewriteURIAttribute 将该行的 URI="..." 属性基于 baseURL 解析, 并替换为签名后的代理 URL.
+// 没有 URI 属性的行原样返回.
+func rewriteURIAttribute(line, baseURL, proxyBase, kind, sourceKey string, signer MediaURLSigner) (string, error) {
+	var rewriteErr error
+	rewritten := keyURIPattern.ReplaceAllStringFunc(line, func(match string) string {
+		if rewriteErr != nil {
+			return match
+		}
+		sub := keyURIPattern.FindStringSubmatch(match)
+		if len(sub) < 2 {
+			return match
+		}
+		absURL := utils.ResolveURL(baseURL, sub[1])
+		proxied, err := signedProxyURL(proxyBase, kind, absURL, sourceKey, signer)
+		if err != nil {
+			rewriteErr = err
+			return match
+		}
+		return fmt.Sprintf(`URI="%s"`, proxied)
+	})
+	if rewriteErr != nil {
+		return "", rewriteErr
+	}
+	return rewritten, nil
+}
+
 // MediaURLSigner issues a media token for one rewritten URL.
 //
 // MediaURLSigner 为单个重写后的 URL 签发媒体 token.
@@ -478,12 +538,16 @@ func signedProxyURL(proxyBase, endpoint, absURL, sourceKey string, signer MediaU
 }
 
 // RewriteM3U8 rewrites URLs in M3U8 content to point to the proxy.
-// - Rewrite EXT-X-KEY URI to /api/proxy/key?url=<encoded>&source=<key>&mt=<token>
+// - Rewrite EXT-X-KEY and EXT-X-SESSION-KEY URIs to /api/proxy/key?url=<encoded>&source=<key>&mt=<token>
+// - Rewrite EXT-X-MAP URIs to /api/proxy/segment?url=<encoded>&source=<key>&mt=<token>
+// - Rewrite EXT-X-MEDIA and EXT-X-I-FRAME-STREAM-INF URIs to /api/proxy/m3u8?url=<encoded>&source=<key>&mt=<token>
 // - Rewrite segment URLs to /api/proxy/segment?url=<encoded>&source=<key>&mt=<token>
 // - Resolve relative URLs against baseURL
 //
 // RewriteM3U8 将 M3U8 内容里的 URL 重写到代理端点.
-// - 将 EXT-X-KEY URI 重写到 /api/proxy/key?url=<encoded>&source=<key>&mt=<token>
+// - 将 EXT-X-KEY 与 EXT-X-SESSION-KEY 的 URI 重写到 /api/proxy/key?url=<encoded>&source=<key>&mt=<token>
+// - 将 EXT-X-MAP 的 URI 重写到 /api/proxy/segment?url=<encoded>&source=<key>&mt=<token>
+// - 将 EXT-X-MEDIA 与 EXT-X-I-FRAME-STREAM-INF 的 URI 重写到 /api/proxy/m3u8?url=<encoded>&source=<key>&mt=<token>
 // - 将分片 URL 重写到 /api/proxy/segment?url=<encoded>&source=<key>&mt=<token>
 // - 基于 baseURL 解析相对 URL
 func RewriteM3U8(content, baseURL, proxyBase, sourceKey string, signer MediaURLSigner) (string, error) {
@@ -494,31 +558,15 @@ func RewriteM3U8(content, baseURL, proxyBase, sourceKey string, signer MediaURLS
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
-		// Rewrite EXT-X-KEY URI.
+		// Rewrite the URI attribute of key, session key, map, media, and I-frame tags.
 		//
-		// 重写 EXT-X-KEY URI.
-		if strings.HasPrefix(trimmed, "#EXT-X-KEY") {
-			var rewriteErr error
-			line = keyURIPattern.ReplaceAllStringFunc(line, func(match string) string {
-				if rewriteErr != nil {
-					return match
-				}
-				sub := keyURIPattern.FindStringSubmatch(match)
-				if len(sub) < 2 {
-					return match
-				}
-				absURL := utils.ResolveURL(baseURL, sub[1])
-				rewritten, err := signedProxyURL(proxyBase, MediaKindKey, absURL, sourceKey, signer)
-				if err != nil {
-					rewriteErr = err
-					return match
-				}
-				return fmt.Sprintf(`URI="%s"`, rewritten)
-			})
-			if rewriteErr != nil {
-				return "", rewriteErr
+		// 重写 key, session key, map, media 与 I-frame 标签的 URI 属性.
+		if kind := uriAttributeKind(trimmed); kind != "" {
+			rewritten, err := rewriteURIAttribute(line, baseURL, proxyBase, kind, sourceKey, signer)
+			if err != nil {
+				return "", err
 			}
-			result = append(result, line)
+			result = append(result, rewritten)
 			continue
 		}
 
@@ -615,6 +663,15 @@ func (ps *ProxyService) FetchM3U8(ctx context.Context, targetURL, proxyBase, sou
 	}
 
 	base := utils.ExtractBaseURL(targetURL)
+	if appruntime.Default().AdFilterEnabled() {
+		var stats AdFilterStats
+		content, stats = FilterInsertedAds(content, base)
+		if stats.Segments > 0 {
+			logrus.WithFields(logrus.Fields{
+				"source": sourceKey, "segments": stats.Segments, "seconds": stats.Seconds,
+			}).Debug("removed inserted ads from playlist")
+		}
+	}
 	return RewriteM3U8(content, base, proxyBase, sourceKey, signer)
 }
 

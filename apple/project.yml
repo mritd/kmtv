@@ -84,6 +84,11 @@ targets:
     platform: iOS
     sources:
       - path: KMTVTests
+        excludes:
+          - "Fixtures/**"
+      - path: KMTVTests/Fixtures
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: KMTV
     settings:

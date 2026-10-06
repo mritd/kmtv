@@ -127,7 +127,7 @@ Run:
 ### Development Server
 
 ```bash
-task server          # backend + embedded frontend, listens on :8080, uses ./dev.db
+task server          # backend + embedded frontend, listens on :8080 (override with PORT=8081), uses ./dev.db
 ```
 
 Standalone frontend dev server (hot reload):
@@ -182,11 +182,11 @@ cd apple && xcodegen
 
 ```bash
 task ios             # iPhone 16 Pro (iOS 18.6)
-task ios26           # iPhone 17 Pro (iOS 26.1)
+task ios26           # iPhone 17 Pro (iOS 26.5)
 task ipad            # iPad Pro 11" M4 (iPadOS 18.6)
-task ipad26          # iPad Pro 11" M5 (iPadOS 26.1)
+task ipad26          # iPad Pro 11" M5 (iPadOS 26.5)
 task tv              # Apple TV (tvOS 18.5)
-task tv26            # Apple TV (tvOS 26.2)
+task tv26            # Apple TV (tvOS 26.5)
 ```
 
 ### Physical Device

@@ -13,6 +13,7 @@ struct PlayerView: View {
     @State private var showControls = false
     @State private var hideControlsTask: Task<Void, Never>?
     @State private var isFullScreen = false
+    @State private var showPicker = false
 
     var body: some View {
         Group {
@@ -39,7 +40,8 @@ struct PlayerView: View {
                     sources: destination.sources, sourceKey: destination.sourceKey,
                     videoId: destination.videoId, title: destination.title,
                     coverHint: destination.coverHint,
-                    initialEpisodeIndex: destination.resumeIntent?.episodeIndex
+                    initialEpisodeIndex: destination.resumeIntent?.episodeIndex,
+                    localEpisodes: appVM.downloadManager
 				)
 				viewModel = vm
 				await vm.prepareResume()
@@ -57,10 +59,17 @@ struct PlayerView: View {
             viewModel?.resume()
         }
         .onChange(of: scenePhase) { _, phase in
-            // Checkpoint before the app is suspended; the session flush may run before this one.
+            // Checkpoint before the app is suspended; the session flush may run before this one. A
+            // local copy's load watchdog pauses in the background and re-arms on return.
             //
-            // 应用挂起前保存进度; 会话级补写可能先于这里执行.
-            if phase == .background { viewModel?.checkpoint() }
+            // 应用挂起前保存进度; 会话级补写可能先于这里执行. 本地副本的加载看门狗在后台暂停,
+            // 返回前台时重新启用.
+            if phase == .background {
+                viewModel?.checkpoint()
+                viewModel?.suspendLoadWatchdog()
+            } else if phase == .active {
+                viewModel?.resumeLoadWatchdog()
+            }
         }
         .onDisappear {
             hideControlsTask?.cancel()
@@ -79,12 +88,27 @@ struct PlayerView: View {
                     //
                     // 叠加在 AVPlayerViewController 之上而非置入其中:
                     // 它自带的控制条没有已加载指示, 而其视图层级也不由我们添加.
-                    BufferBadge(secondsAhead: vm.bufferedAheadSeconds, isWaiting: vm.isBuffering)
+                    PlayerBufferBadge(vm: vm)
                         .padding(.top, 28)
                 }
             }
         }
         #endif
+        .sheet(isPresented: $showPicker) {
+            if let vm = viewModel, let downloads = appVM.downloadManager, downloads.activeScopeKey != nil,
+               let detail = vm.detail {
+                DownloadBadgesReader(downloads: downloads, title: detail.title, sourceKey: vm.currentSourceKey,
+                                     videoId: vm.currentVideoID) { snapshot in
+                    EpisodePickerSheet(
+                        title: detail.title, sourceName: vm.currentSourceName, episodes: vm.episodes,
+                        badges: snapshot.badges,
+                        hints: EpisodePickerModel.otherSourceHints(episodes: vm.episodes, downloads: snapshot.episodes,
+                                                                   sourceKey: vm.currentSourceKey),
+                        freeSpace: downloads.freeBytes, allowsCellular: downloads.allowsCellular
+                    ) { indexes in download(vm, indexes: indexes) }
+                }
+            }
+        }
     }
 
     // MARK: - Content
@@ -115,8 +139,14 @@ struct PlayerView: View {
                                 ]))
                                     .font(.caption)
                                     .foregroundStyle(Theme.textSecondary)
+                                if vm.isPlayingLocalCopy {
+                                    Label("Downloaded", systemImage: "arrow.down.circle.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.green)
+                                }
                             }
                             Spacer()
+                            if vm.episodes.count <= 1 { downloadButton(vm) }
                             Button { vm.toggleFavorite() } label: {
                                 Image(systemName: vm.isFavorited ? "star.fill" : "star")
                                     .foregroundStyle(vm.isFavorited ? .yellow : Theme.textSecondary)
@@ -187,10 +217,12 @@ struct PlayerView: View {
                         skipSettingsSection(vm)
 
                         if vm.episodes.count > 1 {
-                            sectionTitle("Episodes")
-                            EpisodeGrid(episodes: vm.episodes, currentIndex: vm.currentEpisodeIndex) { index in
-                                vm.switchEpisode(index)
+                            HStack {
+                                sectionTitle("Episodes")
+                                Spacer()
+                                downloadButton(vm)
                             }
+                            episodeGrid(vm)
                         }
 
                         if let error = vm.error {
@@ -206,6 +238,70 @@ struct PlayerView: View {
         }
     }
 
+    // MARK: - Downloads
+
+    private func coverURL(_ cover: String) -> URL? {
+        guard !cover.isEmpty else { return nil }
+        if cover.hasPrefix("/"), let client = appVM.apiClient { return URL(string: client.baseURL + cover) }
+        return URL(string: cover)
+    }
+
+    private func download(_ vm: PlayerViewModel, indexes: [Int]) {
+        guard let downloads = appVM.downloadManager, let detail = vm.detail else { return }
+        let requests = indexes.compactMap { index -> DownloadEpisodeRequest? in
+            guard vm.episodes.indices.contains(index) else { return nil }
+            return DownloadEpisodeRequest(sourceKey: vm.currentSourceKey, sourceName: vm.currentSourceName,
+                                          videoId: vm.currentVideoID, episodeIndex: index,
+                                          episodeName: vm.episodes[index].name, lineIndex: vm.currentLineIndex,
+                                          episodeCount: vm.episodes.count, episodeURL: vm.episodes[index].url)
+        }
+        do {
+            let added = try downloads.enqueue(show: DownloadShowInfo(title: detail.title, cover: detail.cover,
+                                                                     type: detail.type, year: detail.year,
+                                                                     coverURL: coverURL(detail.cover)),
+                                              episodes: requests)
+            ToastManager.shared.show(String(localized: "Added \(added) episodes to downloads"), style: .success)
+        } catch DownloadEnqueueError.notEnoughSpace {
+            ToastManager.shared.show(String(localized: "Not enough storage"))
+        } catch {
+            ToastManager.shared.show(String(localized: "Sign in to download"))
+        }
+    }
+
+    /// The episode grid; with downloads, its badges come from a `DownloadBadgesReader`, so download
+    /// progress re-renders the grid at most about twice a second and never this whole page.
+    ///
+    /// 剧集网格; 启用下载时, 角标来自 `DownloadBadgesReader`, 因此下载进度每秒至多让网格重新渲染约两次,
+    /// 且不会重新渲染整个页面.
+    @ViewBuilder
+    private func episodeGrid(_ vm: PlayerViewModel) -> some View {
+        if let downloads = appVM.downloadManager, let detail = vm.detail {
+            DownloadBadgesReader(downloads: downloads, title: detail.title, sourceKey: vm.currentSourceKey,
+                                 videoId: vm.currentVideoID) { snapshot in
+                EpisodeGrid(episodes: vm.episodes, currentIndex: vm.currentEpisodeIndex, badges: snapshot.badges) { index in
+                    vm.switchEpisode(index)
+                }
+            }
+        } else {
+            EpisodeGrid(episodes: vm.episodes, currentIndex: vm.currentEpisodeIndex) { index in
+                vm.switchEpisode(index)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func downloadButton(_ vm: PlayerViewModel) -> some View {
+        if let downloads = appVM.downloadManager, vm.detail != nil {
+            PlayerDownloadButton(downloads: downloads, multiple: vm.episodes.count > 1) {
+                if vm.episodes.count > 1 {
+                    downloads.refreshStorage()
+                    showPicker = true
+                } else {
+                    download(vm, indexes: [vm.currentEpisodeIndex])
+                }
+            }
+        }
+    }
     // MARK: - Player Section
 
     @ViewBuilder
@@ -216,14 +312,10 @@ struct PlayerView: View {
             if vm.player != nil {
                 InlinePlayerView(player: vm.player)
 
-                // Buffering/seeking indicator.
+                // Buffering/seeking indicator, its own view so buffering changes skip this body.
                 //
-                // 缓冲或拖动进度时的状态提示.
-                if vm.isBuffering {
-                    ProgressView()
-                        .tint(.white)
-                        .allowsHitTesting(false)
-                }
+                // 缓冲或拖动进度时的状态提示; 作为独立视图, 缓冲状态变化不会让本 body 重新求值.
+                PlayerBufferingIndicator(vm: vm)
 
                 playerOverlay(vm)
             } else if vm.isLoadingDetail {
@@ -307,30 +399,11 @@ struct PlayerView: View {
     @ViewBuilder
     private func bottomBar(_ vm: PlayerViewModel) -> some View {
         HStack(spacing: 8) {
-            // Time display.
+            // Time display and progress bar, which change every second; their own view keeps the
+            // page body from re-evaluating with them.
             //
-            // 播放时间显示.
-            Text("\(formatTime(vm.currentTime)) / \(formatTime(vm.duration))")
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.white.opacity(0.8))
-                .fixedSize()
-
-            // Progress bar (custom thin slider).
-            //
-            // 自定义细进度条.
-            CustomSlider(
-                value: Binding(
-                    get: { vm.duration > 0 ? vm.currentTime / vm.duration : 0 },
-                    set: { vm.currentTime = $0 * max(vm.duration, 1) }
-                ),
-                buffered: vm.bufferedFraction,
-                onDragStart: { vm.isSeeking = true },
-                onDragEnd: { ratio in
-                    vm.seek(to: ratio * max(vm.duration, 1))
-                }
-            )
-            .frame(height: 32)
-            .accessibilityIdentifier("progressSlider")
+            // 每秒变化的播放时间与进度条; 放在独立视图中, 页面 body 不会随之重新求值.
+            PlayerTimeBar(vm: vm)
 
             // Rate menu.
             //
@@ -429,17 +502,109 @@ struct PlayerView: View {
         }
     }
 
-    private func formatTime(_ seconds: TimeInterval) -> String {
+    private func sectionTitle(_ title: LocalizedStringKey) -> some View {
+        Text(title)
+            .font(.subheadline.bold())
+            .foregroundStyle(Theme.textSecondary)
+    }
+}
+
+/// Time label and progress slider of the inline controls. They read the per-second playback
+/// properties here, so only this view re-renders every second, not the whole player page.
+///
+/// 内嵌控制栏的播放时间与进度条. 每秒变化的播放属性在此读取, 因此每秒只重新渲染本视图, 而不是整个播放页.
+private struct PlayerTimeBar: View {
+    let vm: PlayerViewModel
+
+    var body: some View {
+        // Time display.
+        //
+        // 播放时间显示.
+        Text("\(Self.formatTime(vm.currentTime)) / \(Self.formatTime(vm.duration))")
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.white.opacity(0.8))
+            .fixedSize()
+
+        // Progress bar (custom thin slider).
+        //
+        // 自定义细进度条.
+        CustomSlider(
+            value: Binding(
+                get: { vm.duration > 0 ? vm.currentTime / vm.duration : 0 },
+                set: { vm.currentTime = $0 * max(vm.duration, 1) }
+            ),
+            buffered: vm.bufferedFraction,
+            onDragStart: { vm.isSeeking = true },
+            onDragEnd: { ratio in
+                vm.seek(to: ratio * max(vm.duration, 1))
+            }
+        )
+        .frame(height: 32)
+        .accessibilityIdentifier("progressSlider")
+    }
+
+    private static func formatTime(_ seconds: TimeInterval) -> String {
         guard seconds.isFinite && seconds >= 0 else { return "0:00" }
         let m = Int(seconds) / 60
         let s = Int(seconds) % 60
         return String(format: "%d:%02d", m, s)
     }
+}
 
-    private func sectionTitle(_ title: LocalizedStringKey) -> some View {
-        Text(title)
-            .font(.subheadline.bold())
-            .foregroundStyle(Theme.textSecondary)
+/// Spinner over the inline player while it buffers or seeks.
+///
+/// 内嵌播放器缓冲或拖动进度时显示的加载指示.
+private struct PlayerBufferingIndicator: View {
+    let vm: PlayerViewModel
+
+    var body: some View {
+        if vm.isBuffering {
+            ProgressView()
+                .tint(.white)
+                .allowsHitTesting(false)
+        }
+    }
+}
+
+/// The fullscreen buffer badge, reading the buffer itself so the cover content does not.
+///
+/// 全屏时的缓冲角标; 由它自己读取缓冲量, 全屏内容因此无需读取.
+private struct PlayerBufferBadge: View {
+    let vm: PlayerViewModel
+
+    var body: some View {
+        BufferBadge(secondsAhead: vm.bufferedAheadSeconds, isWaiting: vm.isBuffering)
+    }
+}
+
+/// The player page's download button. Its own view, so the manager state it reads re-renders only
+/// this button.
+///
+/// 播放页的下载按钮. 作为独立视图, 它读取的管理器状态只会重新渲染这个按钮.
+private struct PlayerDownloadButton: View {
+    let downloads: DownloadManager
+    let multiple: Bool
+    let action: () -> Void
+
+    var body: some View {
+        if downloads.canDownload {
+            Button(action: action) {
+                // `labelStyle` takes a concrete style type, so the two styles cannot share a ternary.
+                //
+                // `labelStyle` 需要具体的样式类型, 两种样式无法写进同一个三元表达式.
+                Group {
+                    if multiple {
+                        Label("Download", systemImage: "arrow.down.circle").labelStyle(.titleAndIcon)
+                    } else {
+                        Label("Download", systemImage: "arrow.down.circle").labelStyle(.iconOnly)
+                    }
+                }
+                .font(.subheadline)
+                .foregroundStyle(Theme.accent)
+                .frame(minWidth: 44, minHeight: 44)
+            }
+            .accessibilityIdentifier("downloadButton")
+        }
     }
 }
 

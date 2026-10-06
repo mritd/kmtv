@@ -95,6 +95,12 @@ const (
 	// SettingPlaybackMode 是播放模式设置 key.
 	SettingPlaybackMode = "playback_mode"
 
+	// SettingAdFilterEnabled is the DB setting key for removing ads that sources splice into
+	// proxied playlists.
+	//
+	// SettingAdFilterEnabled 是移除源站拼接进代理 playlist 的广告的开关设置 key.
+	SettingAdFilterEnabled = "ad_filter_enabled"
+
 	// DefaultAccessTokenTTL is the default access token TTL in seconds.
 	//
 	// DefaultAccessTokenTTL 是默认 access token 有效期, 单位秒.

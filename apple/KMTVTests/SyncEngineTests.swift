@@ -43,6 +43,12 @@ final class SyncEngineTests: XCTestCase {
         engine.stop()
     }
 
+    func testDropsDataOnlyForAnotherStoredUsername() {
+        XCTAssertTrue(SyncMerge.dropsData(SyncState(username: "alice"), username: "bob"))
+        XCTAssertFalse(SyncMerge.dropsData(SyncState(username: "alice"), username: "alice"))
+        XCTAssertFalse(SyncMerge.dropsData(SyncState(username: ""), username: "bob"))
+    }
+
     func testNewEpochReuploads() async throws {
         // The full pull after the re-upload returns the record, as the real server would.
         //
@@ -58,6 +64,9 @@ final class SyncEngineTests: XCTestCase {
             return next
         }
 
+        var dropped = 0
+        engine.onScopeDropped = { dropped += 1 }
+
         await engine.requestSync(.launch)
 
         XCTAssertEqual(api.pushes.count, 1)
@@ -66,6 +75,7 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(store.state.epoch, "e2")
         XCTAssertEqual(store.state.cursor, 1)
         XCTAssertTrue(store.isFavorite(title: "Kept"))
+        XCTAssertEqual(dropped, 0)
         engine.stop()
     }
 
@@ -100,6 +110,9 @@ final class SyncEngineTests: XCTestCase {
         store.upsert(.search(SearchPayload(query: "someone else")))
         store.update { var next = $0; next.username = "alice"; next.epoch = "e1"; next.cursor = 4; return next }
 
+        var dropped = 0
+        engine.onScopeDropped = { dropped += 1 }
+
         await engine.requestSync(.launch)
 
         // The fake acknowledges the push under the stale epoch; the real server answers 409, so
@@ -111,6 +124,7 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertFalse(store.state.records.values.contains { $0.dirty })
         XCTAssertEqual(store.state.username, "bob")
         XCTAssertEqual(store.state.epoch, "e2")
+        XCTAssertEqual(dropped, 1)
         engine.stop()
     }
 
@@ -196,6 +210,9 @@ final class SyncEngineTests: XCTestCase {
             return next
         }
 
+        var dropped = 0
+        engine.onScopeDropped = { dropped += 1 }
+
         await engine.requestSync(.launch)
 
         XCTAssertTrue(store.searchItems.isEmpty)
@@ -203,6 +220,7 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(store.state.username, "bob")
         XCTAssertEqual(store.state.epoch, "e1")
         XCTAssertEqual(store.state.cursor, 3)
+        XCTAssertEqual(dropped, 1)
         engine.stop()
     }
 

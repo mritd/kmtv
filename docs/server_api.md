@@ -235,11 +235,14 @@ Admin-visible setting keys:
 - `access_token_ttl`
 - `media_token_ttl`
 - `playback_mode`
+- `ad_filter_enabled`
 - `version`
 
 `public_base_url` configures the external base URL used when rewriting M3U8 proxy links. `KMTV_PUBLIC_BASE_URL` has higher priority than this DB setting. If neither is configured, KMTV keeps the current forwarded-header fallback behavior.
 
 `media_token_ttl` defaults to 21600 seconds so URL-bound proxy playback tokens stay valid across long episodes.
+
+`ad_filter_enabled` defaults to `true`. While on, `/proxy/m3u8` drops ad runs that sources splice into VOD media playlists (ADR-018). Direct playback is not affected.
 
 Common errors: `500 ServerError`.
 
@@ -695,7 +698,9 @@ Common errors: `400 MissingParam`, `400 InvalidURL`, `403 Blocked`, `404 NotFoun
 
 ### `GET /proxy/m3u8`
 
-Public media endpoint. Fetches an upstream M3U8 and rewrites segment/key URLs back through KMTV proxy endpoints. Requires a valid media token issued for the exact M3U8 URL.
+Public media endpoint. Fetches an upstream M3U8 and rewrites its media, key, and playlist URIs back through KMTV proxy endpoints. Requires a valid media token issued for the exact M3U8 URL.
+
+Rewritten URIs: segment lines and `EXT-X-MAP` URIs go to `/proxy/segment`; `EXT-X-KEY` and `EXT-X-SESSION-KEY` URIs go to `/proxy/key`; variant lines after `EXT-X-STREAM-INF`, and `EXT-X-MEDIA` and `EXT-X-I-FRAME-STREAM-INF` URIs, go to `/proxy/m3u8`. Every rewritten URL carries its own media token. Other tags pass through unchanged. I-frame playlists are therefore proxied too, but the proxy does not forward `Range`, so `EXT-X-BYTERANGE` I-frame (trick-play) requests get full responses.
 
 Query parameters:
 

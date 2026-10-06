@@ -40,6 +40,15 @@ struct ProfileView: View {
         List {
             userInfoSection(vm)
             navigationSection(vm)
+            #if os(iOS)
+            // A signed-in user's scope is nil until activation finishes; showing the section then
+            // would count their own downloads as another account's.
+            //
+            // 已登录用户的作用域在激活完成前为 nil; 此时显示会把其自己的下载算作其他账号的.
+            if let downloads = appVM.downloadManager, isAnonymous || downloads.activeScopeKey != nil {
+                DownloadsSettingsSection(downloads: downloads, scope: isAnonymous ? nil : downloads.activeScopeKey)
+            }
+            #endif
             if !isAnonymous {
                 passwordSection(vm)
             }
@@ -292,6 +301,66 @@ private struct AuthenticatedAvatarImage: View {
         guard let apiClient else { return }
         guard let data = try? await apiClient.getData(path) else { return }
         image = UIImage(data: data)
+    }
+}
+#endif
+
+#if os(iOS)
+/// Downloads settings: cellular use, storage, and deleting this account's or other accounts'
+/// downloads.
+///
+/// 下载设置: 蜂窝数据, 存储占用, 以及删除本账号或其他账号的下载.
+private struct DownloadsSettingsSection: View {
+    let downloads: DownloadManager
+    /// The signed-in account's scope; nil for the anonymous user, who can only clear other
+    /// accounts' downloads.
+    ///
+    /// 已登录账号的作用域; 匿名用户为 nil, 只能清理其他账号的下载.
+    let scope: String?
+    @State private var confirmDeleteAll = false
+    @State private var confirmDeleteOthers = false
+
+    var body: some View {
+        // Cached by the manager: the scope is the active one, or nil for the anonymous user, whose
+        // "other accounts" are every scope.
+        //
+        // 由管理器缓存: 作用域即当前作用域; 匿名用户为 nil, 其 "其他账号" 即所有作用域.
+        let storage = downloads.storage
+        let others = scope == nil ? storage.activeBytes + storage.otherBytes : storage.otherBytes
+        if scope != nil || others > 0 {
+            content(others: others)
+        }
+    }
+
+    private func content(others: Int64) -> some View {
+        Section {
+            if let scope {
+                Toggle("Allow downloads over cellular", isOn: Binding(
+                    get: { downloads.allowsCellular },
+                    set: { value in Task { await downloads.setAllowsCellular(value) } }))
+                LabeledContent("Storage used", value: DownloadFormatting.bytes(downloads.storage.activeBytes))
+                Button("Delete all downloads", role: .destructive) { confirmDeleteAll = true }
+            }
+            if others > 0 {
+                Button(role: .destructive) { confirmDeleteOthers = true } label: {
+                    LabeledContent("Other accounts' downloads", value: DownloadFormatting.bytes(others))
+                }
+            }
+        } header: {
+            Text("Downloads")
+        } footer: {
+            Text("Downloads stay on this device and are not synced to other devices.")
+        }
+        .confirmationDialog("Delete all downloads of this account?", isPresented: $confirmDeleteAll,
+                            titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                if let scope { Task { await downloads.deleteScope(scope) } }
+            }
+        }
+        .confirmationDialog("Delete downloads of other accounts?", isPresented: $confirmDeleteOthers,
+                            titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { Task { await downloads.deleteOtherScopes(excluding: scope) } }
+        }
     }
 }
 #endif

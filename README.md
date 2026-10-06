@@ -127,7 +127,7 @@ task build
 ### 开发服务器
 
 ```bash
-task server          # 后端 + 内嵌前端,监听 :8080,dev.db 落本目录
+task server          # 后端 + 内嵌前端,监听 :8080 (可用 PORT=8081 覆盖),dev.db 落本目录
 ```
 
 前端独立 dev server(热重载):
@@ -182,11 +182,11 @@ cd apple && xcodegen
 
 ```bash
 task ios             # iPhone 16 Pro (iOS 18.6)
-task ios26           # iPhone 17 Pro (iOS 26.1)
+task ios26           # iPhone 17 Pro (iOS 26.5)
 task ipad            # iPad Pro 11" M4 (iPadOS 18.6)
-task ipad26          # iPad Pro 11" M5 (iPadOS 26.1)
+task ipad26          # iPad Pro 11" M5 (iPadOS 26.5)
 task tv              # Apple TV (tvOS 18.5)
-task tv26            # Apple TV (tvOS 26.2)
+task tv26            # Apple TV (tvOS 26.5)
 ```
 
 ### 物理设备

@@ -2,6 +2,9 @@ import Foundation
 import XCTest
 
 final class URLProtocolStub: URLProtocol {
+    /// Thrown by a handler to leave the request pending until it is cancelled.
+    struct Hang: Error {}
+
     nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -18,6 +21,8 @@ final class URLProtocolStub: URLProtocol {
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: data)
             client?.urlProtocolDidFinishLoading(self)
+        } catch is Hang {
+            return
         } catch {
             client?.urlProtocol(self, didFailWithError: error)
         }

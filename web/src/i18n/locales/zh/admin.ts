@@ -187,6 +187,7 @@ const admin = {
       access_token_ttl: "AccessToken 有效期 (秒)",
       media_token_ttl: "MediaToken 有效期 (秒)",
       playback_mode: "播放模式",
+      ad_filter_enabled: "过滤插入广告 (代理模式)",
     },
     playbackMode: {
       direct: "直连",

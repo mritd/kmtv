@@ -239,6 +239,14 @@ enum SyncMerge {
         return next
     }
 
+    /// Whether a reset drops the scope's data: it was saved under another, non-empty username, so
+    /// the user ID was reused by someone else.
+    ///
+    /// 重置是否会丢弃作用域的数据: 数据保存在另一个非空用户名下, 说明该用户 ID 已被他人复用.
+    static func dropsData(_ state: SyncState, username: String) -> Bool {
+        !state.username.isEmpty && state.username != username
+    }
+
     /// Handles a server that lost data this device has: a new epoch, or a same-epoch restore from an
     /// older copy (pass the current epoch). If the local data belongs to another username, the user
     /// ID was reused by someone else and the data is dropped, keeping the clock offset and epoch.
@@ -248,7 +256,7 @@ enum SyncMerge {
     /// 如果本地数据属于其他用户名, 说明该用户 ID 已被他人复用, 本地数据会被丢弃, 仅保留时钟偏移
     /// 与 epoch. 否则所有记录都标记为需要重新上传.
     static func resetForNewEpoch(_ state: SyncState, epoch: String, username: String) -> SyncState {
-        if !state.username.isEmpty && state.username != username {
+        if dropsData(state, username: username) {
             return SyncState(username: username, epoch: epoch, clockOffsetMs: state.clockOffsetMs)
         }
         var next = markForReupload(state)
