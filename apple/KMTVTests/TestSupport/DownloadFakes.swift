@@ -10,6 +10,21 @@ final class FakeDownloadTransport: DownloadTransport {
     private(set) var enqueued: [DownloadTaskRequest] = []
     private(set) var cancelled: [DownloadTaskID] = []
     var live: [DownloadTaskID: DownloadTaskRequest] = [:]
+    /// When set, the next `cancel` suspends before it looks at the tasks (like awaiting
+    /// `session.allTasks`) until the test opens the gate; `cancelEntered` turns true once it waits.
+    ///
+    /// 设置后, 下一次 `cancel` 在查看任务之前挂起 (如同等待 `session.allTasks`), 直到测试打开闸门;
+    /// 开始等待后 `cancelEntered` 变为 true.
+    var cancelGate: PrepareGate?
+    private(set) var cancelEntered = false
+    /// When set, the next `outstanding` takes its snapshot and then suspends until the test opens
+    /// the gate, like a reply computed on the session queue; `outstandingEntered` turns true once it
+    /// waits.
+    ///
+    /// 设置后, 下一次 `outstanding` 先取快照再挂起, 直到测试打开闸门, 如同在 session 队列上算好的
+    /// 回复; 开始等待后 `outstandingEntered` 变为 true.
+    var outstandingGate: PrepareGate?
+    private(set) var outstandingEntered = false
 
     func enqueue(_ requests: [DownloadTaskRequest]) {
         enqueued += requests
@@ -17,13 +32,26 @@ final class FakeDownloadTransport: DownloadTransport {
     }
 
     func cancel(where predicate: @escaping @Sendable (DownloadTaskID) -> Bool) async {
+        if let gate = cancelGate {
+            cancelGate = nil
+            cancelEntered = true
+            await gate.wait()
+        }
         for id in live.keys where predicate(id) {
             cancelled.append(id)
             live[id] = nil
         }
     }
 
-    func outstanding() async -> [DownloadTaskID] { Array(live.keys) }
+    func outstanding() async -> [DownloadTaskID] {
+        let snapshot = Array(live.keys)
+        if let gate = outstandingGate {
+            outstandingGate = nil
+            outstandingEntered = true
+            await gate.wait()
+        }
+        return snapshot
+    }
 
     func waitForBackgroundEvents() async {}
 

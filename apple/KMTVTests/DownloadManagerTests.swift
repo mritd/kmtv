@@ -39,10 +39,11 @@ final class DownloadManagerTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
-    private func makeManager(wakeBudget: Duration = DownloadManager.backgroundWakeBudget) -> DownloadManager {
+    private func makeManager(wakeBudget: Duration = DownloadManager.backgroundWakeBudget,
+                             outstandingLimit: Int = 100) -> DownloadManager {
         DownloadManager(context: container.mainContext, layout: layout, transport: transport, defaults: defaults,
                         freeSpace: { [unowned self] in self.freeSpace }, now: { [unowned self] in self.nowValue },
-                        outstandingLimit: 100, coverFetcher: { [covers] url in covers.fetch(url) },
+                        outstandingLimit: outstandingLimit, coverFetcher: { [covers] url in covers.fetch(url) },
                         backgroundWakeBudget: wakeBudget)
     }
 
@@ -375,6 +376,7 @@ final class DownloadManagerTests: XCTestCase {
         await transport.fail(id, code: .timedOut)
         XCTAssertEqual(transport.enqueued.count, 3)
         XCTAssertEqual(episode(0)?.state, .downloading)
+        await manager.progressTask?.value
         XCTAssertEqual(episode(0)?.doneEntries, 1)
     }
 
@@ -461,9 +463,11 @@ final class DownloadManagerTests: XCTestCase {
         try await enqueueAndSettle()
         let structure = manager.changeCount
         for id in liveIDs(0).prefix(10) { await transport.finish(id, layout: layout) }
-        // Rows still see every entry; views keyed on structure do not re-render per entry.
+        // Rows see the entries on the next progress tick; views keyed on structure do not re-render
+        // per entry.
         //
-        // 数据行仍会反映每个条目; 依赖结构变化的视图不会因每个条目而重新渲染.
+        // 数据行在下一次进度通知时反映这些条目; 依赖结构变化的视图不会因每个条目而重新渲染.
+        await manager.progressTask?.value
         XCTAssertEqual(episode(0)?.doneEntries, 10)
         XCTAssertEqual(manager.changeCount, structure)
     }
@@ -508,6 +512,121 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertEqual(manager.activeEpisodeCount, 0)
         manager.resume(try XCTUnwrap(episode(1)))
         XCTAssertEqual(manager.activeEpisodeCount, 1)
+    }
+
+    func testEntriesBeyondTheOutstandingLimitAreEnqueuedAsRoomOpens() async throws {
+        manager = makeManager(outstandingLimit: 3)
+        await manager.activate(scopeKey: scope, preparer: preparer)
+        preparer.segments["https://cdn.example/ep0.m3u8"] = 5
+        try await enqueueAndSettle()
+        XCTAssertEqual(transport.enqueued.count, 3)
+        // The app stays in the foreground: no scene change pumps, only finished entries make room.
+        //
+        // App 一直在前台: 没有场景变化来推进队列, 只有完成的条目腾出空间.
+        for _ in 0..<5 {
+            let id = try XCTUnwrap(liveIDs(0).first)
+            await transport.finish(id, layout: layout)
+            await manager.waitForIdle()
+            XCTAssertLessThanOrEqual(transport.live.count, 3)
+        }
+        XCTAssertEqual(transport.enqueued.count, 5)
+        XCTAssertEqual(Set(transport.enqueued.map(\.id)).count, 5)
+        XCTAssertEqual(episode(0)?.state, .completed)
+    }
+
+    func testReconcileKeepsTasksEnqueuedWhileItAwaitsTheTransport() async throws {
+        // Prepare finishes in the background, so its tasks wait for the foreground.
+        //
+        // 准备在后台完成, 其任务要等回到前台才提交.
+        let gate = try await enqueueGated([0])
+        await manager.handleScenePhase(.background)
+        gate.open()
+        await manager.waitForIdle()
+        XCTAssertTrue(transport.enqueued.isEmpty)
+        // Returning, `.inactive` reconciles from a snapshot taken before `.active` pumps.
+        //
+        // 返回前台时, `.inactive` 的对账快照早于 `.active` 的队列推进.
+        let reconcileGate = PrepareGate()
+        transport.outstandingGate = reconcileGate
+        let inactive = Task { await manager.handleScenePhase(.inactive) }
+        for _ in 0..<1000 where !transport.outstandingEntered { await Task.yield() }
+        XCTAssertTrue(transport.outstandingEntered)
+        await manager.handleScenePhase(.active)
+        await manager.waitForIdle()
+        XCTAssertEqual(transport.enqueued.count, 3)
+        reconcileGate.open()
+        await inactive.value
+        // Any later pump must not enqueue the same entries again.
+        //
+        // 之后的任何队列推进都不能再次提交相同的条目.
+        await manager.handleScenePhase(.active)
+        await manager.waitForIdle()
+        XCTAssertEqual(transport.enqueued.count, 3)
+    }
+
+    func testCellularToggleKeepsTasksRecreatedDuringTheCancel() async throws {
+        try await enqueueAndSettle()
+        XCTAssertEqual(transport.live.count, 3)
+        let gate = PrepareGate()
+        transport.cancelGate = gate
+        let toggle = Task { await manager.setAllowsCellular(true) }
+        for _ in 0..<1000 where !transport.cancelEntered { await Task.yield() }
+        XCTAssertTrue(transport.cancelEntered)
+        // A pump during the cancel must not re-create the IDs being cancelled.
+        //
+        // 取消期间的队列推进不得重建正在取消的 ID.
+        await manager.handleScenePhase(.active)
+        await manager.waitForIdle()
+        gate.open()
+        await toggle.value
+        await manager.waitForIdle()
+        XCTAssertEqual(transport.live.count, 3)
+        XCTAssertTrue(transport.live.values.allSatisfy(\.allowsCellular))
+        XCTAssertEqual(transport.enqueued.count, 6)
+    }
+
+    func testAcceptedEntriesReachTheRowOnTheProgressTick() async throws {
+        preparer.segments["https://cdn.example/ep0.m3u8"] = 40
+        try await enqueueAndSettle()
+        let ep = try XCTUnwrap(episode(0))
+        var writes = 0
+        func counting(_ step: () async -> Void) async {
+            let changed = ObservationFlag()
+            withObservationTracking {
+                _ = ep.doneEntries
+                _ = ep.bytes
+            } onChange: { changed.set() }
+            await step()
+            if changed.value { writes += 1 }
+        }
+        for id in liveIDs(0).prefix(30) {
+            await counting { await transport.finish(id, layout: layout) }
+        }
+        await counting { await manager.progressTask?.value }
+        // Thirty entries: one write when the manifest is saved after 20, one on the tick.
+        //
+        // 三十个条目: 第 20 个后保存 manifest 时写一次, 进度通知时再写一次.
+        XCTAssertLessThanOrEqual(writes, 2)
+        XCTAssertEqual(ep.doneEntries, 30)
+        XCTAssertEqual(ep.bytes, 120)
+        // A pause writes the exact count at once, and so does a relaunch.
+        //
+        // 暂停会立即写入准确的数量, 重启后同样如此.
+        await transport.finish(liveIDs(0)[0], layout: layout)
+        await manager.pause(ep)
+        XCTAssertEqual(ep.doneEntries, 31)
+        XCTAssertEqual(ep.bytes, 124)
+        XCTAssertEqual(savedManifest(0)?.doneCount, 31)
+    }
+
+    func testPersistAllWritesPendingProgress() async throws {
+        try await enqueueAndSettle()
+        await transport.finish(liveIDs(0)[0], layout: layout)
+        XCTAssertEqual(episode(0)?.doneEntries, 0)
+        manager.persistAll()
+        XCTAssertEqual(episode(0)?.doneEntries, 1)
+        XCTAssertEqual(episode(0)?.bytes, 4)
+        XCTAssertEqual(savedManifest(0)?.doneCount, 1)
     }
 
     func testDeleteEpisodeRemovesEmptyShowAndMarkDamagedClearsFiles() async throws {

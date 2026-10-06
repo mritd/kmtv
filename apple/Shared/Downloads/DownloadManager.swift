@@ -174,6 +174,24 @@ final class DownloadManager {
     @ObservationIgnored private var manifests: [String: DownloadManifest] = [:]
     @ObservationIgnored private var inFlight: Set<DownloadTaskID> = []
     @ObservationIgnored private var unsaved: [String: Int] = [:]
+    /// IDs being cancelled, counted per pending cancel. They stay claimed until the cancel returns,
+    /// so no pump or retry re-creates a task with the same ID that the cancel would then kill.
+    ///
+    /// 正在取消的 ID, 按未完成的取消次数计数. 取消返回之前它们一直被占用, 因此队列推进或重试不会重建
+    /// 同一 ID 的任务, 再被这次取消误杀.
+    @ObservationIgnored private var cancelling: [DownloadTaskID: Int] = [:]
+    /// Whether a pump stopped at `outstandingLimit` with entries left; finished entries pump again
+    /// once `refillBatch` slots are free.
+    ///
+    /// 队列推进是否因达到 `outstandingLimit` 而停下且仍有条目; 腾出 `refillBatch` 个空位后, 完成的条目
+    /// 会再次推进队列.
+    @ObservationIgnored private var starved = false
+    /// Episodes whose finished entries have not reached their rows yet; flushed on the progress
+    /// tick and on every state transition, so rows re-render per tick instead of per entry.
+    ///
+    /// 已完成条目尚未写入数据行的剧集; 在进度通知以及每次状态切换时写入, 数据行因此按通知而不是按条目
+    /// 重新渲染.
+    @ObservationIgnored private var progressPending: Set<String> = []
     @ObservationIgnored private var pumpTask: Task<Void, Never>?
     @ObservationIgnored private var pumpRequested = false
     @ObservationIgnored private var backgroundWake = false
@@ -444,15 +462,23 @@ final class DownloadManager {
 
     private func pauseScope(_ scopeKey: String, reason: DownloadPauseReason) async {
         let hash = DownloadPaths.scopeHash(scopeKey)
-        for ep in episodes(in: scopeKey) where ep.state == .queued || ep.state == .downloading {
+        var generations: [String: Int] = [:]
+        for ep in episodes(in: scopeKey) {
+            generations[ep.episodeKey] = manifests[ep.episodeKey]?.generation
+            guard ep.state == .queued || ep.state == .downloading else { continue }
             ep.state = .paused
             ep.pauseReason = reason
+            flushProgress(of: ep)
             if let manifest = manifests[ep.episodeKey] { saveManifest(manifest, for: ep) }
         }
         saveContext()
         bump()
-        inFlight = inFlight.filter { $0.scopeHash != hash }
-        await transport.cancel { $0.scopeHash == hash }
+        // Tasks of a newer generation come from a resume during the await; they must survive.
+        //
+        // 更新一代的任务来自等待期间的继续操作; 它们必须保留.
+        let bound = generations
+        inFlight = inFlight.filter { !($0.scopeHash == hash && $0.generation <= bound[$0.episodeKey] ?? .max) }
+        await transport.cancel { $0.scopeHash == hash && $0.generation <= bound[$0.episodeKey] ?? .max }
     }
 
     // MARK: - Commands
@@ -518,6 +544,7 @@ final class DownloadManager {
         guard ep.state == .queued || ep.state == .downloading else { return }
         ep.state = .paused
         ep.pauseReason = .user
+        flushProgress(of: ep)
         if let manifest = manifests[ep.episodeKey] { saveManifest(manifest, for: ep) }
         saveContext()
         bump()
@@ -687,13 +714,11 @@ final class DownloadManager {
         defaults.set(value, forKey: Self.cellularKey)
         guard let scope = activeScopeKey else { return }
         let hash = DownloadPaths.scopeHash(scope)
-        // Only tasks created under the old policy; a pump running during the await adds tasks
-        // under the new one, which must survive.
+        // Only tasks created under the old policy; they stay claimed during the cancel, and the
+        // pump afterwards re-creates them under the new one.
         //
-        // 只取消按旧策略创建的任务; 等待期间运行的队列推进会按新策略新增任务, 这些任务必须保留.
-        let old = inFlight.filter { $0.scopeHash == hash }
-        inFlight.subtract(old)
-        await transport.cancel { old.contains($0) }
+        // 只取消按旧策略创建的任务; 取消期间它们保持占用, 之后的队列推进会按新策略重建它们.
+        await cancelClaimed(inFlight.filter { $0.scopeHash == hash })
         schedulePump()
     }
 
@@ -783,6 +808,7 @@ final class DownloadManager {
         //
         // 已完成任务的事件不再出现在 `outstanding()` 中; 必须先处理这些事件, 否则对应条目会被重复提交.
         await transport.drainEvents()
+        let before = inFlight
         var keep: Set<DownloadTaskID> = []
         var stale: Set<DownloadTaskID> = []
         for id in await transport.outstanding() {
@@ -794,12 +820,13 @@ final class DownloadManager {
                 stale.insert(id)
             }
         }
-        // Set before the cancel await, so a pump running meanwhile keeps the tasks it adds.
+        // Merge rather than overwrite: a pump that ran during the await added tasks the snapshot
+        // may predate. Claims from before the await that the transport no longer has are dropped.
         //
-        // 在等待取消之前赋值, 这样期间运行的队列推进所新增的任务不会被覆盖.
-        inFlight = keep
-        let staleIDs = stale
-        if !staleIDs.isEmpty { await transport.cancel { staleIDs.contains($0) } }
+        // 合并而非覆盖: 等待期间运行的队列推进新增的任务可能晚于快照. 等待之前的占用若已不在传输层中,
+        // 则被丢弃.
+        inFlight = keep.union(inFlight.subtracting(before))
+        await cancelClaimed(stale)
     }
 
     /// Returns when no pump is running.
@@ -833,6 +860,7 @@ final class DownloadManager {
     ///
     /// 写入缓存的 manifest 与待保存的数据行变化.
     func persistAll() {
+        flushAllProgress()
         for (key, manifest) in manifests {
             try? manifest.save(to: layout.manifestURL(episodeDir: layout.root.appending(path: key, directoryHint: .isDirectory)))
         }
@@ -860,7 +888,11 @@ final class DownloadManager {
             .filter { $0.state == .queued || $0.state == .downloading }
             .sorted { $0.queueOrder < $1.queueOrder }
         for (position, ep) in candidates.enumerated() {
-            guard inFlight.count < outstandingLimit, activeScopeKey == scopeKey else { return }
+            guard activeScopeKey == scopeKey else { return }
+            guard inFlight.count < outstandingLimit else {
+                starved = true
+                return
+            }
             // The app may have gone to the background, or a row may have been deleted, while the
             // previous episode was preparing.
             //
@@ -932,6 +964,7 @@ final class DownloadManager {
                 }
             }
             saveManifest(next, for: current)
+            progressPending.remove(key)
             current.totalEntries = next.entries.count
             current.doneEntries = next.doneCount
             current.bytes = next.totalBytes
@@ -965,18 +998,40 @@ final class DownloadManager {
     private func enqueueMissing(_ ep: DownloadEpisode, _ manifest: DownloadManifest, priority: Float) {
         guard !preparingKeys.contains(ep.episodeKey) else { return }
         let room = outstandingLimit - inFlight.count
-        guard room > 0 else { return }
+        guard room > 0 else {
+            starved = true
+            return
+        }
         var requests: [DownloadTaskRequest] = []
         for entry in manifest.entries where !entry.done {
             let id = taskID(ep, generation: manifest.generation, entry: entry.index)
-            guard !inFlight.contains(id) else { continue }
+            guard !inFlight.contains(id), cancelling[id] == nil else { continue }
+            if requests.count >= room {
+                starved = true
+                break
+            }
             requests.append(DownloadTaskRequest(id: id, url: entry.remoteURL, earliestBegin: nil, priority: priority,
                                                 allowsCellular: allowsCellular))
-            if requests.count >= room { break }
         }
         guard !requests.isEmpty else { return }
         transport.enqueue(requests)
         inFlight.formUnion(requests.map(\.id))
+    }
+
+    /// Free slots that make a starved queue pump again: a tenth of the limit, at least one, so a
+    /// long episode refills in batches instead of once per finished entry.
+    ///
+    /// 让受限队列再次推进所需的空位数: 上限的十分之一, 至少为一, 因此长剧集按批补充, 而不是每完成一个
+    /// 条目就推进一次.
+    private var refillBatch: Int { max(1, outstandingLimit / 10) }
+
+    /// Pumps again when a starved queue has `refillBatch` free slots.
+    ///
+    /// 受限队列有 `refillBatch` 个空位时再次推进.
+    private func pumpIfRoomOpened() {
+        guard starved, inFlight.count <= outstandingLimit - refillBatch else { return }
+        starved = false
+        schedulePump()
     }
 
     // MARK: - Events
@@ -998,6 +1053,7 @@ final class DownloadManager {
             inFlight.remove(id)
             await pauseAll(reason: .noSpace)
         }
+        pumpIfRoomOpened()
     }
 
     private func handleFinished(_ id: DownloadTaskID, _ info: DownloadResponseInfo) async {
@@ -1031,8 +1087,10 @@ final class DownloadManager {
         manifest.entries[id.entryIndex].done = true
         manifest.entries[id.entryIndex].bytes = info.size
         manifests[ep.episodeKey] = manifest
-        ep.doneEntries = manifest.doneCount
-        ep.bytes = manifest.totalBytes
+        // The row catches up on the progress tick (or the next state transition), not per entry.
+        //
+        // 数据行在进度通知 (或下一次状态切换) 时同步, 而不是每个条目同步一次.
+        progressPending.insert(ep.episodeKey)
         if ep.refreshCount != 0 { ep.refreshCount = 0 }
         scheduleProgress()
         if manifest.isComplete {
@@ -1043,6 +1101,7 @@ final class DownloadManager {
         let pending = (unsaved[ep.episodeKey] ?? 0) + 1
         if pending >= Self.saveEvery {
             saveManifest(manifest, for: ep)
+            flushProgress(of: ep)
             saveContext()
         } else {
             unsaved[ep.episodeKey] = pending
@@ -1068,6 +1127,10 @@ final class DownloadManager {
                 await fail(ep, failure)
                 return
             }
+            // A cancel of this ID is in flight; the pump after it re-creates the task.
+            //
+            // 该 ID 的取消正在进行; 取消之后的队列推进会重建该任务.
+            guard cancelling[id] == nil else { return }
             let request = DownloadTaskRequest(id: id, url: manifest.entries[id.entryIndex].remoteURL,
                                               earliestBegin: now().addingTimeInterval(Self.retryDelays[attempts - 1]),
                                               priority: URLSessionTask.defaultPriority, allowsCellular: allowsCellular)
@@ -1084,6 +1147,7 @@ final class DownloadManager {
         }
         ep.refreshCount += 1
         ep.state = .queued
+        flushProgress(of: ep)
         if let manifest = manifests[ep.episodeKey] { saveManifest(manifest, for: ep) }
         saveContext()
         bump()
@@ -1096,6 +1160,7 @@ final class DownloadManager {
     private func fail(_ ep: DownloadEpisode, _ failure: DownloadFailure) async {
         ep.state = .failed
         ep.failure = failure
+        flushProgress(of: ep)
         if let manifest = manifests[ep.episodeKey] { saveManifest(manifest, for: ep) }
         saveContext()
         bump()
@@ -1121,6 +1186,7 @@ final class DownloadManager {
         try? manifest.save(to: layout.manifestURL(episodeDir: dir))
         manifests[ep.episodeKey] = nil
         unsaved[ep.episodeKey] = nil
+        progressPending.remove(ep.episodeKey)
         ep.state = .completed
         ep.completedAt = now()
         ep.totalEntries = manifest.entries.count
@@ -1145,10 +1211,54 @@ final class DownloadManager {
                        entryIndex: entry)
     }
 
+    /// Cancels an episode's tasks up to its current generation; a newer generation comes from a
+    /// prepare that ran during the await and must survive.
+    ///
+    /// 取消某集截至当前 generation 的任务; 更新一代的任务来自等待期间完成的准备, 必须保留.
     private func cancelTasks(of ep: DownloadEpisode) async {
         let key = ep.episodeKey
-        inFlight = inFlight.filter { $0.episodeKey != key }
-        await transport.cancel { $0.episodeKey == key }
+        let generation = manifests[key]?.generation ?? .max
+        inFlight = inFlight.filter { !($0.episodeKey == key && $0.generation <= generation) }
+        await transport.cancel { $0.episodeKey == key && $0.generation <= generation }
+    }
+
+    /// Cancels tasks by ID while keeping the IDs claimed (see `cancelling`), then releases them for
+    /// the next pump.
+    ///
+    /// 按 ID 取消任务, 期间保持这些 ID 被占用 (见 `cancelling`), 之后释放给下一次队列推进.
+    private func cancelClaimed(_ ids: Set<DownloadTaskID>) async {
+        guard !ids.isEmpty else { return }
+        for id in ids { cancelling[id, default: 0] += 1 }
+        await transport.cancel { ids.contains($0) }
+        for id in ids {
+            let count = (cancelling[id] ?? 1) - 1
+            cancelling[id] = count > 0 ? count : nil
+        }
+        inFlight.subtract(ids)
+    }
+
+    /// Copies an episode's cached manifest progress to its row, writing only changed values.
+    ///
+    /// 将某集缓存的 manifest 进度写入其数据行, 只写入发生变化的值.
+    private func flushProgress(of ep: DownloadEpisode) {
+        progressPending.remove(ep.episodeKey)
+        guard let manifest = manifests[ep.episodeKey] else { return }
+        let done = manifest.doneCount
+        let bytes = manifest.totalBytes
+        if ep.doneEntries != done { ep.doneEntries = done }
+        if ep.bytes != bytes { ep.bytes = bytes }
+    }
+
+    /// Flushes every episode with pending progress.
+    ///
+    /// 写入所有有待同步进度的剧集.
+    private func flushAllProgress() {
+        let keys = progressPending
+        progressPending = []
+        for key in keys {
+            guard let ep = episode(forKey: key), isLive(ep) else { continue }
+            flushProgress(of: ep)
+        }
     }
 
     private func manifest(for ep: DownloadEpisode) -> DownloadManifest? {
@@ -1173,6 +1283,7 @@ final class DownloadManager {
     private func removeEpisodeFiles(_ ep: DownloadEpisode) {
         manifests[ep.episodeKey] = nil
         unsaved[ep.episodeKey] = nil
+        progressPending.remove(ep.episodeKey)
         try? FileManager.default.removeItem(at: layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir,
                                                                   episodeDir: ep.episodeDir))
     }
@@ -1219,6 +1330,7 @@ final class DownloadManager {
             try? await Task.sleep(for: interval)
             guard let self else { return }
             self.progressTask = nil
+            self.flushAllProgress()
             self.progressTick &+= 1
             self.refreshDerived()
         }
