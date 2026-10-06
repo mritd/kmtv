@@ -277,8 +277,8 @@ enum HLSParser {
     /// `unsupportedURI` for any scheme but http and https, so a playlist cannot make the
     /// background session read local files or inline data.
     ///
-    /// 基于 playlist URL 解析引用; 不是 URL 时返回 nil. 除 http 与 https 外的 scheme 均抛出
-    /// `unsupportedURI`, 因此 playlist 无法让后台会话读取本地文件或内联数据.
+    /// 基于 playlist URL 解析引用; 不是 URL 时返回 nil. 除 http 与 https 外的 scheme 均抛出 `unsupportedURI`,
+    /// 因此 playlist 无法让后台会话读取本地文件或内联数据.
     private static func resolve(_ reference: String, _ baseURL: URL) throws -> URL? {
         guard let url = URL(string: reference, relativeTo: baseURL)?.absoluteURL else { return nil }
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {

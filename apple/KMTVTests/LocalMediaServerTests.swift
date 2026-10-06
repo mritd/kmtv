@@ -143,14 +143,14 @@ final class LocalMediaServerTests: XCTestCase {
     /// Regression for a writer that declared the key before a clear init section, so AVPlayer
     /// decrypted the init and the item stalled in `.unknown` without an error.
     ///
-    /// 回归测试: 写入器曾在明文 init 之前声明 key, AVPlayer 因而解密了 init, item 一直停在
-    /// `.unknown` 且没有任何错误.
+    /// 回归测试: 写入器曾在明文 init 之前声明 key, AVPlayer 因而解密了 init, item 一直停在 `.unknown`
+    /// 且没有任何错误.
     ///
     /// The `fmp4-aes-clearinit` fixture is the `fmp4` fixture with its segments encrypted and the
     /// init left clear. Regenerate it from `apple/KMTVTests/Fixtures/HLS` with:
     ///
-    /// `fmp4-aes-clearinit` 素材由 `fmp4` 素材加密分片而来, init 保持明文. 在
-    /// `apple/KMTVTests/Fixtures/HLS` 下按如下命令重新生成:
+    /// `fmp4-aes-clearinit` 素材由 `fmp4` 素材加密分片而来, init 保持明文.
+    /// 在 `apple/KMTVTests/Fixtures/HLS` 下按如下命令重新生成:
     ///
     ///     cp fmp4/init-0.mp4 fmp4-aes-clearinit/
     ///     openssl rand 16 > fmp4-aes-clearinit/key-0.bin

@@ -4,8 +4,8 @@ import Network
 /// Loopback TCP listener that accepts connections and never answers, so an `AVPlayerItem` pointed
 /// at it stays in `.unknown`, like a local item that never loads.
 ///
-/// 运行在 loopback 上的 TCP listener, 接受连接但从不响应; 指向它的 `AVPlayerItem` 会一直停在
-/// `.unknown`, 与始终无法加载的本地 item 相同.
+/// 运行在 loopback 上的 TCP listener, 接受连接但从不响应; 指向它的 `AVPlayerItem` 会一直停在 `.unknown`,
+/// 与始终无法加载的本地 item 相同.
 final class HangingServer: @unchecked Sendable {
     private let lock = NSLock()
     private let queue = DispatchQueue(label: "com.mritd.kmtv.tests.hanging")
