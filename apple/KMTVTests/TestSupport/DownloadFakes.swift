@@ -223,3 +223,59 @@ final class FreeSpaceStub: @unchecked Sendable {
         }
     }
 }
+
+/// Holds manifest writes on the writer's queue while closed, so tests can order a write against
+/// other work; writes go to disk like the real writer once released.
+///
+/// 关闭时让 manifest 写入停在写入器的队列上, 使测试可以安排写入与其他操作的先后; 放行后与真实写入器
+/// 一样写入磁盘.
+final class WriteBlocker: @unchecked Sendable {
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var closed = false
+    private var _held = 0
+
+    /// Writes waiting right now.
+    ///
+    /// 当前正在等待的写入数.
+    var held: Int { lock.withLock { _held } }
+
+    /// Makes later writes wait until `open()`.
+    ///
+    /// 让之后的写入等待 `open()`.
+    func close() { lock.withLock { closed = true } }
+
+    /// Releases every held write and lets later ones through.
+    ///
+    /// 放行所有被阻塞的写入, 之后的写入也直接通过.
+    func open() {
+        lock.withLock { closed = false }
+        release()
+    }
+
+    /// Releases the writes held now; later ones still wait while closed.
+    ///
+    /// 放行当前被阻塞的写入; 仍处于关闭状态时, 之后的写入继续等待.
+    func release() {
+        let count = lock.withLock {
+            let count = _held
+            _held = 0
+            return count
+        }
+        for _ in 0..<count { semaphore.signal() }
+    }
+
+    /// The writer for a manager under test.
+    ///
+    /// 供被测管理器使用的写入器.
+    func writer() -> DownloadManifestWriter {
+        DownloadManifestWriter(write: { [self] manifest, url in
+            let hold = lock.withLock {
+                if closed { _held += 1 }
+                return closed
+            }
+            if hold { semaphore.wait() }
+            try manifest.saveIntoExistingDirectory(at: url)
+        })
+    }
+}

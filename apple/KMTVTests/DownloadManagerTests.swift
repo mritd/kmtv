@@ -22,6 +22,7 @@ final class DownloadManagerTests: XCTestCase {
     private var manager: DownloadManager!
     private let space = FreeSpaceStub(50_000_000_000)
     private let ticks = TickGate()
+    private let writes = WriteBlocker()
     private var nowValue = Date(timeIntervalSince1970: 1_000)
     private let covers = CoverFetchRecorder()
 
@@ -45,7 +46,8 @@ final class DownloadManagerTests: XCTestCase {
         DownloadManager(context: container.mainContext, layout: layout, transport: transport, defaults: defaults,
                         freeSpace: { [space] in space.read() }, now: { [unowned self] in self.nowValue },
                         outstandingLimit: outstandingLimit, coverFetcher: { [covers] url in covers.fetch(url) },
-                        backgroundWakeBudget: wakeBudget, progressWait: { [ticks] _ in await ticks.wait() })
+                        backgroundWakeBudget: wakeBudget, progressWait: { [ticks] _ in await ticks.wait() },
+                        manifestWriter: writes.writer())
     }
 
     /// Fires the pending progress tick, if any, and waits for it; independent of the real interval.
@@ -352,6 +354,10 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertEqual(ep.state, .downloading)
         XCTAssertEqual(ep.totalEntries, 3)
         let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
+        // Manifests are written in the background; wait for the writer before reading the file.
+        //
+        // manifest 在后台写入; 读取文件之前先等待写入器.
+        await manager.persistAll()
         XCTAssertNotNil(DownloadManifest.load(from: layout.manifestURL(episodeDir: dir)))
         XCTAssertEqual(episode(1)?.state, .queued)
         await manager.handleScenePhase(.inactive)
@@ -747,6 +753,92 @@ final class DownloadManagerTests: XCTestCase {
         await manager.waitForIdle()
         XCTAssertEqual(transport.live.count, 3)
         XCTAssertTrue(transport.live.values.allSatisfy(\.allowsCellular))
+    }
+
+    func testReconcileKeepsTasksRecreatedAfterACancelDuringItsAwait() async throws {
+        try await enqueueAndSettle()
+        let gate = PrepareGate()
+        transport.outstandingGate = gate
+        let reconcile = Task { await manager.reconcile() }
+        for _ in 0..<1000 where !transport.outstandingEntered { await Task.yield() }
+        XCTAssertTrue(transport.outstandingEntered)
+        // In the foreground the toggle's pump re-creates the same IDs before the reconcile resumes.
+        //
+        // 在前台, 切换后的队列推进会在对账恢复之前重建相同的 ID.
+        await manager.setAllowsCellular(true)
+        await manager.waitForIdle()
+        XCTAssertEqual(transport.live.count, 3)
+        XCTAssertEqual(transport.enqueued.count, 6)
+        gate.open()
+        await reconcile.value
+        XCTAssertEqual(manager.inFlight.count, 3)
+        await manager.handleScenePhase(.active)
+        await manager.waitForIdle()
+        XCTAssertEqual(transport.enqueued.count, 6)
+    }
+
+    func testPersistDuringADeleteDoesNotBringTheFilesBack() async throws {
+        preparer.segments["https://cdn.example/ep0.m3u8"] = 25
+        try await enqueueAndSettle()
+        let ep = try XCTUnwrap(episode(0))
+        let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
+        // The 20th entry's save is held, which keeps the delete's discard waiting; a persist during
+        // that wait must not queue a write that lands after the directory is removed.
+        //
+        // 第 20 个条目的保存被阻塞, 删除的丢弃操作因此一直等待; 等待期间的持久化不能排入一次在目录删除后
+        // 才执行的写入.
+        writes.close()
+        for id in liveIDs(0).prefix(20) { await transport.finish(id, layout: layout) }
+        for _ in 0..<1000 where writes.held == 0 { await Task.yield() }
+        XCTAssertEqual(writes.held, 1)
+        let delete = Task { await manager.delete(ep) }
+        for _ in 0..<1000 where transport.cancelled.isEmpty { await Task.yield() }
+        for _ in 0..<50 { await Task.yield() }
+        let persist = Task { await manager.persistAll() }
+        for _ in 0..<50 { await Task.yield() }
+        // Let the held write and the discard finish; a write queued by the persist runs only after
+        // the files are gone.
+        //
+        // 让被阻塞的写入与丢弃操作完成; 持久化排入的写入只会在文件删除之后执行.
+        writes.release()
+        await delete.value
+        writes.open()
+        await persist.value
+        await manager.persistAll()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.path))
+    }
+
+    func testSaveEveryFlushStillMarksTheShowOnTheTick() async throws {
+        preparer.segments["https://cdn.example/ep0.m3u8"] = 25
+        try await enqueueAndSettle()
+        let ep = try XCTUnwrap(episode(0))
+        // Exactly 20 entries: the save flushes the row before the tick fires.
+        //
+        // 正好 20 个条目: 保存时会在进度通知发出之前写入数据行.
+        for id in liveIDs(0).prefix(20) { await transport.finish(id, layout: layout) }
+        await tick()
+        XCTAssertEqual(manager.showProgressTicks[ep.showDir], manager.progressTick)
+    }
+
+    func testCompletionThatRacesAPauseStillCompletes() async throws {
+        try await enqueueAndSettle()
+        let ids = liveIDs(0)
+        await transport.finish(ids[0], layout: layout)
+        await transport.finish(ids[1], layout: layout)
+        // The last entry's completion waits on the held writer while the user pauses.
+        //
+        // 最后一个条目的完成流程在被阻塞的写入器上等待时, 用户暂停了该集.
+        writes.close()
+        let finishing = Task { await transport.finish(ids[2], layout: layout) }
+        for _ in 0..<1000 where writes.held == 0 { await Task.yield() }
+        let pausing = Task { await manager.pause(try XCTUnwrap(episode(0))) }
+        for _ in 0..<1000 where episode(0)?.state != .paused { await Task.yield() }
+        writes.open()
+        await finishing.value
+        _ = await pausing.result
+        XCTAssertEqual(episode(0)?.state, .completed)
+        XCTAssertNil(episode(0)?.pauseReason)
+        XCTAssertEqual(episode(0)?.doneEntries, 3)
     }
 
     func testRetryKeepsAttemptsInMemoryUntilASave() async throws {

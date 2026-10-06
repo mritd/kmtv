@@ -144,29 +144,40 @@ struct DownloadManifest: Codable, Equatable, Sendable {
         return Data(bytes)
     }
 
-    /// Whether `other` describes the same files (same entry count, kinds, and durations), so a
-    /// refresh can keep finished entries.
+    /// Whether `other` describes the same files (same entry count, kinds, and durations) with the
+    /// same IV on every line, so a refresh can keep finished entries. A changed IV (for example a
+    /// moved media sequence without explicit IVs) would pair downloaded ciphertext with the wrong
+    /// IV, so it restarts the episode instead.
     ///
-    /// `other` 是否描述同一批文件 (条目数, 类型与时长都一致), 刷新时据此保留已完成的条目.
+    /// `other` 是否描述同一批文件 (条目数, 类型与时长都一致) 且每行 IV 相同, 刷新时据此保留已完成的
+    /// 条目. IV 变化 (例如未显式给出 IV 时 media sequence 发生偏移) 会让已下载的密文配上错误的 IV,
+    /// 因此改为重新下载该集.
     func matches(_ other: DownloadManifest) -> Bool {
         guard entries.count == other.entries.count, lines.count == other.lines.count else { return false }
         return zip(entries, other.entries).allSatisfy { $0.kind == $1.kind && abs($0.duration - $1.duration) < 0.01 }
+            && zip(lines, other.lines).allSatisfy { $0.iv == $1.iv }
     }
 
     /// Why `other` does not match, for logs: the entry and line counts of both (this one first),
-    /// and the first entry whose kind or duration differs, with both kinds and durations. Holds
-    /// only numbers and kinds, never a URL.
+    /// the first entry whose kind or duration differs (with both kinds and durations), and the
+    /// first line whose IV differs. Holds only numbers and kinds, never a URL or an IV.
     ///
-    /// 用于日志的不匹配原因: 双方的条目数与行数 (本 manifest 在前), 以及第一个类型或时长不同的条目
-    /// 及其双方的类型与时长. 只包含数字与类型, 从不包含 URL.
+    /// 用于日志的不匹配原因: 双方的条目数与行数 (本 manifest 在前), 第一个类型或时长不同的条目 (及其
+    /// 双方的类型与时长), 以及第一个 IV 不同的行. 只包含数字与类型, 从不包含 URL 或 IV.
     func mismatchSummary(_ other: DownloadManifest) -> String {
         var summary = "entries=\(entries.count)/\(other.entries.count) lines=\(lines.count)/\(other.lines.count)"
-        guard let index = zip(entries, other.entries).enumerated().first(where: { _, pair in
+        if let index = zip(entries, other.entries).enumerated().first(where: { _, pair in
             pair.0.kind != pair.1.kind || abs(pair.0.duration - pair.1.duration) >= 0.01
-        })?.offset else { return summary + " first=none" }
-        let (mine, theirs) = (entries[index], other.entries[index])
-        summary += " first=\(index) kind=\(mine.kind.rawValue)/\(theirs.kind.rawValue)"
-        summary += String(format: " duration=%.3f/%.3f", mine.duration, theirs.duration)
+        })?.offset {
+            let (mine, theirs) = (entries[index], other.entries[index])
+            summary += " first=\(index) kind=\(mine.kind.rawValue)/\(theirs.kind.rawValue)"
+            summary += String(format: " duration=%.3f/%.3f", mine.duration, theirs.duration)
+        } else {
+            summary += " first=none"
+        }
+        if let line = zip(lines, other.lines).enumerated().first(where: { $1.0.iv != $1.1.iv })?.offset {
+            summary += " ivLine=\(line)"
+        }
         return summary
     }
 
@@ -175,7 +186,7 @@ struct DownloadManifest: Codable, Equatable, Sendable {
     /// taking the fresh lines also corrects lines saved by older builds.
     ///
     /// 采用较新的 manifest (URL, 行, 头部与 generation), 并保留本 manifest 的完成标记, 大小与尝试次数.
-    /// `matches` 保证每个序号上的类型一致, 因此条目一一对应; 采用新的行也能修正旧版本保存的行.
+    /// 由于 `matches` 保证每个序号上的类型一致, 条目一一对应; 采用新的行也能修正旧版本保存的行.
     func adopting(urlsFrom newer: DownloadManifest) -> DownloadManifest {
         var entries = newer.entries
         for index in entries.indices where self.entries.indices.contains(index) {
@@ -227,6 +238,20 @@ struct DownloadManifest: Codable, Equatable, Sendable {
     func save(to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try JSONEncoder().encode(self).write(to: url, options: .atomic)
+    }
+
+    /// Writes the manifest atomically only when its directory still exists; returns whether it
+    /// wrote. The background writer uses this, so a late write never recreates a deleted episode.
+    ///
+    /// 仅当所在目录仍存在时以原子方式写入 manifest; 返回是否写入. 后台写入器使用它, 因此迟到的写入
+    /// 不会重新创建已删除的剧集.
+    @discardableResult
+    func saveIntoExistingDirectory(at url: URL) throws -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.deletingLastPathComponent().path, isDirectory: &isDirectory),
+              isDirectory.boolValue else { return false }
+        try JSONEncoder().encode(self).write(to: url, options: .atomic)
+        return true
     }
 }
 
@@ -283,13 +308,14 @@ enum LocalPlaylistWriter {
 /// Writes manifests off the main actor on one serial queue, keeping only the latest snapshot per
 /// episode: a snapshot submitted while an older one waits replaces it. Snapshots are taken after
 /// the files they describe are on disk, so a manifest on disk can lag the files but never runs
-/// ahead of them. `flush` waits for an episode's write, and `discard` drops a pending write and
-/// waits out one in progress, so deleted files are never brought back by a late write.
+/// ahead of them. `flush` waits for an episode's write, `discard` drops a pending write and waits
+/// out one in progress, and the writer never creates directories, so deleted files are never
+/// brought back by a late write.
 ///
 /// 在主 actor 之外通过一个串行队列写入 manifest, 每集只保留最新快照: 旧快照等待期间提交的新快照会
 /// 替换它. 快照在其描述的文件落盘之后才生成, 因此磁盘上的 manifest 可能落后于文件, 但不会超前.
-/// `flush` 等待某集的写入完成, `discard` 丢弃待写入的快照并等待进行中的写入结束, 因此迟到的写入
-/// 不会让已删除的文件重新出现.
+/// 其中 `flush` 等待某集的写入完成, `discard` 丢弃待写入的快照并等待进行中的写入结束, 写入器也从不
+/// 创建目录, 因此迟到的写入不会让已删除的文件重新出现.
 final class DownloadManifestWriter: @unchecked Sendable {
     /// One pending write.
     ///
@@ -308,7 +334,7 @@ final class DownloadManifestWriter: @unchecked Sendable {
     /// `write` saves one manifest (tests replace it); `onError` reports a failed write.
     ///
     /// `write` 保存一个 manifest (测试会替换它); `onError` 上报写入失败.
-    init(write: @escaping @Sendable (DownloadManifest, URL) throws -> Void = { try $0.save(to: $1) },
+    init(write: @escaping @Sendable (DownloadManifest, URL) throws -> Void = { try $0.saveIntoExistingDirectory(at: $1) },
          onError: @escaping @Sendable (Error) -> Void = { _ in }) {
         self.write = write
         self.onError = onError

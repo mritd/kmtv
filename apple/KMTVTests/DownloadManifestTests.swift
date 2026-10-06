@@ -203,6 +203,29 @@ final class DownloadManifestTests: XCTestCase {
         XCTAssertFalse(old.matches(shorter))
     }
 
+    func testChangedDerivedIVsDoNotMatch() throws {
+        let old = DownloadManifest.build(from: try media(encrypted), generation: 1)
+        // Same files, but the media sequence moved, so every derived IV differs.
+        //
+        // 文件相同, 但 media sequence 变了, 因此每个推导出的 IV 都不同.
+        let shifted = DownloadManifest.build(from: try media(encrypted.replacingOccurrences(
+            of: "#EXT-X-MEDIA-SEQUENCE:7", with: "#EXT-X-MEDIA-SEQUENCE:8")), generation: 2)
+        XCTAssertEqual(old.entries.map(\.kind), shifted.entries.map(\.kind))
+        XCTAssertFalse(old.matches(shifted))
+        XCTAssertEqual(old.mismatchSummary(shifted), "entries=4/4 lines=3/3 first=none ivLine=0")
+    }
+
+    func testWriterSkipsAMissingEpisodeDirectory() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "gone-\(UUID().uuidString)")
+        let manifest = DownloadManifest.build(from: try media(encrypted), generation: 1)
+        XCTAssertFalse(try manifest.saveIntoExistingDirectory(at: dir.appending(path: "manifest.json")))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.path))
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        XCTAssertTrue(try manifest.saveIntoExistingDirectory(at: dir.appending(path: "manifest.json")))
+        XCTAssertEqual(DownloadManifest.load(from: dir.appending(path: "manifest.json")), manifest)
+    }
+
     func testAdoptingTakesTheFreshLinesAndKeepsProgress() throws {
         var old = DownloadManifest.build(from: try media(clearInit), generation: 1)
         // A manifest saved before the map flag existed decodes with nil flags.
@@ -240,7 +263,8 @@ final class DownloadManifestTests: XCTestCase {
         XCTAssertEqual(old.mismatchSummary(retimed), "entries=4/4 lines=3/3 first=2 kind=segment/segment duration=3.500/3.250")
         let clear = DownloadManifest.build(from: try media(encrypted.replacingOccurrences(
             of: "#EXT-X-KEY:METHOD=AES-128,URI=\"k.bin\"\n", with: "")), generation: 2)
-        XCTAssertEqual(old.mismatchSummary(clear), "entries=4/3 lines=3/3 first=0 kind=key/segment duration=0.000/4.000")
+        XCTAssertEqual(old.mismatchSummary(clear),
+                       "entries=4/3 lines=3/3 first=0 kind=key/segment duration=0.000/4.000 ivLine=0")
         // No URL ever reaches the summary.
         //
         // 摘要中从不包含任何 URL.
