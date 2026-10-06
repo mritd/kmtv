@@ -36,14 +36,16 @@ final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegate, @unch
 
     /// The event for a task that completed with an error; nil for success, cancellation, and
     /// foreign tasks. nsurlsessiond reports a full disk here (it cannot write or create the body
-    /// file, or the underlying error is ENOSPC), which pauses downloads instead of retrying.
+    /// file, or the error or its underlying error is ENOSPC), which pauses downloads instead of
+    /// retrying. Any other error, in whatever domain, fails the task, so it never stays claimed.
     ///
     /// 任务以错误结束时对应的事件; 成功, 取消以及非本模块的任务返回 nil. nsurlsessiond 在此报告磁盘
-    /// 已满 (无法写入或创建响应体文件, 或底层错误为 ENOSPC), 此时暂停下载而不是重试.
+    /// 已满 (无法写入或创建响应体文件, 或错误本身或其底层错误为 ENOSPC), 此时暂停下载而不是重试. 其他
+    /// 任何域的错误都会让任务失败, 因此任务不会一直处于占用状态.
     static func completionEvent(description: String?, error: Error?) -> DownloadTransportEvent? {
         guard let error, let id = description.flatMap(DownloadTaskID.init(description:)) else { return nil }
         let nsError = error as NSError
-        guard nsError.domain == NSURLErrorDomain else { return nil }
+        guard nsError.domain == NSURLErrorDomain else { return isOutOfSpace(error) ? .storageFull(id) : .failed(id, .unknown) }
         let code = URLError.Code(rawValue: nsError.code)
         if code == .cancelled { return nil }
         if code == .cannotWriteToFile || code == .cannotCreateFile || isOutOfSpace(error) { return .storageFull(id) }

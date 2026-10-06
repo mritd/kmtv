@@ -106,6 +106,16 @@ final class PlaybackCoordinator {
     ///
     /// item 未在加载超时内就绪时触发 `onError`; 与其他观察者一起取消.
     private var loadWatchdog: Task<Void, Never>?
+    /// The load timeout and error handler of the current item, kept so a suspended watchdog can be
+    /// re-armed; nil when the item has none.
+    ///
+    /// 当前 item 的加载超时与错误回调, 保留下来以便重新启用已挂起的看门狗; item 没有看门狗时为 nil.
+    private var loadWatch: (timeout: Duration, onError: @MainActor @Sendable (String?) -> Void)?
+    /// Whether the current item already reported an error; each item reports at most one, from
+    /// either the error notification or the watchdog.
+    ///
+    /// 当前 item 是否已上报过错误; 每个 item 至多上报一次, 来自错误通知或看门狗之一.
+    private var errorReported = false
     private var lastLoggedBufferAhead: TimeInterval = -.greatestFiniteMagnitude
     private var samplesSinceBufferLog = Int.max
     private var bufferSampler: Timer?
@@ -162,8 +172,12 @@ final class PlaybackCoordinator {
             player = AVPlayer(playerItem: item)
         }
         player?.allowsExternalPlayback = allowsExternalPlayback
+        errorReported = false
         setupObservers(for: item, onTime: onTime, onBuffer: onBuffer, onEnd: onEnd, onError: onError)
-        if let loadTimeout { watchLoad(of: item, timeout: loadTimeout, onError: onError) }
+        if let loadTimeout {
+            loadWatch = (loadTimeout, onError)
+            watchLoad(of: item, timeout: loadTimeout, onError: onError)
+        }
         if startTime > 0 {
             player?.seek(to: CMTime(seconds: startTime, preferredTimescale: 600))
         }
@@ -175,15 +189,34 @@ final class PlaybackCoordinator {
     }
 
     /// A URL safe to log in public: loopback URLs drop their path, which starts with the local
-    /// media server's secret; other URLs are unchanged.
+    /// media server's secret; other URLs drop their query and fragment, which carry media tokens.
     ///
-    /// 可公开记录的 URL: loopback URL 会去掉路径 (路径以本地媒体服务的密钥开头); 其他 URL 保持不变.
+    /// 可公开记录的 URL: loopback URL 会去掉路径 (路径以本地媒体服务的密钥开头); 其他 URL 去掉查询与
+    /// 片段, 其中带有媒体 token.
     nonisolated static func loggableURL(_ url: URL) -> String {
-        guard let host = url.host?.lowercased(), ["127.0.0.1", "localhost", "::1"].contains(host) else {
-            return url.absoluteString
-        }
         let port = url.port.map { ":\($0)" } ?? ""
-        return "\(url.scheme ?? "http")://\(host)\(port)/<local>"
+        let scheme = url.scheme ?? "http"
+        guard let host = url.host?.lowercased() else { return "<invalid>" }
+        if ["127.0.0.1", "localhost", "::1"].contains(host) { return "\(scheme)://\(host)\(port)/<local>" }
+        return "\(scheme)://\(host)\(port)\(url.path)"
+    }
+
+    /// Stops the load watchdog while the app is in the background, where the item cannot load.
+    ///
+    /// App 在后台时 item 无法加载, 因此停止加载看门狗.
+    func suspendLoadWatchdog() {
+        loadWatchdog?.cancel()
+        loadWatchdog = nil
+    }
+
+    /// Re-arms the watchdog with a full timeout when the current item has one, is not ready yet,
+    /// and has reported no error.
+    ///
+    /// 若当前 item 设有看门狗, 尚未就绪且没有上报过错误, 则以完整超时重新启用看门狗.
+    func resumeLoadWatchdog() {
+        guard loadWatchdog == nil, !errorReported, let loadWatch, let item = player?.currentItem,
+              item.status != .readyToPlay else { return }
+        watchLoad(of: item, timeout: loadWatch.timeout, onError: loadWatch.onError)
     }
 
     func pause() {
@@ -277,7 +310,12 @@ final class PlaybackCoordinator {
                 self.logger.error("coordinator.errorNotification message=\(message ?? "unknown", privacy: .public)")
                 self.logPlayerState("errorNotification", item: item)
             }
-            MainActor.assumeIsolated { onError(message) }
+            MainActor.assumeIsolated {
+                guard !self.errorReported else { return }
+                self.errorReported = true
+                self.suspendLoadWatchdog()
+                onError(message)
+            }
         }
     }
 
@@ -501,7 +539,9 @@ final class PlaybackCoordinator {
         loadWatchdog = Task { [weak self, weak item] in
             try? await Task.sleep(for: timeout)
             guard !Task.isCancelled, let self, let item, self.player?.currentItem === item,
-                  item.status != .readyToPlay else { return }
+                  item.status != .readyToPlay, !self.errorReported else { return }
+            self.errorReported = true
+            self.loadWatchdog = nil
             self.logger.error("coordinator.loadTimeout timeout=\(timeout, privacy: .public)")
             self.logPlayerState("loadTimeout", item: item)
             onError(nil)
@@ -511,6 +551,7 @@ final class PlaybackCoordinator {
     private func removeObservers() {
         loadWatchdog?.cancel()
         loadWatchdog = nil
+        loadWatch = nil
         bufferSampler?.invalidate()
         bufferSampler = nil
         if let timeObserver {

@@ -74,6 +74,19 @@ final class OfflinePlayerViewModelTests: XCTestCase {
         XCTAssertNil(try viewModel(2).nextEpisode)
     }
 
+    func testCachedNextEpisodeIsCheckedBeforeUse() throws {
+        let vm = try viewModel(0)
+        XCTAssertEqual(vm.nextEpisode?.episodeIndex, 2)
+        // The next download is damaged while this one plays; next must not switch to it.
+        //
+        // 播放期间下一集的下载被标记为损坏; 下一集操作不能切换过去.
+        manager.markDamaged(try XCTUnwrap(episode(2)))
+        vm.playNext()
+        XCTAssertEqual(vm.episode.episodeIndex, 0)
+        XCTAssertNil(vm.nextEpisode)
+        XCTAssertNil(vm.restartTask)
+    }
+
     func testCheckpointsWriteWatchRecordAndLocalPosition() throws {
         let vm = try viewModel(0)
         vm.record(current: 100, duration: 1000, finished: false)

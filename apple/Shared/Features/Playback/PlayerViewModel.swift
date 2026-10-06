@@ -306,10 +306,10 @@ final class PlayerViewModel {
         )
         let response = try await apiClient.playbackURL(url: ep.url, source: currentSourceKey)
         logger.info(
-            "preparePlaybackURL response mode=\(response.mode, privacy: .public) resolvedURL=\(response.url, privacy: .public)"
+            "preparePlaybackURL response mode=\(response.mode, privacy: .public) resolvedURL=\(response.url, privacy: .private)"
         )
         guard let url = URL(string: response.url) else {
-            logger.error("preparePlaybackURL invalid resolvedURL=\(response.url, privacy: .public)")
+            logger.error("preparePlaybackURL invalid resolvedURL=\(response.url, privacy: .private)")
             throw PlayerError.invalidPlaybackURL(response.url)
         }
         return url
@@ -933,6 +933,21 @@ final class PlayerViewModel {
 
     func resume() {
         coordinator.resume(rate: playbackRate)
+    }
+
+    /// Stops the local copy's load watchdog while the app is in the background, where the loopback
+    /// server is stopped.
+    ///
+    /// App 在后台时 loopback 服务已停止, 因此暂停本地副本的加载看门狗.
+    func suspendLoadWatchdog() {
+        coordinator.suspendLoadWatchdog()
+    }
+
+    /// Re-arms the load watchdog on return, when the item is still loading.
+    ///
+    /// 返回前台时, 若 item 仍在加载, 则重新启用加载看门狗.
+    func resumeLoadWatchdog() {
+        coordinator.resumeLoadWatchdog()
     }
 
     func cleanup() {

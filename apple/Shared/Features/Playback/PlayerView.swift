@@ -59,10 +59,17 @@ struct PlayerView: View {
             viewModel?.resume()
         }
         .onChange(of: scenePhase) { _, phase in
-            // Checkpoint before the app is suspended; the session flush may run before this one.
+            // Checkpoint before the app is suspended; the session flush may run before this one. A
+            // local copy's load watchdog pauses in the background and re-arms on return.
             //
-            // 应用挂起前保存进度; 会话级补写可能先于这里执行.
-            if phase == .background { viewModel?.checkpoint() }
+            // 应用挂起前保存进度; 会话级补写可能先于这里执行. 本地副本的加载看门狗在后台暂停,
+            // 返回前台时重新启用.
+            if phase == .background {
+                viewModel?.checkpoint()
+                viewModel?.suspendLoadWatchdog()
+            } else if phase == .active {
+                viewModel?.resumeLoadWatchdog()
+            }
         }
         .onDisappear {
             hideControlsTask?.cancel()

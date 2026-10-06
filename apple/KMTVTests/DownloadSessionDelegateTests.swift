@@ -65,6 +65,13 @@ final class DownloadSessionDelegateTests: XCTestCase {
         XCTAssertEqual(event(NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotWriteToFile)), .storageFull(id))
         let enospc = NSError(domain: NSPOSIXErrorDomain, code: Int(ENOSPC))
         XCTAssertEqual(event(URLError(.unknown, userInfo: [NSUnderlyingErrorKey: enospc])), .storageFull(id))
+        // Errors outside the URL domain still produce an event, so the task is never left claimed.
+        //
+        // URL 域之外的错误同样会产生事件, 因此任务不会一直处于占用状态.
+        XCTAssertEqual(event(enospc), .storageFull(id))
+        XCTAssertEqual(event(NSError(domain: NSCocoaErrorDomain, code: NSFileWriteOutOfSpaceError)), .storageFull(id))
+        XCTAssertEqual(event(NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError)), .failed(id, .unknown))
+        XCTAssertEqual(event(NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))), .failed(id, .unknown))
     }
 
     func testForeignTasksAreIgnored() throws {

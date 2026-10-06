@@ -247,8 +247,19 @@ final class OfflinePlayerViewModel {
     /// 播放下一个已完成的剧集 (如有).
     func playNext() {
         checkpoint()
-        guard !closed, let next = nextEpisode else { return }
+        guard !closed, let next = validNextEpisode() else { return }
         switchEpisode(to: next)
+    }
+
+    /// The cached next episode when it is still stored and completed; otherwise looks again, so a
+    /// download deleted or damaged meanwhile is never played.
+    ///
+    /// 若缓存的下一集仍在存储中且已完成则返回它; 否则重新查找, 因此期间被删除或损坏的下载不会被播放.
+    private func validNextEpisode() -> DownloadEpisode? {
+        if let next = nextEpisode, !next.isDeleted, next.modelContext != nil, next.state == .completed { return next }
+        let next = findNextEpisode()
+        if next !== nextEpisode { nextEpisode = next }
+        return next
     }
 
     private func switchEpisode(to next: DownloadEpisode) {
@@ -270,6 +281,12 @@ final class OfflinePlayerViewModel {
         //
         // 没有播放器时首次加载仍在进行; `start` 在挂起期间会自行放弃, 由 `resume()` 重新开始.
         guard player != nil else { return }
+        // The loopback server stops in the background; a load that has not finished must not time
+        // out there. `resume()` builds a new item with a fresh watchdog.
+        //
+        // loopback 服务在后台会停止; 尚未完成的加载不能在后台超时. `resume()` 会构建新的 item 并启用新的
+        // 看门狗.
+        coordinator.suspendLoadWatchdog()
         checkpoint()
         player?.pause()
     }
@@ -336,7 +353,7 @@ final class OfflinePlayerViewModel {
     private func finishCurrent() {
         let total = lastDuration > 0 ? lastDuration : episode.durationSec
         record(current: total, duration: total, finished: true)
-        guard !closed, let next = nextEpisode else { return }
+        guard !closed, let next = validNextEpisode() else { return }
         switchEpisode(to: next)
     }
 

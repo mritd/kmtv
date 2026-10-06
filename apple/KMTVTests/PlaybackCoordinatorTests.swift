@@ -100,6 +100,46 @@ final class PlaybackCoordinatorTests: XCTestCase {
                        "http://localhost:80/<local>")
         let remote = "https://cdn.example/vod/index.m3u8"
         XCTAssertEqual(PlaybackCoordinator.loggableURL(URL(string: remote)!), remote)
+        // Proxied URLs carry a media token in the query, which never reaches the log.
+        //
+        // 代理 URL 的查询参数带有媒体 token, 它不会进入日志.
+        let proxied = URL(string: "https://kmtv.example:8443/api/v1/proxy/m3u8?url=https%3A%2F%2Fcdn&mt=secret")!
+        XCTAssertEqual(PlaybackCoordinator.loggableURL(proxied), "https://kmtv.example:8443/api/v1/proxy/m3u8")
+    }
+
+    func testAnItemReportsAtMostOneError() async throws {
+        let hanging = HangingServer()
+        let url = try await hanging.start()
+        defer { hanging.stop() }
+        let coordinator = PlaybackCoordinator()
+        defer { coordinator.cleanup() }
+        let errors = ErrorCounter()
+        coordinator.start(url: url, startTime: 0, rate: 1, loadTimeout: .milliseconds(300),
+                          onTime: { _, _ in }, onBuffer: { _ in }, onEnd: {}, onError: { _ in errors.count += 1 })
+        // The item fails on its own first; the watchdog must not report it again.
+        //
+        // item 先自行失败; 看门狗不能再次上报.
+        NotificationCenter.default.post(name: .AVPlayerItemFailedToPlayToEndTime, object: coordinator.player?.currentItem)
+        NotificationCenter.default.post(name: .AVPlayerItemFailedToPlayToEndTime, object: coordinator.player?.currentItem)
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(errors.count, 1)
+    }
+
+    func testSuspendedWatchdogWaitsAndResumesForTheSameItem() async throws {
+        let hanging = HangingServer()
+        let url = try await hanging.start()
+        defer { hanging.stop() }
+        let coordinator = PlaybackCoordinator()
+        defer { coordinator.cleanup() }
+        let errors = ErrorCounter()
+        coordinator.start(url: url, startTime: 0, rate: 1, loadTimeout: .milliseconds(300),
+                          onTime: { _, _ in }, onBuffer: { _ in }, onEnd: {}, onError: { _ in errors.count += 1 })
+        coordinator.suspendLoadWatchdog()
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(errors.count, 0)
+        coordinator.resumeLoadWatchdog()
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(errors.count, 1)
     }
 
     func testBufferAheadCases() {
@@ -259,4 +299,12 @@ final class PlaybackCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(PlaybackCoordinator.bufferAhead(of: item), 0)
     }
+}
+
+/// Counts reported item errors on the main actor.
+///
+/// 在主 actor 上统计上报的 item 错误.
+@MainActor
+private final class ErrorCounter {
+    var count = 0
 }
