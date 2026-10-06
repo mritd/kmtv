@@ -93,6 +93,15 @@ final class PlaybackCoordinatorTests: XCTestCase {
     //
     // bufferAhead 用于诊断日志, 下列每种情况都无法让 AVPlayerItem 按需持有:
     // seek 之后区间之间的空隙, 直播流的不确定时长, 播放头恰好落在边界上.
+    func testLoopbackURLsAreLoggedWithoutTheirSecretPath() {
+        let local = URL(string: "http://127.0.0.1:52011/0123456789abcdef/show/ep/index.m3u8")!
+        XCTAssertEqual(PlaybackCoordinator.loggableURL(local), "http://127.0.0.1:52011/<local>")
+        XCTAssertEqual(PlaybackCoordinator.loggableURL(URL(string: "http://localhost:80/s/x.m3u8")!),
+                       "http://localhost:80/<local>")
+        let remote = "https://cdn.example/vod/index.m3u8"
+        XCTAssertEqual(PlaybackCoordinator.loggableURL(URL(string: remote)!), remote)
+    }
+
     func testBufferAheadCases() {
         func range(_ start: Double, _ duration: Double) -> CMTimeRange {
             CMTimeRange(start: CMTime(seconds: start, preferredTimescale: 600),

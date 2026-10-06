@@ -91,9 +91,13 @@ struct LocalMediaRequestHandler: Sendable {
             let head = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
             let response = self.response(forRequestHead: head)
             let reason = response.status == 200 ? "OK" : "Error"
-            var out = Data("HTTP/1.1 \(response.status) \(reason)\r\nContent-Type: \(response.contentType)\r\nContent-Length: \(response.body.count)\r\nConnection: close\r\n\r\n".utf8)
-            out.append(response.body)
-            connection.send(content: out, completion: .contentProcessed { _ in connection.cancel() })
+            let header = Data("HTTP/1.1 \(response.status) \(reason)\r\nContent-Type: \(response.contentType)\r\nContent-Length: \(response.body.count)\r\nConnection: close\r\n\r\n".utf8)
+            // Two sends, so the mapped body is never copied into one buffer with the header.
+            //
+            // 分两次发送, 映射的响应体因此不会与响应头一起被复制到同一个缓冲区.
+            connection.send(content: header, isComplete: false, completion: .idempotent)
+            connection.send(content: response.body, isComplete: true,
+                            completion: .contentProcessed { _ in connection.cancel() })
         }
     }
 }

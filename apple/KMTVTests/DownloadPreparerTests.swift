@@ -84,6 +84,11 @@ final class DownloadPreparerTests: XCTestCase {
         } catch { return error as? DownloadPrepareError }
     }
 
+    func testPlaylistSessionBoundsTheWholeFetch() {
+        XCTAssertEqual(DownloadPreparer.session.configuration.timeoutIntervalForRequest, 20)
+        XCTAssertEqual(DownloadPreparer.session.configuration.timeoutIntervalForResource, 60)
+    }
+
     func testPlaylistHeaderDecidesFromFirstBytes() {
         XCTAssertEqual(DownloadPreparer.playlistHeader(Data("#EXTM3U\n".utf8)), true)
         XCTAssertEqual(DownloadPreparer.playlistHeader(Data([0xEF, 0xBB, 0xBF] + Array("\r\n#EXTM3U".utf8))), true)

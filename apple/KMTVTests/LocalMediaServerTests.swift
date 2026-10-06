@@ -64,6 +64,20 @@ final class LocalMediaServerTests: XCTestCase {
         }
     }
 
+    func testServesTheFileBodyAfterTheHeader() async throws {
+        let server = LocalMediaServer(root: root)
+        _ = try await server.start()
+        defer { server.stop() }
+        let url = try XCTUnwrap(server.url(forRelativePath: "fmp4/seg-00001.m4s"))
+        let (data, response) = try await URLSession(configuration: .ephemeral).data(from: url)
+        let http = try XCTUnwrap(response as? HTTPURLResponse)
+        let expected = try Data(contentsOf: root.appending(path: "fmp4/seg-00001.m4s"))
+        XCTAssertEqual(http.statusCode, 200)
+        XCTAssertEqual(http.value(forHTTPHeaderField: "Content-Length"), String(expected.count))
+        XCTAssertEqual(http.value(forHTTPHeaderField: "Content-Type"), "video/mp4")
+        XCTAssertEqual(data, expected)
+    }
+
     func testRestartKeepsPort() async throws {
         let server = LocalMediaServer(root: root)
         let first = try await server.start()

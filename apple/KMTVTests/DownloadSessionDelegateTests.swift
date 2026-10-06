@@ -48,6 +48,25 @@ final class DownloadSessionDelegateTests: XCTestCase {
         XCTAssertEqual(info.head, body)
     }
 
+    func testTransportErrorsMapToEventsAndDiskFullPauses() {
+        let id = DownloadTaskID(scopeHash: "s", showDir: "h", episodeDir: "e", generation: 1, entryIndex: 3)
+        func event(_ error: Error?) -> DownloadTransportEvent? {
+            DownloadSessionDelegate.completionEvent(description: id.description, error: error)
+        }
+        XCTAssertNil(event(nil))
+        XCTAssertNil(event(URLError(.cancelled)))
+        XCTAssertNil(DownloadSessionDelegate.completionEvent(description: "other", error: URLError(.timedOut)))
+        XCTAssertEqual(event(URLError(.timedOut)), .failed(id, .timedOut))
+        // nsurlsessiond reports a full disk through the task's completion, not through a file move.
+        //
+        // nsurlsessiond 通过任务完成回调报告磁盘已满, 而不是通过文件移动.
+        XCTAssertEqual(event(URLError(.cannotWriteToFile)), .storageFull(id))
+        XCTAssertEqual(event(URLError(.cannotCreateFile)), .storageFull(id))
+        XCTAssertEqual(event(NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotWriteToFile)), .storageFull(id))
+        let enospc = NSError(domain: NSPOSIXErrorDomain, code: Int(ENOSPC))
+        XCTAssertEqual(event(URLError(.unknown, userInfo: [NSUnderlyingErrorKey: enospc])), .storageFull(id))
+    }
+
     func testForeignTasksAreIgnored() throws {
         XCTAssertNil(DownloadSessionDelegate.handleFinished(description: "other", requestURL: nil, response: nil,
                                                             location: try tempFile(Data()), layout: DownloadLayout(root: root)))

@@ -31,9 +31,23 @@ final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegate, @unch
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard let error = error as? URLError, error.code != .cancelled,
-              let id = task.taskDescription.flatMap(DownloadTaskID.init(description:)) else { return }
-        emit(.failed(id, error.code))
+        if let event = Self.completionEvent(description: task.taskDescription, error: error) { emit(event) }
+    }
+
+    /// The event for a task that completed with an error; nil for success, cancellation, and
+    /// foreign tasks. nsurlsessiond reports a full disk here (it cannot write or create the body
+    /// file, or the underlying error is ENOSPC), which pauses downloads instead of retrying.
+    ///
+    /// 任务以错误结束时对应的事件; 成功, 取消以及非本模块的任务返回 nil. nsurlsessiond 在此报告磁盘
+    /// 已满 (无法写入或创建响应体文件, 或底层错误为 ENOSPC), 此时暂停下载而不是重试.
+    static func completionEvent(description: String?, error: Error?) -> DownloadTransportEvent? {
+        guard let error, let id = description.flatMap(DownloadTaskID.init(description:)) else { return nil }
+        let nsError = error as NSError
+        guard nsError.domain == NSURLErrorDomain else { return nil }
+        let code = URLError.Code(rawValue: nsError.code)
+        if code == .cancelled { return nil }
+        if code == .cannotWriteToFile || code == .cannotCreateFile || isOutOfSpace(error) { return .storageFull(id) }
+        return .failed(id, code)
     }
 
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {

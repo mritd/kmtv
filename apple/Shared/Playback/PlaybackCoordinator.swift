@@ -146,7 +146,7 @@ final class PlaybackCoordinator {
         // 落在上一集最后一条的一个步长以内时被抑制.
         lastLoggedBufferAhead = -.greatestFiniteMagnitude
         samplesSinceBufferLog = Int.max
-        logger.info("coordinator.start url=\(url.absoluteString, privacy: .public) startTime=\(startTime, privacy: .public) rate=\(rate, privacy: .public)")
+        logger.info("coordinator.start url=\(Self.loggableURL(url), privacy: .public) startTime=\(startTime, privacy: .public) rate=\(rate, privacy: .public)")
         let item = AVPlayerItem(url: url)
         // Set before the item is handed to a player, and on every item rather than only
         // the first, so switching episode or source keeps the same buffering ambition.
@@ -172,6 +172,18 @@ final class PlaybackCoordinator {
             player?.rate = rate
         }
         logPlayerState("afterPlay", item: item)
+    }
+
+    /// A URL safe to log in public: loopback URLs drop their path, which starts with the local
+    /// media server's secret; other URLs are unchanged.
+    ///
+    /// 可公开记录的 URL: loopback URL 会去掉路径 (路径以本地媒体服务的密钥开头); 其他 URL 保持不变.
+    nonisolated static func loggableURL(_ url: URL) -> String {
+        guard let host = url.host?.lowercased(), ["127.0.0.1", "localhost", "::1"].contains(host) else {
+            return url.absoluteString
+        }
+        let port = url.port.map { ":\($0)" } ?? ""
+        return "\(url.scheme ?? "http")://\(host)\(port)/<local>"
     }
 
     func pause() {

@@ -332,7 +332,7 @@ final class PlayerViewModel {
         // 新 item 从自己的起点开始上报; 旧 item 的最近保存时间不能让它的第一次时间更新立刻写入.
         lastSaveTime = startTime
         logger.info(
-            "startPlayer url=\(url.absoluteString, privacy: .public) startTime=\(startTime, privacy: .public) rate=\(self.playbackRate, privacy: .public) hadPlayer=\(self.player != nil, privacy: .public)"
+            "startPlayer url=\(PlaybackCoordinator.loggableURL(url), privacy: .public) startTime=\(startTime, privacy: .public) rate=\(self.playbackRate, privacy: .public) hadPlayer=\(self.player != nil, privacy: .public)"
         )
         coordinator.start(
             url: url,

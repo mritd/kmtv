@@ -36,13 +36,17 @@ struct DownloadPreparer: DownloadPreparing {
     }
 
     /// Cookie-less session for playlist requests; proxied playlist URLs carry their own media token.
+    /// A fetch may stall 20 s between bytes and take 60 s in all, so a slow trickle cannot hold the
+    /// queue.
     ///
-    /// 用于 playlist 请求的无 cookie 会话; 代理的 playlist URL 自带媒体 token.
+    /// 用于 playlist 请求的无 cookie 会话; 代理的 playlist URL 自带媒体 token. 一次获取在两次收到数据之间
+    /// 最多停顿 20 秒, 总计最多 60 秒, 缓慢的涓流因此无法阻塞队列.
     static let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieAcceptPolicy = .never
         config.httpShouldSetCookies = false
         config.timeoutIntervalForRequest = 20
+        config.timeoutIntervalForResource = 60
         return URLSession(configuration: config)
     }()
 
