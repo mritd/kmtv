@@ -81,7 +81,7 @@ struct PlayerView: View {
                     //
                     // 叠加在 AVPlayerViewController 之上而非置入其中:
                     // 它自带的控制条没有已加载指示, 而其视图层级也不由我们添加.
-                    BufferBadge(secondsAhead: vm.bufferedAheadSeconds, isWaiting: vm.isBuffering)
+                    PlayerBufferBadge(vm: vm)
                         .padding(.top, 28)
                 }
             }
@@ -305,14 +305,10 @@ struct PlayerView: View {
             if vm.player != nil {
                 InlinePlayerView(player: vm.player)
 
-                // Buffering/seeking indicator.
+                // Buffering/seeking indicator, its own view so buffering changes skip this body.
                 //
-                // 缓冲或拖动进度时的状态提示.
-                if vm.isBuffering {
-                    ProgressView()
-                        .tint(.white)
-                        .allowsHitTesting(false)
-                }
+                // 缓冲或拖动进度时的状态提示; 作为独立视图, 缓冲状态变化不会让本 body 重新求值.
+                PlayerBufferingIndicator(vm: vm)
 
                 playerOverlay(vm)
             } else if vm.isLoadingDetail {
@@ -396,30 +392,11 @@ struct PlayerView: View {
     @ViewBuilder
     private func bottomBar(_ vm: PlayerViewModel) -> some View {
         HStack(spacing: 8) {
-            // Time display.
+            // Time display and progress bar, which change every second; their own view keeps the
+            // page body from re-evaluating with them.
             //
-            // 播放时间显示.
-            Text("\(formatTime(vm.currentTime)) / \(formatTime(vm.duration))")
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.white.opacity(0.8))
-                .fixedSize()
-
-            // Progress bar (custom thin slider).
-            //
-            // 自定义细进度条.
-            CustomSlider(
-                value: Binding(
-                    get: { vm.duration > 0 ? vm.currentTime / vm.duration : 0 },
-                    set: { vm.currentTime = $0 * max(vm.duration, 1) }
-                ),
-                buffered: vm.bufferedFraction,
-                onDragStart: { vm.isSeeking = true },
-                onDragEnd: { ratio in
-                    vm.seek(to: ratio * max(vm.duration, 1))
-                }
-            )
-            .frame(height: 32)
-            .accessibilityIdentifier("progressSlider")
+            // 每秒变化的播放时间与进度条; 放在独立视图中, 页面 body 不会随之重新求值.
+            PlayerTimeBar(vm: vm)
 
             // Rate menu.
             //
@@ -518,17 +495,78 @@ struct PlayerView: View {
         }
     }
 
-    private func formatTime(_ seconds: TimeInterval) -> String {
+    private func sectionTitle(_ title: LocalizedStringKey) -> some View {
+        Text(title)
+            .font(.subheadline.bold())
+            .foregroundStyle(Theme.textSecondary)
+    }
+}
+
+/// Time label and progress slider of the inline controls. They read the per-second playback
+/// properties here, so only this view re-renders every second, not the whole player page.
+///
+/// 内嵌控制栏的播放时间与进度条. 每秒变化的播放属性在此读取, 因此每秒只重新渲染本视图, 而不是整个播放页.
+private struct PlayerTimeBar: View {
+    let vm: PlayerViewModel
+
+    var body: some View {
+        // Time display.
+        //
+        // 播放时间显示.
+        Text("\(Self.formatTime(vm.currentTime)) / \(Self.formatTime(vm.duration))")
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.white.opacity(0.8))
+            .fixedSize()
+
+        // Progress bar (custom thin slider).
+        //
+        // 自定义细进度条.
+        CustomSlider(
+            value: Binding(
+                get: { vm.duration > 0 ? vm.currentTime / vm.duration : 0 },
+                set: { vm.currentTime = $0 * max(vm.duration, 1) }
+            ),
+            buffered: vm.bufferedFraction,
+            onDragStart: { vm.isSeeking = true },
+            onDragEnd: { ratio in
+                vm.seek(to: ratio * max(vm.duration, 1))
+            }
+        )
+        .frame(height: 32)
+        .accessibilityIdentifier("progressSlider")
+    }
+
+    private static func formatTime(_ seconds: TimeInterval) -> String {
         guard seconds.isFinite && seconds >= 0 else { return "0:00" }
         let m = Int(seconds) / 60
         let s = Int(seconds) % 60
         return String(format: "%d:%02d", m, s)
     }
+}
 
-    private func sectionTitle(_ title: LocalizedStringKey) -> some View {
-        Text(title)
-            .font(.subheadline.bold())
-            .foregroundStyle(Theme.textSecondary)
+/// Spinner over the inline player while it buffers or seeks.
+///
+/// 内嵌播放器缓冲或拖动进度时显示的加载指示.
+private struct PlayerBufferingIndicator: View {
+    let vm: PlayerViewModel
+
+    var body: some View {
+        if vm.isBuffering {
+            ProgressView()
+                .tint(.white)
+                .allowsHitTesting(false)
+        }
+    }
+}
+
+/// The fullscreen buffer badge, reading the buffer itself so the cover content does not.
+///
+/// 全屏时的缓冲角标; 由它自己读取缓冲量, 全屏内容因此无需读取.
+private struct PlayerBufferBadge: View {
+    let vm: PlayerViewModel
+
+    var body: some View {
+        BufferBadge(secondsAhead: vm.bufferedAheadSeconds, isWaiting: vm.isBuffering)
     }
 }
 
