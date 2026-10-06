@@ -286,3 +286,23 @@ Durable architectural decisions for the KMTV Go backend, native Apple clients, a
 - Media tokens stay valid after logout until they expire; tracked as a separate security follow-up.
 - A playback failure deletes a download only when its files are missing; intact files are kept and the item is rebuilt.
 - Deviations from the design spec: the Downloads screen shows no aggregate speed, and the "downloads restarted after a source change" notice is logged only, not shown. The offline player uses the system player controls (`FullScreenPlayerRepresentable`) instead of the online player's custom controls. The background session identifier is `com.mritd.kmtv.downloads`, not the spec's `kmtv.downloads`. An entry fails on its 4th failure (3 retries), where the spec said it fails after 3 attempts. Downloading rows show a percentage but no byte counts.
+
+## ADR-018: Filter Inserted Ads In Proxied Playlists
+
+**Context:**
+- Some sources splice the same short ad runs into every VOD playlist at a random place on each fetch, bracketed by discontinuities and served from another directory (360zy, 2026-10-06: 20 ad segments, 4 distinct files, about 88 s in a 3284-segment episode).
+- The moving ads show in every client and made iOS download resume restart episodes from zero (fixed separately by matching entries by upstream identity).
+
+**Decision:**
+- The proxy's M3U8 fetch removes inserted ads before rewriting URLs, behind the admin setting `ad_filter_enabled` (default on, applied at runtime).
+- Content is the segment directory (URL path without host, query, or file name) that holds most of the duration. An ad directory never shares a run with content, appears only in runs of at most 120 s, and appears in at least two runs (sources repeat the same break; content spliced from another path appears once). A run whose segments all come from ad directories is removed.
+- Within a removed run only key and map tags stay, in order, and one discontinuity stays where content resumes.
+- The playlist is left unchanged for master and live playlists, when an active key has no explicit IV (removal would renumber the derived IVs), or when the runs to remove exceed 25% of the duration.
+
+**Consequences:**
+- Proxied playback and proxied iOS downloads on every client lose these ads; direct playback keeps them.
+- A short content run served from another directory between discontinuities would be removed; the duration and share limits keep this rare, and admins can turn the filter off.
+- Sources that mark ads differently (same directory, no discontinuity, derived IVs, or a single break) are not filtered.
+- Each playlist is filtered on its own, so a source whose audio or subtitle renditions do not carry the same ad runs can end up with misaligned discontinuities between renditions.
+- Turning the filter on or off changes the playlist of affected episodes, so an iOS download in progress restarts once when it resumes.
+

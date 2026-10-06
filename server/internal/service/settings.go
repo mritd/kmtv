@@ -24,6 +24,7 @@ var allowedSettingKeys = map[string]bool{
 	consts.SettingAccessTokenTTL:      true,
 	consts.SettingMediaTokenTTL:       true,
 	consts.SettingPlaybackMode:        true,
+	consts.SettingAdFilterEnabled:     true,
 }
 
 // SettingDefaults returns the default value for each settable key so admin clients can show sane fallbacks.
@@ -44,6 +45,7 @@ func SettingDefaults() map[string]string {
 		consts.SettingAccessTokenTTL:      strconv.FormatInt(consts.DefaultAccessTokenTTL, 10),
 		consts.SettingMediaTokenTTL:       strconv.FormatInt(consts.DefaultMediaTokenTTL, 10),
 		consts.SettingPlaybackMode:        consts.PlaybackModeProxy,
+		consts.SettingAdFilterEnabled:     "true",
 	}
 }
 
@@ -55,6 +57,7 @@ var runtimeSettingKeys = []string{
 	consts.SettingAccessTokenTTL,
 	consts.SettingMediaTokenTTL,
 	consts.SettingPlaybackMode,
+	consts.SettingAdFilterEnabled,
 	consts.SettingSearchConcurrency,
 	consts.SettingProbeConcurrency,
 	consts.SettingProbeTimeout,
@@ -94,6 +97,10 @@ func ApplyRuntimeSetting(key, value string) {
 		}
 	case consts.SettingPlaybackMode:
 		appruntime.Default().SetPlaybackMode(value)
+	case consts.SettingAdFilterEnabled:
+		if enabled, err := strconv.ParseBool(value); err == nil {
+			appruntime.Default().SetAdFilterEnabled(enabled)
+		}
 	case consts.SettingSearchConcurrency:
 		if n, err := strconv.Atoi(value); err == nil {
 			SetSearchConcurrency(n)

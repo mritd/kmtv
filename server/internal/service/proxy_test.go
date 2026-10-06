@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/mritd/kmtv/internal/model"
+	appruntime "github.com/mritd/kmtv/internal/runtime"
 )
 
 func TestRewriteM3U8(t *testing.T) {
@@ -361,6 +362,34 @@ segment001.ts
 	}
 	if !strings.Contains(got, "&mt=token-key") || !strings.Contains(got, "&mt=token-segment") {
 		t.Fatalf("expected media tokens in manifest:\n%s", got)
+	}
+}
+
+func TestFetchM3U8_FiltersInsertedAdsWhenEnabled(t *testing.T) {
+	t.Cleanup(appruntime.ResetDefaultForTest)
+	playlist := adPlaylist("c40", "a4", "c40", "a4", "c40")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(playlist))
+	}))
+	defer upstream.Close()
+
+	ps := NewProxyService()
+	ps.client = upstream.Client()
+	signer := func(kind, rawURL, sourceKey string) (string, error) { return "t", nil }
+	fetch := func() string {
+		got, err := ps.FetchM3U8(context.Background(), upstream.URL+"/20260922/main/hls/index.m3u8",
+			"https://proxy.example", "src-a", nil, signer)
+		if err != nil {
+			t.Fatalf("FetchM3U8 error: %v", err)
+		}
+		return got
+	}
+	if got := fetch(); strings.Contains(got, url.QueryEscape("/20260917/ad/")) || strings.Count(got, "/proxy/segment?") != 120 {
+		t.Fatalf("ads not filtered:\n%s", got)
+	}
+	appruntime.Default().SetAdFilterEnabled(false)
+	if got := fetch(); strings.Count(got, "/proxy/segment?") != 128 {
+		t.Fatalf("disabled filter changed the playlist:\n%s", got)
 	}
 }
 

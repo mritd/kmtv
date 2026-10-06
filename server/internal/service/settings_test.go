@@ -63,6 +63,18 @@ func TestApplyRuntimeSetting(t *testing.T) {
 		t.Fatalf("search timeout = %s, want 6s", got)
 	}
 
+	if !appruntime.Default().AdFilterEnabled() {
+		t.Fatal("ad filter should default to enabled")
+	}
+	ApplyRuntimeSetting(consts.SettingAdFilterEnabled, "false")
+	if appruntime.Default().AdFilterEnabled() {
+		t.Fatal("ad filter = enabled, want disabled")
+	}
+	ApplyRuntimeSetting(consts.SettingAdFilterEnabled, "not-a-bool")
+	if appruntime.Default().AdFilterEnabled() {
+		t.Fatal("an invalid value must keep the current ad filter state")
+	}
+
 }
 
 func TestRuntimeSettingClamps(t *testing.T) {

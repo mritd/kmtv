@@ -235,11 +235,14 @@ Admin-visible setting keys:
 - `access_token_ttl`
 - `media_token_ttl`
 - `playback_mode`
+- `ad_filter_enabled`
 - `version`
 
 `public_base_url` configures the external base URL used when rewriting M3U8 proxy links. `KMTV_PUBLIC_BASE_URL` has higher priority than this DB setting. If neither is configured, KMTV keeps the current forwarded-header fallback behavior.
 
 `media_token_ttl` defaults to 21600 seconds so URL-bound proxy playback tokens stay valid across long episodes.
+
+`ad_filter_enabled` defaults to `true`. While on, `/proxy/m3u8` drops ad runs that sources splice into VOD media playlists (ADR-018). Direct playback is not affected.
 
 Common errors: `500 ServerError`.
 

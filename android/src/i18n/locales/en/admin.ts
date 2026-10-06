@@ -88,6 +88,7 @@ const admin = {
       access_token_ttl: "Access token TTL (seconds)",
       media_token_ttl: "Media token TTL (seconds)",
       playback_mode: "Playback mode",
+      ad_filter_enabled: "Filter inserted ads (proxy mode)",
     },
     doubanImageProxy: { direct: "Direct", server: "Server proxy", tencent: "Tencent CDN", ali: "Ali CDN" },
     playbackMode: { direct: "Direct", proxy: "Proxy" },

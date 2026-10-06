@@ -88,6 +88,7 @@ const admin = {
       access_token_ttl: "AccessToken 有效期 (秒)",
       media_token_ttl: "媒体 Token 有效期 (秒)",
       playback_mode: "播放模式",
+      ad_filter_enabled: "过滤插入广告 (代理模式)",
     },
     doubanImageProxy: { direct: "直连", server: "服务端代理", tencent: "腾讯 CDN", ali: "阿里 CDN" },
     playbackMode: { direct: "直连", proxy: "代理" },

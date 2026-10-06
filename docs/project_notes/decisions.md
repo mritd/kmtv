@@ -21,6 +21,7 @@ The canonical decision log is [`docs/ADR.md`](../ADR.md). Record new decisions t
 - ADR-015: User-scoped watch history with ordered events (superseded by ADR-016)
 - ADR-016: Unified offline-first sync for watch history, favorites, and search history
 - ADR-017: iOS offline downloads through a background URLSession and a loopback media server
+- ADR-018: Proxied playlists drop inserted ad runs (by segment directory), behind `ad_filter_enabled`
 
 ## Implementation choices under ADR-016 (2026-10-02)
 

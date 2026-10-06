@@ -8,6 +8,7 @@ Non-sensitive project facts that are looked up often. Never store passwords, tok
 - Dev server: `task server` listens on `:8080`, or `task server PORT=8081`; it deletes `dev.db` on every start.
 - Flags: `--listen` (default `:8080`), `--db-path` (default `kmtv.db`; `:memory:` or `KMTV_DB_PATH=:memory:` for an ephemeral database).
 - API base path: `/api/v1`; contract in `docs/server_api.md` and `docs/server_api_cn.md`.
+- Inserted-ad filter for proxied playlists: setting `ad_filter_enabled` (default `true`, runtime); removes runs of at most 120 s and at most 25% of the duration (ADR-018).
 - Version comes from `git describe --tags --always --dirty`, falling back to `v0.0.0-dev`; clients read it from `GET /api/v1/settings`.
 
 ### Sync (ADR-016)

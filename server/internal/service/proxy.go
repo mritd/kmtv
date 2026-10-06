@@ -17,6 +17,7 @@ import (
 
 	"github.com/mritd/kmtv/internal/consts"
 	"github.com/mritd/kmtv/internal/model"
+	appruntime "github.com/mritd/kmtv/internal/runtime"
 	"github.com/mritd/kmtv/internal/utils"
 )
 
@@ -662,6 +663,15 @@ func (ps *ProxyService) FetchM3U8(ctx context.Context, targetURL, proxyBase, sou
 	}
 
 	base := utils.ExtractBaseURL(targetURL)
+	if appruntime.Default().AdFilterEnabled() {
+		var stats AdFilterStats
+		content, stats = FilterInsertedAds(content, base)
+		if stats.Segments > 0 {
+			logrus.WithFields(logrus.Fields{
+				"source": sourceKey, "segments": stats.Segments, "seconds": stats.Seconds,
+			}).Debug("removed inserted ads from playlist")
+		}
+	}
 	return RewriteM3U8(content, base, proxyBase, sourceKey, signer)
 }
 

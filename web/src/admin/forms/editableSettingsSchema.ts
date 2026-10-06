@@ -150,6 +150,12 @@ export const editableSettingsSchema: ReadonlyArray<EditableSettingEntry> = [
       { value: "proxy" },
     ],
   },
+  // ad_filter_enabled drops ads that sources splice into playlists; it only applies to proxied
+  // playback, since direct playback never passes the playlist through the server.
+  //
+  // ad_filter_enabled 移除源站拼接进 playlist 的广告; 只对代理播放生效, 直连播放的 playlist 不经过
+  // 服务端.
+  { kind: "boolean", key: "ad_filter_enabled" },
 ];
 
 /**

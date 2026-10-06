@@ -235,11 +235,14 @@ Admin 可见设置键:
 - `access_token_ttl`
 - `media_token_ttl`
 - `playback_mode`
+- `ad_filter_enabled`
 - `version`
 
 `public_base_url` 用于配置重写 M3U8 代理链接时使用的外部访问根地址. `KMTV_PUBLIC_BASE_URL` 的优先级高于这个 DB 设置. 两者都没有配置时, KMTV 保持当前的 forwarded header 回退逻辑.
 
 `media_token_ttl` 默认值为 21600 秒, 用于保证 URL 绑定的代理播放 token 能覆盖长剧集播放.
+
+`ad_filter_enabled` 默认为 `true`. 开启时, `/proxy/m3u8` 会移除源站拼接进 VOD media playlist 的广告段 (ADR-018). 直连播放不受影响.
 
 常见错误: `500 ServerError`.
 

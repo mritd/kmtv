@@ -123,6 +123,7 @@
 "Access Token TTL" = "访问 token 有效期";
 "Media Token TTL" = "媒体 token 有效期";
 "Playback Mode" = "播放模式";
+"Filter Inserted Ads" = "过滤插入广告";
 "7 Days" = "7 天";
 "30 Days" = "30 天";
 "365 Days" = "365 天";

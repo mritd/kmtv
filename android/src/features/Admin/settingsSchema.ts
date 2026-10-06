@@ -67,6 +67,7 @@ export const editableSettingsSchema: ReadonlyArray<EditableSettingEntry> = [
       { value: "proxy", i18nKey: "settings.playbackMode.proxy" },
     ],
   },
+  { kind: "boolean", key: "ad_filter_enabled" },
 ];
 
 /**
