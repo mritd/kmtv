@@ -203,6 +203,31 @@ final class DownloadManifestTests: XCTestCase {
         XCTAssertFalse(old.matches(shorter))
     }
 
+    func testAdoptingTakesTheFreshLinesAndKeepsProgress() throws {
+        var old = DownloadManifest.build(from: try media(clearInit), generation: 1)
+        // A manifest saved before the map flag existed decodes with nil flags.
+        //
+        // 在 map 标记出现之前保存的 manifest 解码后标记为 nil.
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(old)) as? [String: Any])
+        json["lines"] = (json["lines"] as? [[String: Any]])?.map { line in line.filter { $0.key != "mapEncrypted" } }
+        old = try JSONDecoder().decode(DownloadManifest.self, from: JSONSerialization.data(withJSONObject: json))
+        old.entries[2].done = true
+        old.entries[2].bytes = 100
+        old.entries[3].attempts = 2
+        XCTAssertTrue(old.isEncrypted(entry: 1))
+        let fresh = DownloadManifest.build(from: try media(clearInit.replacingOccurrences(of: "s0.m4s", with: "s0.m4s?mt=new")),
+                                           generation: 2)
+        XCTAssertTrue(old.matches(fresh))
+        let merged = old.adopting(urlsFrom: fresh)
+        XCTAssertEqual(merged.lines, fresh.lines)
+        XCTAssertFalse(merged.isEncrypted(entry: 1))
+        XCTAssertEqual(merged.generation, 2)
+        XCTAssertEqual(merged.entries.map(\.done), [false, false, true, false])
+        XCTAssertEqual(merged.entries[2].bytes, 100)
+        XCTAssertEqual(merged.entries[3].attempts, 2)
+        XCTAssertEqual(merged.entries[2].remoteURL.absoluteString, "https://cdn.example/v/s0.m4s?mt=new")
+    }
+
     func testMismatchSummaryNamesCountsAndTheFirstDifferentEntry() throws {
         let old = DownloadManifest.build(from: try media(encrypted), generation: 1)
         XCTAssertEqual(old.mismatchSummary(old), "entries=4/4 lines=3/3 first=none")

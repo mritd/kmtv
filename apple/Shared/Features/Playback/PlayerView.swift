@@ -97,7 +97,7 @@ struct PlayerView: View {
                         badges: snapshot.badges,
                         hints: EpisodePickerModel.otherSourceHints(episodes: vm.episodes, downloads: snapshot.episodes,
                                                                    sourceKey: vm.currentSourceKey),
-                        freeSpace: downloads.storage.freeBytes, allowsCellular: downloads.allowsCellular
+                        freeSpace: downloads.freeBytes, allowsCellular: downloads.allowsCellular
                     ) { indexes in download(vm, indexes: indexes) }
                 }
             }

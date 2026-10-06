@@ -212,7 +212,7 @@ private struct DownloadsStorageFooter: View {
         HStack {
             Text("Used \(DownloadFormatting.bytes(downloads.storage.activeBytes))")
             Spacer()
-            Text("Free \(DownloadFormatting.bytes(downloads.storage.freeBytes))")
+            Text("Free \(DownloadFormatting.bytes(downloads.freeBytes))")
         }
         .font(.caption)
         .foregroundStyle(Theme.textSecondary)

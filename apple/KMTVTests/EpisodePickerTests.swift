@@ -32,6 +32,18 @@ final class EpisodePickerTests: XCTestCase {
         XCTAssertEqual(badges, [0: .downloaded, 1: .downloading(0.5), 2: .queued])
     }
 
+    func testDownloadingBadgesMoveInFivePercentSteps() throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let ep = download(container, source: "a", video: "v", index: 0, name: "第01集", state: .downloading)
+        func badge(_ progress: Double) -> EpisodeDownloadBadge? {
+            EpisodePickerModel.badges(episodes: [ep], sourceKey: "a", videoId: "v") { _ in .downloading(progress) }[0]
+        }
+        XCTAssertEqual(badge(0.53), .downloading(0.5))
+        XCTAssertEqual(badge(0.549), .downloading(0.5))
+        XCTAssertEqual(badge(0.55), .downloading(0.55))
+        XCTAssertEqual(badge(0.999), .downloading(0.95))
+    }
+
     func testOtherSourceHintsMatchEpisodeNumbers() throws {
         let container = try ModelContainerFactory.makeInMemory()
         let downloads = [

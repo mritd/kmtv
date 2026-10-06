@@ -30,16 +30,13 @@ struct DownloadEpisodeRequest: Sendable, Equatable {
     let episodeURL: String
 }
 
-/// Bytes used by the active scope and by every other scope, and the device's free space, cached so
-/// views never fetch rows or query the volume while rendering. Bytes follow row writes; free space
-/// is read on demand.
+/// Bytes used by the active scope and by every other scope, cached so views never fetch rows while
+/// rendering; they follow row writes.
 ///
-/// 当前作用域与其他所有作用域占用的字节数, 以及设备剩余空间; 缓存起来, 视图渲染时无需读取数据行或查询
-/// 磁盘卷. 字节数随数据行写入更新; 剩余空间按需读取.
+/// 当前作用域与其他所有作用域占用的字节数; 缓存起来, 视图渲染时无需读取数据行; 随数据行写入更新.
 struct DownloadStorageUsage: Equatable {
     var activeBytes: Int64 = 0
     var otherBytes: Int64 = 0
-    var freeBytes: Int64 = 0
 }
 
 /// Every observed input of `DownloadManager.displayState(of:)` besides the row itself, plus the
@@ -140,6 +137,17 @@ final class DownloadManager {
     /// 缓存的存储占用与剩余空间. 字节数随数据行变化 (不会每次进度通知都完整读取);
     /// 剩余空间由 `refreshFreeSpace()` 在主 actor 之外读取, 入队时也会读取.
     private(set) var storage = DownloadStorageUsage()
+    /// The volume's free space, apart from `storage` so its readers do not change with every
+    /// progress tick.
+    ///
+    /// 磁盘卷的剩余空间; 与 `storage` 分开, 读取它的视图因此不会随每次进度通知变化.
+    private(set) var freeBytes: Int64 = 0
+    /// The progress tick at which each show (by `showDir`) last had entries reach its rows, so
+    /// readers of one show skip ticks that only moved other shows.
+    ///
+    /// 每部剧 (以 `showDir` 标识) 最近一次有条目写入数据行时的进度通知序号, 只关心某部剧的读取方
+    /// 因此可以跳过只影响其他剧的通知.
+    @ObservationIgnored private(set) var showProgressTicks: [String: Int] = [:]
     /// Episodes currently being prepared, by `episodeKey`.
     ///
     /// 正在准备的剧集, 以 `episodeKey` 标识.
@@ -185,7 +193,13 @@ final class DownloadManager {
         }
     }
     @ObservationIgnored private var manifests: [String: DownloadManifest] = [:]
-    @ObservationIgnored private var inFlight: Set<DownloadTaskID> = []
+    @ObservationIgnored private(set) var inFlight: Set<DownloadTaskID> = []
+    /// IDs that `cancelClaimed` cancelled while a reconcile awaited the transport, per running
+    /// reconcile; that reconcile must not adopt them from its older snapshot.
+    ///
+    /// 对账等待传输层期间被 `cancelClaimed` 取消的 ID, 按进行中的对账分别记录; 该对账不能从其较旧的
+    /// 快照中重新接管它们.
+    @ObservationIgnored private var cancelledDuringReconcile: [UUID: Set<DownloadTaskID>] = [:]
     @ObservationIgnored private var unsaved: [String: Int] = [:]
     /// IDs being cancelled, counted per pending cancel. They stay claimed until the cancel returns,
     /// so no pump or retry re-creates a task with the same ID that the cancel would then kill.
@@ -531,7 +545,7 @@ final class DownloadManager {
     func enqueue(show info: DownloadShowInfo, episodes requests: [DownloadEpisodeRequest]) throws -> Int {
         guard let scopeKey = activeScopeKey, preparer != nil else { throw DownloadEnqueueError.notSignedIn }
         let free = freeSpace()
-        if storage.freeBytes != free { storage.freeBytes = free }
+        if freeBytes != free { freeBytes = free }
         guard free >= Self.freeSpaceFloor else { throw DownloadEnqueueError.notEnoughSpace }
         let showKey = normalizeSyncKey(info.title)
         let show: DownloadShow
@@ -860,9 +874,13 @@ final class DownloadManager {
         // 已完成任务的事件不再出现在 `outstanding()` 中; 必须先处理这些事件, 否则对应条目会被重复提交.
         await transport.drainEvents()
         let before = inFlight
+        let watch = UUID()
+        cancelledDuringReconcile[watch] = []
+        let outstanding = await transport.outstanding()
+        let cancelledMeanwhile = cancelledDuringReconcile.removeValue(forKey: watch) ?? []
         var keep: Set<DownloadTaskID> = []
         var stale: Set<DownloadTaskID> = []
-        for id in await transport.outstanding() {
+        for id in outstanding where !cancelledMeanwhile.contains(id) {
             if let ep = episode(forKey: id.episodeKey), ep.state == .downloading, let manifest = manifest(for: ep),
                manifest.generation == id.generation, manifest.entries.indices.contains(id.entryIndex),
                !manifest.entries[id.entryIndex].done {
@@ -1305,6 +1323,7 @@ final class DownloadManager {
     private func cancelClaimed(_ ids: Set<DownloadTaskID>) async {
         guard !ids.isEmpty else { return }
         for id in ids { cancelling[id, default: 0] += 1 }
+        for watch in cancelledDuringReconcile.keys { cancelledDuringReconcile[watch]?.formUnion(ids) }
         await transport.cancel { ids.contains($0) }
         for id in ids {
             let count = (cancelling[id] ?? 1) - 1
@@ -1328,13 +1347,17 @@ final class DownloadManager {
     /// Flushes every episode with pending progress.
     ///
     /// 写入所有有待同步进度的剧集.
-    private func flushAllProgress() {
+    @discardableResult
+    private func flushAllProgress() -> Set<String> {
         let keys = progressPending
         progressPending = []
+        var shows: Set<String> = []
         for key in keys {
             guard let ep = episode(forKey: key), isLive(ep) else { continue }
             flushProgress(of: ep)
+            shows.insert(ep.showDir)
         }
+        return shows
     }
 
     private func manifest(for ep: DownloadEpisode) -> DownloadManifest? {
@@ -1415,8 +1438,18 @@ final class DownloadManager {
             await wait(interval)
             guard let self else { return }
             self.progressTask = nil
-            self.flushAllProgress()
-            self.progressTick &+= 1
+            // Rows get the cached manifest's progress, which can run ahead of the manifest on disk
+            // (saved every `saveEvery` entries or on a state change); after a crash the row may
+            // show less on relaunch. That rewind is display only: the files and the saved manifest
+            // stay consistent.
+            //
+            // 数据行写入缓存 manifest 的进度, 它可能领先于磁盘上的 manifest (每 `saveEvery` 个条目或
+            // 状态切换时才保存); 崩溃后重启时数据行显示的进度可能回退. 这种回退只影响展示: 文件与已保存
+            // 的 manifest 保持一致.
+            let shows = self.flushAllProgress()
+            let tick = self.progressTick &+ 1
+            for show in shows { self.showProgressTicks[show] = tick }
+            self.progressTick = tick
         }
     }
 
@@ -1435,7 +1468,7 @@ final class DownloadManager {
     func refreshFreeSpace() async {
         let read = freeSpace
         let free = await Task.detached(priority: .utility) { read() }.value
-        if storage.freeBytes != free { storage.freeBytes = free }
+        if freeBytes != free { freeBytes = free }
     }
 
     /// Writes an episode's bytes and moves the cached totals by the difference.

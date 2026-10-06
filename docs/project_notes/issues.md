@@ -40,7 +40,8 @@ Completed and in-progress work, newest first. There is no issue tracker; entries
   - Offline scope is released on reconnect.
   - Transport: maps disk-full errors, adds a 60 s playlist resource timeout, logs loopback URLs without the secret.
   - Pause/resume restarts now log why (entry and line counts and the first differing entry).
-  - Caveat: manifests saved before the fix have no map-encryption flag and keep the old rule. An episode already downloading from a MAP-before-KEY source still writes KEY before MAP; the load watchdog turns that into an error or fallback, and re-downloading fixes it.
+  - Caveat: manifests saved before the fix have no map-encryption flag. Since 2026-10-06 a resume adopts the fresh playlist's lines, which corrects them; an episode that completes without a resume still writes KEY before MAP, the load watchdog turns that into an error or fallback, and re-downloading fixes it.
+  - Caveat: rows can show more progress than the manifest on disk (saved every 20 entries and on state changes), so after a crash the progress shown may rewind on relaunch. Display only; files and the saved manifest stay consistent.
 - **Perf review fixes (2026-10-06)**:
   - Progress ticks and structural changes no longer read free space or fetch every row. Storage bytes follow row writes, and free space is read off the main actor on demand (every 20 s on the Downloads screen).
   - Prepare bumps the structure once per episode.

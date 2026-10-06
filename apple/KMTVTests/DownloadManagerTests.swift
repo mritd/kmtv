@@ -623,9 +623,9 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertLessThanOrEqual(writes, 2)
         XCTAssertEqual(ep.doneEntries, 30)
         XCTAssertEqual(ep.bytes, 120)
-        // A pause writes the exact count at once, and so does a relaunch.
+        // A pause writes the exact count to the row and the manifest at once.
         //
-        // 暂停会立即写入准确的数量, 重启后同样如此.
+        // 暂停会立即把准确的数量写入数据行与 manifest.
         await transport.finish(liveIDs(0)[0], layout: layout)
         await manager.pause(ep)
         XCTAssertEqual(ep.doneEntries, 31)
@@ -675,20 +675,25 @@ final class DownloadManagerTests: XCTestCase {
         // 剩余空间按需在主 actor 之外读取.
         space.value = 7_000_000_000
         await manager.refreshFreeSpace()
-        XCTAssertEqual(manager.storage.freeBytes, 7_000_000_000)
+        XCTAssertEqual(manager.freeBytes, 7_000_000_000)
     }
 
     func testPrepareBumpsStructureOnceForTheStateChange() async throws {
-        let before = manager.displayRevision
-        let gate = try await enqueueGated([0])
+        let gate = PrepareGate()
+        preparer.gate = gate
+        _ = try manager.enqueue(show: info, episodes: [request(0)])
         let enqueued = manager.changeCount
-        // The picker still sees the episode start preparing, through the revision.
+        for _ in 0..<1000 where manager.preparingKeys.isEmpty { await Task.yield() }
+        let key = try XCTUnwrap(episode(0)?.episodeKey)
+        // Starting the prepare bumps nothing; the picker sees it through the revision's keys.
         //
-        // 选集面板仍可通过版本号看到该集开始准备.
-        XCTAssertNotEqual(manager.displayRevision, before)
+        // 开始准备不会递增结构计数; 选集面板通过版本中的键看到它.
+        XCTAssertEqual(manager.changeCount, enqueued)
+        XCTAssertEqual(manager.displayRevision.preparing, [key])
         gate.open()
         await manager.waitForIdle()
-        XCTAssertEqual(manager.changeCount - enqueued, 1)
+        XCTAssertEqual(manager.changeCount, enqueued + 1)
+        XCTAssertEqual(manager.displayRevision.preparing, [])
         XCTAssertEqual(episode(0)?.state, .downloading)
     }
 
@@ -700,6 +705,48 @@ final class DownloadManagerTests: XCTestCase {
         await manager.activate(scopeKey: scope, preparer: preparer)
         XCTAssertTrue(changed.value)
         XCTAssertTrue(manager.canDownload)
+    }
+
+    func testRefillWaitsForABatchOfFreeSlots() async throws {
+        manager = makeManager(outstandingLimit: 20)
+        await manager.activate(scopeKey: scope, preparer: preparer)
+        preparer.segments["https://cdn.example/ep0.m3u8"] = 25
+        try await enqueueAndSettle()
+        XCTAssertEqual(transport.enqueued.count, 20)
+        // A limit of 20 refills in batches of 2: one free slot does not pump, two do.
+        //
+        // 上限为 20 时按 2 个一批补充: 空出一个位置不会推进队列, 空出两个才会.
+        await transport.finish(liveIDs(0)[0], layout: layout)
+        await manager.waitForIdle()
+        XCTAssertEqual(transport.enqueued.count, 20)
+        await transport.finish(liveIDs(0)[0], layout: layout)
+        await manager.waitForIdle()
+        XCTAssertEqual(transport.enqueued.count, 22)
+        XCTAssertEqual(transport.live.count, 20)
+    }
+
+    func testReconcileDoesNotAdoptTasksCancelledDuringItsAwait() async throws {
+        try await enqueueAndSettle()
+        // In the background the cellular toggle's pump does nothing, so nothing re-creates the
+        // cancelled tasks before the reconcile resumes with its older snapshot.
+        //
+        // 在后台时蜂窝数据切换后的队列推进不会执行, 因此在对账带着较旧的快照恢复之前, 没有任何操作会
+        // 重建被取消的任务.
+        await manager.handleScenePhase(.background)
+        let gate = PrepareGate()
+        transport.outstandingGate = gate
+        let reconcile = Task { await manager.reconcile() }
+        for _ in 0..<1000 where !transport.outstandingEntered { await Task.yield() }
+        XCTAssertTrue(transport.outstandingEntered)
+        await manager.setAllowsCellular(true)
+        XCTAssertTrue(transport.live.isEmpty)
+        gate.open()
+        await reconcile.value
+        XCTAssertTrue(manager.inFlight.isEmpty)
+        await manager.handleScenePhase(.active)
+        await manager.waitForIdle()
+        XCTAssertEqual(transport.live.count, 3)
+        XCTAssertTrue(transport.live.values.allSatisfy(\.allowsCellular))
     }
 
     func testRetryKeepsAttemptsInMemoryUntilASave() async throws {

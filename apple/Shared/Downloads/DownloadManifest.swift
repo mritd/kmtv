@@ -170,14 +170,22 @@ struct DownloadManifest: Codable, Equatable, Sendable {
         return summary
     }
 
-    /// This manifest with the newer one's URLs and generation; done flags, sizes, and attempts stay.
+    /// The newer manifest (URLs, lines, header, and generation) with this one's done flags, sizes,
+    /// and attempts. `matches` guarantees the same kind at every index, so the entries line up;
+    /// taking the fresh lines also corrects lines saved by older builds.
     ///
-    /// 采用较新 manifest 的 URL 与 generation 后的本 manifest; 完成标记, 大小与尝试次数保持不变.
+    /// 采用较新的 manifest (URL, 行, 头部与 generation), 并保留本 manifest 的完成标记, 大小与尝试次数.
+    /// `matches` 保证每个序号上的类型一致, 因此条目一一对应; 采用新的行也能修正旧版本保存的行.
     func adopting(urlsFrom newer: DownloadManifest) -> DownloadManifest {
-        var next = self
-        next.generation = newer.generation
-        for index in next.entries.indices { next.entries[index].remoteURL = newer.entries[index].remoteURL }
-        return next
+        var entries = newer.entries
+        for index in entries.indices where self.entries.indices.contains(index) {
+            entries[index].done = self.entries[index].done
+            entries[index].bytes = self.entries[index].bytes
+            entries[index].attempts = self.entries[index].attempts
+        }
+        return DownloadManifest(generation: newer.generation, version: newer.version,
+                                targetDuration: newer.targetDuration, mediaSequence: newer.mediaSequence,
+                                entries: entries, lines: newer.lines)
     }
 
     /// Entries still to download.
