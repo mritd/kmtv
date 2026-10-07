@@ -193,8 +193,13 @@ final class DownloadEpisode {
         }
     }
 
+    /// Typed identity shared with task IDs; computed, so the stored schema does not change.
+    ///
+    /// 与任务 ID 共用的类型化身份; 为计算属性, 因此不改变持久化结构.
+    var key: EpisodeKey { EpisodeKey(scopeHash: scopeHash, showDir: showDir, episodeDir: episodeDir) }
+
     /// Key shared with task IDs: `<scopeHash>/<showDir>/<episodeDir>`.
     ///
     /// 与任务 ID 共用的键: `<scopeHash>/<showDir>/<episodeDir>`.
-    var episodeKey: String { "\(scopeHash)/\(showDir)/\(episodeDir)" }
+    var episodeKey: String { key.relativePath }
 }

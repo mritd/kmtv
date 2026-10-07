@@ -53,6 +53,8 @@ final class HomeViewModel {
     private let syncStore: SyncStore?
     private let syncEngine: SyncEngine?
     private let baseURL: String
+    private let covers: CoverRegistry?
+    private let toasts: any ToastPresenting
 
     /// Continue watching: the newest 10 unfinished titles from the sync store.
     ///
@@ -61,11 +63,18 @@ final class HomeViewModel {
         Array((syncStore?.watchItems ?? []).filter { !$0.completed }.prefix(10))
     }
 
-    init(apiClient: any DoubanAPIProtocol, baseURL: String = "", syncStore: SyncStore?, syncEngine: SyncEngine?) {
+    /// `covers` learns the cards' covers (nil on tvOS and in tests that do not cover it); `toasts`
+    /// shows failures on tvOS.
+    ///
+    /// `covers` 登记卡片封面 (tvOS 与不涉及它的测试中为 nil); `toasts` 在 tvOS 上显示失败提示.
+    init(apiClient: any DoubanAPIProtocol, baseURL: String = "", syncStore: SyncStore?, syncEngine: SyncEngine?,
+         covers: CoverRegistry?, toasts: any ToastPresenting = ToastManager.shared) {
         self.apiClient = apiClient
         self.baseURL = baseURL
         self.syncStore = syncStore
         self.syncEngine = syncEngine
+        self.covers = covers
+        self.toasts = toasts
     }
 
     func load() async {
@@ -85,31 +94,23 @@ final class HomeViewModel {
             // 客户端调用本身是异步且不占用主线程; 留在当前任务内可让被取消的刷新一并取消请求.
             let response = try await apiClient.doubanHome()
             sections = response.sections
-            #if os(iOS)
-            CoverRegistry.remember(sections.flatMap(\.items), baseURL: baseURL)
-            #endif
+            covers?.remember(sections.flatMap(\.items), baseURL: baseURL)
             let candidates = Self.heroCandidates(sections)
             if !candidates.isEmpty { heroItems = candidates }
             error = nil
         } catch {
-            if Task.isCancelled || error is CancellationError {
+            guard !Task.isCancelled, let message = error.userMessage else {
                 isLoading = false
                 return
             }
             logger.error("Home load failed: \(error.localizedDescription)")
-            let message: String
-            if let apiError = error as? APIError {
-                message = apiError.localizedMessage
-            } else {
-                message = error.localizedDescription
-            }
             #if os(iOS)
             // Home can remain mounted behind iPad playback, so keep passive feed failures local.
             //
             // iPad 播放页背后可能仍挂载首页, 因此被动信息流失败只保留在本页.
             self.error = message
             #else
-            ToastManager.shared.show(message)
+            toasts.show(message)
             #endif
         }
         isLoading = false

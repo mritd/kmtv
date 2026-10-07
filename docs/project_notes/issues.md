@@ -2,6 +2,18 @@
 
 Completed and in-progress work, newest first. There is no issue tracker; entries name the branch instead of a ticket ID.
 
+### 2026-10-08 - refactor/ios-split: split DownloadManager and PlayerViewModel, PlaybackEngine, review cleanup
+- **Status**: Implemented on branch `refactor/ios-split`, ready for review; designs in `docs/superpowers/specs/2026-10-07-ios-split-design.md` and `docs/superpowers/specs/2026-10-07-ios-cleanup-design.md`.
+- **Description**: Two commits.
+  - Split (2026-10-07): `DownloadLibrary`, `DownloadTaskLedger`, `EpisodeRuntime`, `DownloadCoverStore`, `LocalPlaybackHost` out of `DownloadManager`; the `PlaybackEngine` protocol (only `PlaybackCoordinator` touches `AVPlayer`), `PlaybackProgressTracker`, `SourceFallbackPolicy`, `PlaybackTransportState`, and `FakePlaybackEngine`.
+  - Cleanup (2026-10-08): `DownloadEngine` (pump, events, reconcile) and a lazily built `librarySnapshot` the download screens read; `PlaybackSelectionController` (open and source switch) and `PlayerView` split into overlay, header, episodes, and settings views; `AppSessionMachine` reducer, shared `AppRootSwitch`, `SearchAndPlayDestinations`, Admin tab files; tvOS tokens with `TVFocusableLabelStyle`, shared badges, poster grid and skeletons, `resolveAssetURL`, `HomeView` split per platform, one description cleaner; injected `ToastPresenting` with `Error.userMessage` (cancellations show nothing) and an injected, unobserved `CoverRegistry`.
+  - Visible changes: tvOS shows "N/A" for a 0.0 rating like iOS; iOS badges share one size; the admin add sheets drop typed input on Cancel; titles now fall back to the navigation title before the detail loads (an optional `Text` overload had made the fallback unreachable).
+- **Verification (2026-10-08)**: `KMTVTests` 589/589 (twice) on the iPhone 17 Pro simulator; iOS and tvOS builds without new warnings; `task bilingual-check`; screenshot tours on iPhone and iPad against the dev server, including offline playback on iPad; two adversarial reviews against the previous baseline, whose findings were fixed (lazy snapshot, unobserved cover registry, one registry instance, guarded `markDamaged`, cancel room timing, line breaks kept in descriptions).
+- **Open items**:
+  - Accepted: rotating an iPad across the 1000 pt sidebar width resets the player controls and the expanded synopsis; a wrapped `URLError(.cancelled)` counts as a cancellation and shows nothing.
+  - Out of scope by decision: sync store list caching (profile first), unparsable server versions, a UI for `SyncStore.persistenceFailed`, unifying Admin load-failure alerts and Profile validation toasts.
+  - The dev server had no video sources during the tours (`KMTV_INIT_SOURCE_URL` unset), so online search and streaming were covered only by tests; the tour cannot close the iPad offline player, so its later iPad shots stay on the player.
+
 ### 2026-10-07 - fix/ios-review: iOS code review fixes
 - **Status**: Implemented on branch `fix/ios-review`, ready for review.
 - **Description**: A module-by-module review of the iOS code; fixes for the user-visible and lifecycle findings:

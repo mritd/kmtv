@@ -18,12 +18,7 @@ struct ContentView: View {
             Tab(value: RootTab.home) {
                 NavigationStack(path: $homePath) {
                     HomeView(path: $homePath)
-                        .navigationDestination(for: SearchQuery.self) { sq in
-                            SearchView(initialSearch: sq, path: $homePath)
-                        }
-                        .navigationDestination(for: PlayDestination.self) { dest in
-                            PlayerView(destination: dest)
-                        }
+                        .searchAndPlayDestinations(path: $homePath)
                 }
             } label: {
                 TabIcon(title: "Home", systemImage: "play.tv", isSelected: selectedTab == .home)
@@ -31,12 +26,7 @@ struct ContentView: View {
             Tab(value: RootTab.categories) {
                 NavigationStack(path: $categoriesPath) {
                     CategoriesView(path: $categoriesPath)
-                        .navigationDestination(for: SearchQuery.self) { sq in
-                            SearchView(initialSearch: sq, path: $categoriesPath)
-                        }
-                        .navigationDestination(for: PlayDestination.self) { dest in
-                            PlayerView(destination: dest)
-                        }
+                        .searchAndPlayDestinations(path: $categoriesPath)
                 }
             } label: {
                 TabIcon(title: "Categories", systemImage: "square.grid.2x2", isSelected: selectedTab == .categories)
@@ -44,12 +34,7 @@ struct ContentView: View {
             Tab(value: RootTab.favorites) {
                 NavigationStack(path: $favoritesPath) {
                     FavoritesView(path: $favoritesPath)
-                        .navigationDestination(for: SearchQuery.self) { sq in
-                            SearchView(initialSearch: sq, path: $favoritesPath)
-                        }
-                        .navigationDestination(for: PlayDestination.self) { dest in
-                            PlayerView(destination: dest)
-                        }
+                        .searchAndPlayDestinations(path: $favoritesPath)
                 }
             } label: {
                 TabIcon(title: "Favorites", systemImage: "star", isSelected: selectedTab == .favorites)

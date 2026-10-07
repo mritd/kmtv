@@ -1,92 +1,29 @@
 #if os(iOS)
 import Foundation
 import Observation
-import os
 import SwiftData
 import SwiftUI
 
-/// Show metadata for a new download.
+/// Owns downloads: the queue, background tasks, manifests, and the rows the UI reads. One instance
+/// lives for the whole process, created before any view, so background relaunches deliver their
+/// events to it. It is the observable façade over focused units: `DownloadEngine` (pump,
+/// transport events, manifest cache, task ledger), `DownloadLibrary` (row queries and library
+/// merge rules), `DownloadCoverStore` (posters), and `LocalPlaybackHost` (the loopback server).
+/// Views read `librarySnapshot`, rebuilt lazily after structural changes, and per-show progress ticks.
 ///
-/// 新下载所需的剧集元数据.
-struct DownloadShowInfo: Sendable, Equatable {
-    let title: String
-    let cover: String
-    let type: String
-    let year: String
-    let coverURL: URL?
-}
-
-/// One episode to download.
-///
-/// 一集待下载的剧集.
-struct DownloadEpisodeRequest: Sendable, Equatable {
-    let sourceKey: String
-    let sourceName: String
-    let videoId: String
-    let episodeIndex: Int
-    let episodeName: String
-    let lineIndex: Int
-    let episodeCount: Int
-    let episodeURL: String
-}
-
-/// Every observed input of `DownloadManager.displayState(of:)` besides the row itself, plus the
-/// structural and progress counters; views that compute download state outside their body refresh
-/// when it changes.
-///
-/// 除数据行本身外, `DownloadManager.displayState(of:)` 的全部被观察输入, 加上结构与进度计数; 在 body
-/// 之外计算下载状态的视图会在它变化时刷新.
-struct DownloadDisplayRevision: Equatable {
-    var structure: Int
-    var progress: Int
-    var satisfied: Bool
-    var expensive: Bool
-    var constrained: Bool
-    var allowsCellular: Bool
-    var preparing: Set<String>
-}
-
-/// Why episodes could not be queued.
-///
-/// 无法加入队列的原因.
-enum DownloadEnqueueError: Error, Equatable {
-    case notSignedIn
-    case notEnoughSpace
-}
-
-/// What a row shows for an episode.
-///
-/// 一集在列表行中展示的状态.
-enum DownloadDisplayState: Equatable {
-    case queued
-    case preparing
-    case downloading(Double)
-    case waitingNetwork
-    case waitingWiFi
-    case paused(DownloadPauseReason)
-    case completed
-    case failed(DownloadFailure)
-}
-
-/// Owns downloads: the queue, background tasks, manifests, the loopback server, and the rows the
-/// UI reads. One instance lives for the whole process, created before any view, so background
-/// relaunches deliver their events to it.
-///
-/// 管理下载: 队列, 后台任务, manifest, loopback 服务以及 UI 读取的数据行. 整个进程只有一个实例,
-/// 在任何视图之前创建, 因此后台唤醒时的事件都会投递给它.
+/// 管理下载: 队列, 后台任务, manifest 以及 UI 读取的数据行. 整个进程只有一个实例, 在任何视图之前创建,
+/// 因此后台唤醒时的事件都会投递给它. 它是若干专注单元之上的可观察外观: `DownloadEngine` (队列推进,
+/// 传输事件, manifest 缓存, 任务账本), `DownloadLibrary` (数据行查询与下载库合并规则),
+/// `DownloadCoverStore` (海报) 与 `LocalPlaybackHost` (loopback 服务). 视图读取在结构变化后按需重建的
+/// `librarySnapshot`, 以及每部剧的进度序号.
 @Observable
 @MainActor
 final class DownloadManager {
-    /// UserDefaults key of the cellular setting, the free-space floor for queueing, retry delays per
-    /// attempt, refreshes allowed without progress, and finished entries between manifest saves.
+    /// UserDefaults key of the cellular setting and the free-space floor for queueing.
     ///
-    /// 蜂窝数据设置的 UserDefaults 键, 加入队列所需的剩余空间下限, 每次重试的延迟, 无进展时允许的刷新
-    /// 次数, 以及两次保存 manifest 之间完成的条目数.
+    /// 蜂窝数据设置的 UserDefaults 键, 以及加入队列所需的剩余空间下限.
     static let cellularKey = "kmtv.downloads.allowsCellular"
     static let freeSpaceFloor: Int64 = 1_000_000_000
-    static let retryDelays: [TimeInterval] = [30, 120, 600]
-    static let refreshLimit = 2
-    static let saveEvery = 20
     /// Time a background wake may spend before it persists and completes; iOS allows about 30 s for
     /// background session events.
     ///
@@ -106,16 +43,37 @@ final class DownloadManager {
     ///
     /// UI 展示且引擎正在处理其下载的作用域.
     private(set) var activeScopeKey: String?
-    /// Bumped on structural changes (rows added or removed, state transitions, scope, cover), so
-    /// views re-read rows. A finished entry does not bump it; see `progressTick`.
+    /// Bumped on structural changes (rows added or removed, state transitions, scope, cover), which
+    /// invalidate `librarySnapshot`. A finished entry does not bump it; see `progressTick`.
     ///
-    /// 在结构变化 (增删数据行, 状态切换, 作用域, 封面) 时递增, 视图据此重新读取数据行. 完成单个条目不会
-    /// 使其递增; 参见 `progressTick`.
+    /// 在结构变化 (增删数据行, 状态切换, 作用域, 封面) 时递增, 并使 `librarySnapshot` 失效. 完成单个条目
+    /// 不会使其递增; 参见 `progressTick`.
     private(set) var changeCount = 0
-    /// Bumped at most once per `progressInterval` while entries finish, for views that show
-    /// aggregate progress without observing every row.
+    /// What the download screens show; see `DownloadLibrarySnapshot`. Built on the first read after a
+    /// structural change, never per progress tick, so changes nobody looks at (a background wake, a
+    /// show deleted episode by episode) fetch nothing. Reading it observes `changeCount` and the scope.
     ///
-    /// 条目完成期间, 每个 `progressInterval` 至多递增一次, 供展示汇总进度但不逐行观察的视图使用.
+    /// 下载页面要展示的内容; 参见 `DownloadLibrarySnapshot`. 在结构变化后的首次读取时构建, 从不随进度通知
+    /// 构建, 因此无人查看的变化 (后台唤醒, 逐集删除一部剧) 不会产生查询. 读取它会观察 `changeCount` 与作用域.
+    var librarySnapshot: DownloadLibrarySnapshot {
+        let revision = changeCount
+        let scope = activeScopeKey
+        if let cached = snapshotCache, cached.revision == revision, cachedSnapshotScope == scope { return cached }
+        let snapshot = DownloadLibrarySnapshot(
+            revision: revision, shows: library.libraryShows(activeScopeKey: scope),
+            episodes: library.libraryEpisodes(showKey: nil, activeScopeKey: scope),
+            scopeEpisodes: scope.map { library.episodes(in: $0) } ?? [])
+        snapshotCache = snapshot
+        cachedSnapshotScope = scope
+        return snapshot
+    }
+    @ObservationIgnored private var snapshotCache: DownloadLibrarySnapshot?
+    @ObservationIgnored private var cachedSnapshotScope: String?
+    /// Bumped at most once per `progressInterval` while entries finish. Views read the per-show
+    /// `progressTick(forTitle:)` instead, so a tick re-renders only readers of the shows it moved.
+    ///
+    /// 条目完成期间, 每个 `progressInterval` 至多递增一次. 视图改为读取每部剧的
+    /// `progressTick(forTitle:)`, 因此一次进度通知只会重新渲染其影响的剧集的读取方.
     private(set) var progressTick = 0
     /// Episodes downloading or queued in the active scope (the tab badge); recomputed on
     /// structural changes only.
@@ -134,114 +92,35 @@ final class DownloadManager {
     /// 磁盘卷的剩余空间, 由 `refreshFreeSpace()` 在主 actor 之外读取, 入队时也会读取; 与 `usedBytes`
     /// 分开, 读取它的视图因此不会随每次进度通知变化.
     private(set) var freeBytes: Int64 = 0
-    /// The progress tick at which each show (by `showDir`) last had entries reach its rows, so
-    /// readers of one show skip ticks that only moved other shows.
-    ///
-    /// 每部剧 (以 `showDir` 标识) 最近一次有条目写入数据行时的进度通知序号, 只关心某部剧的读取方
-    /// 因此可以跳过只影响其他剧的通知.
-    @ObservationIgnored private(set) var showProgressTicks: [String: Int] = [:]
     /// Episodes currently being prepared, by `episodeKey`.
     ///
     /// 正在准备的剧集, 以 `episodeKey` 标识.
     private(set) var preparingKeys: Set<String> = []
-    /// Whether the scene is active or inactive; preparation runs only then or during a background wake.
+    /// Whether a preparer is set, mirrored from the engine's unobserved preparer so `canDownload`
+    /// updates views.
     ///
-    /// 场景是否处于 active 或 inactive; 只有此时或后台唤醒期间才会做准备.
-    private(set) var isForeground = true
-    /// Whether a preparer is set, mirrored from the unobserved preparer so `canDownload` updates
-    /// views.
-    ///
-    /// 是否设置了准备器; 由不被观察的准备器同步而来, 使 `canDownload` 能够刷新视图.
+    /// 是否设置了准备器; 由引擎中不被观察的准备器同步而来, 使 `canDownload` 能够刷新视图.
     private(set) var hasPreparer = false
     /// Whether new tasks may use cellular data.
     ///
     /// 新任务是否可以使用蜂窝数据.
     private(set) var allowsCellular: Bool
-    /// Whether an offline player is on screen; an automatic reconnect waits until it closes.
-    ///
-    /// 离线播放器是否正在显示; 自动重连会等到它关闭之后.
-    var offlinePlaybackActive = false
     /// Network path monitor; nil means the path is assumed usable.
     ///
     /// 网络路径监视器; 为 nil 时视为网络可用.
     let network: DownloadNetworkMonitor?
 
-    /// Dependencies, cached manifests by `episodeKey`, in-flight task IDs, entries finished since the
-    /// last manifest save, and pump bookkeeping.
+    /// Dependencies and the units the façade delegates to.
     ///
-    /// 依赖项, 以 `episodeKey` 为键缓存的 manifest, 进行中的任务 ID, 上次保存 manifest 后完成的条目数,
-    /// 以及队列推进的状态.
+    /// 依赖项, 以及外观所委托的各个单元.
     @ObservationIgnored private let context: ModelContext
-    @ObservationIgnored private let transport: any DownloadTransport
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let freeSpace: @Sendable () -> Int64
     @ObservationIgnored private let now: () -> Date
-    @ObservationIgnored private let coverFetcher: @Sendable (URL) async -> Data?
-    @ObservationIgnored private let outstandingLimit: Int
-    @ObservationIgnored private var preparer: (any DownloadPreparing)? {
-        didSet {
-            let has = preparer != nil
-            if hasPreparer != has { hasPreparer = has }
-        }
-    }
-    @ObservationIgnored private var manifests: [String: DownloadManifest] = [:]
-    /// Facts of one manifest generation, so a finished entry costs O(1) instead of a pass over a
-    /// long episode: the ciphertext entries (fixed per generation) and a running count of missing
-    /// entries, which is rechecked against the manifest whenever it reaches zero.
-    ///
-    /// 某一代 manifest 的派生信息, 让完成一个条目的开销为 O(1), 而不是遍历一整集长剧: 密文条目 (每代
-    /// 固定不变) 与缺失条目的计数; 计数降到零时会对照 manifest 重新核实.
-    private struct ManifestFacts {
-        let generation: Int
-        let encrypted: Set<Int>
-        var remaining: Int
-    }
-    @ObservationIgnored private var facts: [String: ManifestFacts] = [:]
-    /// Rows by `episodeKey`, so transport events skip a fetch; a deleted row is fetched again.
-    ///
-    /// 以 `episodeKey` 为键的数据行, 传输事件因此无需每次查询; 已删除的行会重新查询.
-    @ObservationIgnored private var rows: [String: DownloadEpisode] = [:]
-    @ObservationIgnored private(set) var inFlight: Set<DownloadTaskID> = []
-    /// IDs that `cancelClaimed` cancelled while a reconcile awaited the transport, per running
-    /// reconcile; that reconcile must not adopt them from its older snapshot.
-    ///
-    /// 对账等待传输层期间被 `cancelClaimed` 取消的 ID, 按进行中的对账分别记录; 该对账不能从其较旧的
-    /// 快照中重新接管它们.
-    @ObservationIgnored private var cancelledDuringReconcile: [UUID: Set<DownloadTaskID>] = [:]
-    @ObservationIgnored private var unsaved: [String: Int] = [:]
-    /// IDs being cancelled, counted per pending cancel. They stay claimed until the cancel returns,
-    /// so no pump or retry re-creates a task with the same ID that the cancel would then kill.
-    ///
-    /// 正在取消的 ID, 按未完成的取消次数计数. 取消返回之前它们一直被占用, 因此队列推进或重试不会重建
-    /// 同一 ID 的任务, 再被这次取消误杀.
-    @ObservationIgnored private var cancelling: [DownloadTaskID: Int] = [:]
-    /// Whether a pump stopped at `outstandingLimit` with entries left; finished entries pump again
-    /// once `refillBatch` slots are free.
-    ///
-    /// 队列推进是否因达到 `outstandingLimit` 而停下且仍有条目; 腾出 `refillBatch` 个空位后, 完成的条目
-    /// 会再次推进队列.
-    @ObservationIgnored private var starved = false
-    /// Episodes whose finished entries have not reached their rows yet; flushed on the progress
-    /// tick and on every state transition, so rows re-render per tick instead of per entry.
-    ///
-    /// 已完成条目尚未写入数据行的剧集; 在进度通知以及每次状态切换时写入, 数据行因此按通知而不是按条目
-    /// 重新渲染.
-    @ObservationIgnored private var progressPending: Set<String> = []
-    /// Writes manifests off the main actor; see `DownloadManifestWriter`.
-    ///
-    /// 在主 actor 之外写入 manifest; 参见 `DownloadManifestWriter`.
-    @ObservationIgnored private let manifestWriter: DownloadManifestWriter
-    /// Episodes whose completion is awaiting its manifest write, so a pump meanwhile does not
-    /// complete them a second time.
-    ///
-    /// 完成流程正在等待 manifest 写入的剧集, 以免期间的队列推进再次完成它们.
-    @ObservationIgnored private var completing: Set<String> = []
-    @ObservationIgnored private var pumpTask: Task<Void, Never>?
-    @ObservationIgnored private var pumpRequested = false
-    @ObservationIgnored private var backgroundWake = false
-    @ObservationIgnored private var wakeDeadline: ContinuousClock.Instant?
-    @ObservationIgnored private let wakeBudget: Duration
-    @ObservationIgnored private var server: LocalMediaServer?
+    @ObservationIgnored private let library: DownloadLibrary
+    @ObservationIgnored private let covers: DownloadCoverStore
+    @ObservationIgnored private let playback: LocalPlaybackHost
+    @ObservationIgnored private let engine: DownloadEngine
     /// Removes deleted downloads off the main actor. Exposed for tests.
     ///
     /// 在主 actor 之外移除已删除的下载. 供测试使用.
@@ -257,17 +136,11 @@ final class DownloadManager {
     ///
     /// 已排队或正在执行的切换数; 没有时 `openOffline` 立即生效.
     @ObservationIgnored private var pendingTransitions = 0
-    @ObservationIgnored private let progressInterval: Duration
-    /// Waits out one progress interval; tests replace it to fire ticks on demand.
+    /// Per-show progress counters by `showKey`, created on first read or write; each is observed on
+    /// its own.
     ///
-    /// 等待一个进度间隔; 测试会替换它, 以便按需触发进度通知.
-    @ObservationIgnored private let progressWait: @Sendable (Duration) async -> Void
-    /// The pending progress notification; nil when none is scheduled, so nothing runs while no
-    /// entry finishes. Exposed for tests.
-    ///
-    /// 待发出的进度通知; 未安排时为 nil, 因此没有条目完成时不会运行任何任务. 供测试使用.
-    @ObservationIgnored private(set) var progressTask: Task<Void, Never>?
-    @ObservationIgnored private let logger = Logger(subsystem: "com.mritd.kmtv", category: "downloads")
+    /// 以 `showKey` 为键的每部剧进度计数, 在首次读取或写入时创建; 每个计数单独被观察.
+    @ObservationIgnored private var showTicks: [String: DownloadShowTick] = [:]
 
     /// Creates the manager and subscribes to transport events before any task can be enqueued.
     ///
@@ -277,49 +150,36 @@ final class DownloadManager {
          freeSpace: @escaping @Sendable () -> Int64 = DownloadManager.deviceFreeSpace,
          now: @escaping () -> Date = Date.init, outstandingLimit: Int = 3000,
          network: DownloadNetworkMonitor? = nil,
-         coverFetcher: @escaping @Sendable (URL) async -> Data? = DownloadManager.fetchCoverData,
+         coverFetcher: @escaping @Sendable (URL) async -> Data? = DownloadCoverStore.fetchCoverData,
          backgroundWakeBudget: Duration = DownloadManager.backgroundWakeBudget,
          progressInterval: Duration = DownloadManager.progressInterval,
          progressWait: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
-         manifestWriter: DownloadManifestWriter = DownloadManager.makeManifestWriter()) {
+         manifestWriter: DownloadManifestWriter = .logging()) {
         self.context = context
         self.layout = layout
-        self.transport = transport
         self.defaults = defaults
         self.freeSpace = freeSpace
         self.now = now
-        self.outstandingLimit = outstandingLimit
         self.allowsCellular = defaults.bool(forKey: Self.cellularKey)
         self.network = network
-        self.coverFetcher = coverFetcher
-        self.wakeBudget = backgroundWakeBudget
-        self.progressInterval = progressInterval
-        self.progressWait = progressWait
-        self.manifestWriter = manifestWriter
-        trash = DownloadTrash(layout: layout)
+        let library = DownloadLibrary(context: context)
+        self.library = library
+        covers = DownloadCoverStore(layout: layout, library: library, fetcher: coverFetcher)
+        playback = LocalPlaybackHost(root: layout.root)
+        let trash = DownloadTrash(layout: layout)
+        self.trash = trash
         trash.sweep()
-        transport.onEvent = { [weak self] event in await self?.process(event) }
-        network?.onRestore = { [weak self] in self?.schedulePump() }
+        engine = DownloadEngine(context: context, layout: layout, transport: transport, library: library, trash: trash,
+                                now: now, outstandingLimit: outstandingLimit, manifestWriter: manifestWriter,
+                                wakeBudget: backgroundWakeBudget, progressInterval: progressInterval,
+                                progressWait: progressWait)
+        engine.host = self
+        covers.onSaved = { [weak self] in
+            self?.saveContext()
+            self?.bump()
+        }
+        network?.onRestore = { [weak self] in self?.engine.schedulePump() }
         recomputeBytes()
-    }
-
-    /// The production manifest writer, which logs failed writes.
-    ///
-    /// 正式使用的 manifest 写入器, 会记录写入失败.
-    nonisolated static func makeManifestWriter() -> DownloadManifestWriter {
-        DownloadManifestWriter(onError: { error in
-            Logger(subsystem: "com.mritd.kmtv", category: "downloads")
-                .error("download manifest save failed: \(error.localizedDescription, privacy: .public)")
-        })
-    }
-
-    /// Downloads cover image bytes; nil on any failure or non-200 response.
-    ///
-    /// 下载封面图片数据; 失败或响应非 200 时返回 nil.
-    nonisolated static func fetchCoverData(from url: URL) async -> Data? {
-        guard let (data, response) = try? await URLSession.shared.data(from: url),
-              (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty else { return nil }
-        return data
     }
 
     /// Free space for important data on the app's volume.
@@ -336,75 +196,63 @@ final class DownloadManager {
     /// 当前是否可以加入下载 (存在已登录的作用域与准备器).
     var canDownload: Bool { activeScopeKey != nil && hasPreparer }
 
+    /// Whether an offline player is on screen; an automatic reconnect waits until it closes.
+    ///
+    /// 离线播放器是否正在显示; 自动重连会等到它关闭之后.
+    var offlinePlaybackActive: Bool {
+        get { playback.offlinePlaybackActive }
+        set { playback.offlinePlaybackActive = newValue }
+    }
+
+    /// Tasks the engine created and has not seen an event for or cancelled. Exposed for tests.
+    ///
+    /// 引擎已创建, 尚未收到其事件也未取消的任务. 供测试使用.
+    var inFlight: Set<DownloadTaskID> { engine.inFlight }
+
+    /// The pending progress notification; nil when none is scheduled. Exposed for tests.
+    ///
+    /// 待发出的进度通知; 未安排时为 nil. 供测试使用.
+    var progressTask: Task<Void, Never>? { engine.progressTask }
+
+    /// The progress tick that last moved the show with this title, 0 before any. Reading it
+    /// observes only that show, so a reader skips ticks that moved other shows.
+    ///
+    /// 最近一次影响该标题剧集的进度通知序号, 尚未有过时为 0. 读取它只会观察这部剧, 读取方因此会跳过
+    /// 只影响其他剧的通知.
+    func progressTick(forTitle title: String) -> Int {
+        showTick(normalizeSyncKey(title)).value
+    }
+
     // MARK: - Library
 
-    // The library is every download on the device, whatever server or account it was made under:
-    // anyone, signed in, anonymous, or offline, can play and delete it. Copies of one show or episode
-    // under several accounts read as one. Only the active scope's unfinished episodes can be
-    // paused, resumed, or retried, since that needs its account's media tokens.
-    //
-    // 下载库即本机上的全部下载, 无论它是在哪个服务器或账号下完成的: 任何人 (已登录, 匿名或离线) 都可以
-    // 播放和删除. 同一部剧或同一集在多个账号下的副本视为一份. 只有当前作用域中未完成的剧集可以暂停, 继续
-    // 或重试, 因为这需要其账号的媒体 token.
-
-    /// One show per show key across scopes, newest first; the active scope's row stands for the
-    /// show when it has one.
+    /// One show per show key across scopes, newest first; see `DownloadLibrary`. Views read
+    /// `librarySnapshot` instead.
     ///
-    /// 跨作用域按剧集键每部剧一行, 最新的在前; 当前作用域有该剧时以其数据行代表该剧.
+    /// 跨作用域按剧集键每部剧一行, 最新的在前; 参见 `DownloadLibrary`. 视图改为读取 `librarySnapshot`.
     func libraryShows() -> [DownloadShow] {
-        let all = (try? context.fetch(FetchDescriptor<DownloadShow>(
-            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]))) ?? []
-        var picked: [String: DownloadShow] = [:]
-        var order: [String] = []
-        for show in all {
-            guard let current = picked[show.showKey] else {
-                picked[show.showKey] = show
-                order.append(show.showKey)
-                continue
-            }
-            if show.scopeKey == activeScopeKey && current.scopeKey != activeScopeKey { picked[show.showKey] = show }
-        }
-        return order.compactMap { picked[$0] }
+        library.libraryShows(activeScopeKey: activeScopeKey)
     }
 
     /// The library row of one show.
     ///
     /// 某部剧在下载库中的数据行.
     func libraryShow(showKey: String) -> DownloadShow? {
-        let descriptor = FetchDescriptor<DownloadShow>(predicate: #Predicate { $0.showKey == showKey })
-        let rows = (try? context.fetch(descriptor)) ?? []
-        return rows.first { $0.scopeKey == activeScopeKey } ?? rows.max { $0.createdAt < $1.createdAt }
+        library.libraryShow(showKey: showKey, activeScopeKey: activeScopeKey)
     }
 
-    /// One episode per (show, source, video, index) across scopes, optionally of one show, ordered
-    /// by source then index. A completed copy wins, then the active scope's, then the newest.
+    /// One episode per (show, source, video, index) across scopes, optionally of one show; a
+    /// completed copy wins, then the active scope's, then the newest.
     ///
-    /// 跨作用域按 (剧集, 来源, 视频, 序号) 每集一行, 可限定某部剧, 按来源再按序号排序. 已完成的副本优先,
-    /// 其次是当前作用域的, 再次是最新的.
+    /// 跨作用域按 (剧集, 来源, 视频, 序号) 每集一行, 可限定某部剧; 已完成的副本优先, 其次是当前作用域的,
+    /// 再次是最新的.
     func libraryEpisodes(showKey: String? = nil) -> [DownloadEpisode] {
-        let descriptor: FetchDescriptor<DownloadEpisode>
-        if let showKey {
-            descriptor = FetchDescriptor(predicate: #Predicate { $0.showKey == showKey })
-        } else {
-            descriptor = FetchDescriptor()
-        }
-        var picked: [String: DownloadEpisode] = [:]
-        for ep in (try? context.fetch(descriptor)) ?? [] {
-            let key = Self.libraryKey(ep)
-            if let current = picked[key], !libraryPrefers(ep, over: current) { continue }
-            picked[key] = ep
-        }
-        return picked.values.sorted { ($0.sourceKey, $0.episodeIndex) < ($1.sourceKey, $1.episodeIndex) }
+        library.libraryEpisodes(showKey: showKey, activeScopeKey: activeScopeKey)
     }
 
     /// Whether any scope has a completed episode.
     ///
     /// 是否有任一作用域存在已完成的剧集.
-    var hasCompletedDownloads: Bool {
-        let completed = DownloadState.completed.rawValue
-        let descriptor = FetchDescriptor<DownloadEpisode>(predicate: #Predicate { $0.stateRaw == completed })
-        return ((try? context.fetchCount(descriptor)) ?? 0) > 0
-    }
+    var hasCompletedDownloads: Bool { library.hasCompletedDownloads }
 
     /// Whether this device can pause, resume, or retry the episode: it belongs to the signed-in
     /// account.
@@ -418,28 +266,21 @@ final class DownloadManager {
     ///
     /// 删除某一集在所有作用域中的副本.
     func deleteFromLibrary(_ ep: DownloadEpisode) async {
-        let key = Self.libraryKey(ep)
-        let showKey = ep.showKey
-        let copies = ((try? context.fetch(FetchDescriptor<DownloadEpisode>(
-            predicate: #Predicate { $0.showKey == showKey }))) ?? []).filter { Self.libraryKey($0) == key }
-        for copy in copies { await delete(copy) }
+        for copy in library.copies(of: ep) { await delete(copy) }
     }
 
     /// Deletes every copy of a show across scopes.
     ///
     /// 删除某部剧在所有作用域中的副本.
     func deleteShowFromLibrary(showKey: String) async {
-        let descriptor = FetchDescriptor<DownloadShow>(predicate: #Predicate { $0.showKey == showKey })
-        for show in (try? context.fetch(descriptor)) ?? [] { await deleteShow(show) }
+        for show in library.shows(showKey: showKey) { await deleteShow(show) }
     }
 
     /// Deletes every download on the device.
     ///
     /// 删除本机上的全部下载.
     func deleteAllDownloads() async {
-        let shows = (try? context.fetch(FetchDescriptor<DownloadShow>())) ?? []
-        let episodes = (try? context.fetch(FetchDescriptor<DownloadEpisode>())) ?? []
-        for scope in Set(shows.map(\.scopeKey) + episodes.map(\.scopeKey)) { await deleteScope(scope) }
+        for scope in library.scopeKeys() { await deleteScope(scope) }
     }
 
     /// Deletes a scope's unfinished episodes that another account already downloaded, for example
@@ -456,92 +297,47 @@ final class DownloadManager {
         for ep in redundant { await delete(ep) }
     }
 
-    private static func libraryKey(_ ep: DownloadEpisode) -> String {
-        "\(ep.showKey)/\(ep.episodeDir)"
-    }
-
-    private func libraryPrefers(_ ep: DownloadEpisode, over current: DownloadEpisode) -> Bool {
-        let done = ep.state == .completed, currentDone = current.state == .completed
-        if done != currentDone { return done }
-        let active = ep.scopeKey == activeScopeKey, currentActive = current.scopeKey == activeScopeKey
-        if active != currentActive { return active }
-        return ep.createdAt > current.createdAt
-    }
-
     // MARK: - Queries
 
     /// Shows of a scope, newest first.
     ///
     /// 某个作用域的剧集, 最新的在前.
-    func shows(in scopeKey: String) -> [DownloadShow] {
-        let descriptor = FetchDescriptor<DownloadShow>(predicate: #Predicate { $0.scopeKey == scopeKey },
-                                                       sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
-        return (try? context.fetch(descriptor)) ?? []
-    }
+    func shows(in scopeKey: String) -> [DownloadShow] { library.shows(in: scopeKey) }
 
     /// One show.
     ///
     /// 单部剧集.
     func show(scopeKey: String, showKey: String) -> DownloadShow? {
-        let descriptor = FetchDescriptor<DownloadShow>(
-            predicate: #Predicate { $0.scopeKey == scopeKey && $0.showKey == showKey })
-        return try? context.fetch(descriptor).first
+        library.show(scopeKey: scopeKey, showKey: showKey)
     }
 
     /// Episodes of a scope, optionally of one show, ordered by source then index.
     ///
     /// 某个作用域的剧集分集, 可限定某部剧, 按来源再按序号排序.
     func episodes(in scopeKey: String, showKey: String? = nil) -> [DownloadEpisode] {
-        let descriptor: FetchDescriptor<DownloadEpisode>
-        if let showKey {
-            descriptor = FetchDescriptor(predicate: #Predicate { $0.scopeKey == scopeKey && $0.showKey == showKey })
-        } else {
-            descriptor = FetchDescriptor(predicate: #Predicate { $0.scopeKey == scopeKey })
-        }
-        return ((try? context.fetch(descriptor)) ?? []).sorted {
-            ($0.sourceKey, $0.episodeIndex) < ($1.sourceKey, $1.episodeIndex)
-        }
+        library.episodes(in: scopeKey, showKey: showKey)
     }
 
     /// One episode by identity.
     ///
     /// 按身份查找一集.
     func episode(scopeKey: String, sourceKey: String, videoId: String, episodeIndex: Int) -> DownloadEpisode? {
-        let descriptor = FetchDescriptor<DownloadEpisode>(predicate: #Predicate {
-            $0.scopeKey == scopeKey && $0.sourceKey == sourceKey && $0.videoId == videoId && $0.episodeIndex == episodeIndex
-        })
-        return try? context.fetch(descriptor).first
+        library.episode(scopeKey: scopeKey, sourceKey: sourceKey, videoId: videoId, episodeIndex: episodeIndex)
     }
 
-    private func episode(forKey key: String) -> DownloadEpisode? {
-        if let row = rows[key], isLive(row), row.episodeKey == key { return row }
-        rows[key] = nil
-        let parts = key.split(separator: "/").map(String.init)
-        guard parts.count == 3 else { return nil }
-        let (scopeHash, showDir, episodeDir) = (parts[0], parts[1], parts[2])
-        let descriptor = FetchDescriptor<DownloadEpisode>(predicate: #Predicate {
-            $0.scopeHash == scopeHash && $0.showDir == showDir && $0.episodeDir == episodeDir
-        })
-        let row = try? context.fetch(descriptor).first
-        rows[key] = row
-        return row
-    }
-
-    private func facts(for key: String, _ manifest: DownloadManifest) -> ManifestFacts {
-        if let cached = facts[key], cached.generation == manifest.generation { return cached }
-        let made = ManifestFacts(generation: manifest.generation, encrypted: manifest.encryptedEntries,
-                                 remaining: manifest.missingCount)
-        facts[key] = made
-        return made
+    /// A completed copy of the episode in any scope, the active scope's first; see
+    /// `DownloadLibrary.completedCopy`.
+    ///
+    /// 任一作用域中该集的已完成副本, 优先当前作用域; 参见 `DownloadLibrary.completedCopy`.
+    func completedCopy(showKey: String, sourceKey: String, videoId: String, episodeIndex: Int) -> DownloadEpisode? {
+        library.completedCopy(showKey: showKey, sourceKey: sourceKey, videoId: videoId, episodeIndex: episodeIndex,
+                              activeScopeKey: activeScopeKey)
     }
 
     /// Local poster file of a show, if downloaded.
     ///
     /// 剧集的本地海报文件 (如已下载).
-    func coverFileURL(for show: DownloadShow) -> URL? {
-        guard !show.coverFile.isEmpty else { return nil }
-        return layout.showDir(scopeHash: show.scopeHash, showDir: show.showDir).appending(path: show.coverFile)
-    }
+    func coverFileURL(for show: DownloadShow) -> URL? { covers.coverFileURL(for: show) }
 
     /// Display state of an episode under the current network path.
     ///
@@ -553,35 +349,13 @@ final class DownloadManager {
                           constrained: network?.isConstrained ?? false, allowsCellular: allowsCellular)
     }
 
-    /// Pure display-state rule: stored terminal and paused states win; otherwise an unusable path
-    /// waits for the network, and an expensive path without the cellular setting (or Low Data
-    /// Mode) waits for WiFi.
+    /// The current `DownloadDisplayRevision`; reading it observes structure, the network path, the
+    /// cellular setting, and the preparing keys, but no row and no progress.
     ///
-    /// 纯粹的展示状态规则: 持久化的终止与暂停状态优先; 否则网络不可用时等待网络, 网络昂贵且未允许
-    /// 蜂窝数据 (或处于低数据模式) 时等待 WiFi.
-    static func displayState(state: DownloadState, pauseReason: DownloadPauseReason?, failure: DownloadFailure?,
-                             done: Int, total: Int, preparing: Bool, satisfied: Bool, expensive: Bool,
-                             constrained: Bool, allowsCellular: Bool) -> DownloadDisplayState {
-        switch state {
-        case .completed: return .completed
-        case .failed: return .failed(failure ?? .network)
-        case .paused: return .paused(pauseReason ?? .user)
-        case .queued, .downloading:
-            if !satisfied { return .waitingNetwork }
-            if constrained || (expensive && !allowsCellular) { return .waitingWiFi }
-            if preparing { return .preparing }
-            if state == .queued { return .queued }
-            return .downloading(total > 0 ? Double(done) / Double(total) : 0)
-        }
-    }
-
-    /// The current `DownloadDisplayRevision`; reading it observes structure, throttled progress,
-    /// the network path, and the cellular setting, but no row.
-    ///
-    /// 当前的 `DownloadDisplayRevision`; 读取它会观察结构, 节流后的进度, 网络路径与蜂窝数据设置,
-    /// 但不观察任何数据行.
+    /// 当前的 `DownloadDisplayRevision`; 读取它会观察结构, 网络路径, 蜂窝数据设置与正在准备的键,
+    /// 但不观察任何数据行与进度.
     var displayRevision: DownloadDisplayRevision {
-        DownloadDisplayRevision(structure: changeCount, progress: progressTick, satisfied: network?.isSatisfied ?? true,
+        DownloadDisplayRevision(structure: changeCount, satisfied: network?.isSatisfied ?? true,
                                 expensive: network?.isExpensive ?? false, constrained: network?.isConstrained ?? false,
                                 allowsCellular: allowsCellular, preparing: preparingKeys)
     }
@@ -599,10 +373,10 @@ final class DownloadManager {
 
     private func applyActivate(scopeKey: String, preparer: any DownloadPreparing) async {
         if let previous = activeScopeKey, previous != scopeKey {
-            await pauseScope(previous, reason: .signedOut)
+            await engine.pauseScope(previous, reason: .signedOut)
         }
         if activeScopeKey != scopeKey { activeScopeKey = scopeKey }
-        self.preparer = preparer
+        setPreparer(preparer)
         for ep in episodes(in: scopeKey) where ep.state == .paused && ep.pauseReason == .signedOut {
             ep.state = .queued
             ep.pauseReason = nil
@@ -610,39 +384,9 @@ final class DownloadManager {
         saveContext()
         bump()
         await dropRedundantCopies(in: scopeKey)
-        await reconcile()
-        schedulePump()
-        retryMissingCovers(scopeKey: scopeKey)
-    }
-
-    /// Re-fetches covers that never arrived or vanished from disk, without blocking activation.
-    ///
-    /// 重新获取从未下载成功或已从磁盘丢失的封面, 不阻塞激活流程.
-    private func retryMissingCovers(scopeKey: String) {
-        let pending = shows(in: scopeKey).filter { show in
-            guard coverRemoteURL(for: show) != nil else { return false }
-            guard let file = coverFileURL(for: show) else { return true }
-            return !FileManager.default.fileExists(atPath: file.path)
-        }.map(\.showKey)
-        guard !pending.isEmpty else { return }
-        Task {
-            for showKey in pending {
-                guard activeScopeKey == scopeKey, let show = show(scopeKey: scopeKey, showKey: showKey),
-                      let url = coverRemoteURL(for: show) else { continue }
-                await fetchCover(scopeKey: scopeKey, showKey: showKey, from: url)
-            }
-        }
-    }
-
-    /// Remote cover URL of a show: the resolved URL saved at enqueue, else `cover` when it is
-    /// already absolute; nil when neither gives one.
-    ///
-    /// 剧集封面的远程 URL: 优先使用入队时保存的已解析 URL, 其次在 `cover` 已是绝对地址时使用它;
-    /// 两者都没有时返回 nil.
-    private func coverRemoteURL(for show: DownloadShow) -> URL? {
-        if !show.coverURLString.isEmpty { return URL(string: show.coverURLString) }
-        guard show.cover.hasPrefix("http") else { return nil }
-        return URL(string: show.cover)
+        await engine.reconcile()
+        engine.schedulePump()
+        covers.retryMissingCovers(scopeKey: scopeKey, isActive: { [weak self] in self?.activeScopeKey == $0 })
     }
 
     /// Shows a scope offline: rows and playback only, no preparation. Applies at once unless
@@ -660,7 +404,7 @@ final class DownloadManager {
 
     private func applyOffline(scopeKey: String) {
         if activeScopeKey != scopeKey { activeScopeKey = scopeKey }
-        preparer = nil
+        setPreparer(nil)
         bump()
     }
 
@@ -682,8 +426,8 @@ final class DownloadManager {
 
     private func applyDeactivate() async {
         guard let scope = activeScopeKey else { return }
-        preparer = nil
-        await pauseScope(scope, reason: .signedOut)
+        setPreparer(nil)
+        await engine.pauseScope(scope, reason: .signedOut)
         activeScopeKey = nil
         bump()
     }
@@ -704,26 +448,13 @@ final class DownloadManager {
         return task
     }
 
-    private func pauseScope(_ scopeKey: String, reason: DownloadPauseReason) async {
-        let hash = DownloadPaths.scopeHash(scopeKey)
-        var generations: [String: Int] = [:]
-        for ep in episodes(in: scopeKey) {
-            generations[ep.episodeKey] = manifests[ep.episodeKey]?.generation
-            guard ep.state == .queued || ep.state == .downloading else { continue }
-            ep.state = .paused
-            ep.pauseReason = reason
-            flushProgress(of: ep)
-            if let manifest = manifests[ep.episodeKey] { saveManifest(manifest, for: ep) }
-        }
-        saveContext()
-        bump()
-        await manifestWriter.flushAll()
-        // Tasks of a newer generation come from a resume during the await; they must survive.
-        //
-        // 更新一代的任务来自等待期间的继续操作; 它们必须保留.
-        let bound = generations
-        inFlight = inFlight.filter { !($0.scopeHash == hash && $0.generation <= bound[$0.episodeKey] ?? .max) }
-        await transport.cancel { $0.scopeHash == hash && $0.generation <= bound[$0.episodeKey] ?? .max }
+    /// Sets the engine's preparer and mirrors whether one is set.
+    ///
+    /// 设置引擎的准备器, 并同步是否已设置.
+    private func setPreparer(_ preparer: (any DownloadPreparing)?) {
+        engine.preparer = preparer
+        let has = preparer != nil
+        if hasPreparer != has { hasPreparer = has }
     }
 
     // MARK: - Commands
@@ -733,7 +464,7 @@ final class DownloadManager {
     /// 将尚未下载的剧集加入队列; 返回新增的数量.
     @discardableResult
     func enqueue(show info: DownloadShowInfo, episodes requests: [DownloadEpisodeRequest]) throws -> Int {
-        guard let scopeKey = activeScopeKey, preparer != nil else { throw DownloadEnqueueError.notSignedIn }
+        guard let scopeKey = activeScopeKey, engine.preparer != nil else { throw DownloadEnqueueError.notSignedIn }
         let free = freeSpace()
         if freeBytes != free { freeBytes = free }
         guard free >= Self.freeSpaceFloor else { throw DownloadEnqueueError.notEnoughSpace }
@@ -789,9 +520,9 @@ final class DownloadManager {
                 show.cover = info.cover
                 saveContext()
             }
-            Task { await fetchCover(scopeKey: scopeKey, showKey: showKey, from: coverURL) }
+            Task { await covers.fetchCover(scopeKey: scopeKey, showKey: showKey, from: coverURL) }
         }
-        schedulePump()
+        engine.schedulePump()
         return added
     }
 
@@ -802,14 +533,14 @@ final class DownloadManager {
         guard ep.state == .queued || ep.state == .downloading else { return }
         ep.state = .paused
         ep.pauseReason = .user
-        flushProgress(of: ep)
-        let generation = currentGeneration(of: ep)
-        if let manifest = manifests[ep.episodeKey] { saveManifest(manifest, for: ep) }
+        engine.flushProgress(of: ep)
+        let generation = engine.currentGeneration(of: ep)
+        engine.saveCachedManifest(of: ep)
         saveContext()
         bump()
-        await manifestWriter.flush(ep.episodeKey)
-        await cancelTasks(of: ep, upTo: generation)
-        schedulePump()
+        await engine.flushManifest(ep.episodeKey)
+        await engine.cancelTasks(of: ep, upTo: generation)
+        engine.schedulePump()
     }
 
     /// Resumes a paused episode.
@@ -821,7 +552,7 @@ final class DownloadManager {
         ep.pauseReason = nil
         saveContext()
         bump()
-        schedulePump()
+        engine.schedulePump()
     }
 
     /// Retries a failed episode, keeping finished entries.
@@ -829,47 +560,41 @@ final class DownloadManager {
     /// 重试一集失败的剧集, 保留已完成的条目.
     func retry(_ ep: DownloadEpisode) {
         guard ep.state == .failed else { return }
-        if var manifest = manifest(for: ep) {
-            for index in manifest.entries.indices where !manifest.entries[index].done {
-                manifest.entries[index].attempts = 0
-            }
-            saveManifest(manifest, for: ep)
-        }
+        engine.resetAttempts(of: ep)
         ep.failure = nil
         ep.refreshCount = 0
         ep.state = .queued
         saveContext()
         bump()
-        schedulePump()
+        engine.schedulePump()
     }
 
     /// Pauses every queued or downloading episode of the active scope.
     ///
     /// 暂停当前作用域中所有排队或下载中的剧集.
     func pauseAll(reason: DownloadPauseReason = .user) async {
-        guard let scope = activeScopeKey else { return }
-        await pauseScope(scope, reason: reason)
+        await engine.pauseActiveScope(reason: reason)
     }
 
     /// Resumes every paused episode of the active scope.
     ///
     /// 继续当前作用域中所有已暂停的剧集.
     func resumeAll() {
-        guard let scope = activeScopeKey, preparer != nil else { return }
+        guard let scope = activeScopeKey, engine.preparer != nil else { return }
         for ep in episodes(in: scope) where ep.state == .paused {
             ep.state = .queued
             ep.pauseReason = nil
         }
         saveContext()
         bump()
-        schedulePump()
+        engine.schedulePump()
     }
 
     /// Deletes an episode and, when it was the last one, its show.
     ///
     /// 删除一集; 若是最后一集, 一并删除所属剧集.
     func delete(_ ep: DownloadEpisode) async {
-        guard isLive(ep) else { return }
+        guard DownloadLibrary.isLive(ep) else { return }
         let key = ep.episodeKey
         let scopeKey = ep.scopeKey
         let showKey = ep.showKey
@@ -877,18 +602,17 @@ final class DownloadManager {
         // Drop the cached manifest before any await, so a persist meanwhile cannot queue it again.
         //
         // 在任何 await 之前丢弃缓存的 manifest, 使期间的持久化无法再次排入它.
-        dropCachedManifest(key)
-        inFlight = inFlight.filter { $0.episodeKey != key }
-        await transport.cancel { $0.episodeKey == key }
+        engine.forget(key, cancelWrite: true)
+        await engine.cancelTasks { $0.episodeKey == key }
         // A late manifest write must not recreate the directory after it is removed.
         //
         // 迟到的 manifest 写入不能在目录删除后重新创建它.
-        await manifestWriter.discard { $0 == key }
+        await engine.discardManifests { $0 == key }
         // A concurrent `deleteShow` or `deleteScope` may have deleted the row during the awaits.
         //
         // 等待期间, 并发的 `deleteShow` 或 `deleteScope` 可能已删除该行.
-        guard isLive(ep) else { return }
-        removeEpisodeFiles(ep)
+        guard DownloadLibrary.isLive(ep) else { return }
+        engine.removeEpisodeFiles(ep)
         setBytes(ep, 0)
         context.delete(ep)
         saveContext()
@@ -898,7 +622,7 @@ final class DownloadManager {
             saveContext()
         }
         bump()
-        schedulePump()
+        engine.schedulePump()
     }
 
     /// Deletes every episode of a show.
@@ -919,15 +643,15 @@ final class DownloadManager {
         let hash = DownloadPaths.scopeHash(scopeKey)
         for ep in episodes(in: scopeKey) {
             ep.state = .paused
-            dropCachedManifest(ep.episodeKey)
+            engine.forget(ep.episodeKey, cancelWrite: true)
         }
-        inFlight = inFlight.filter { $0.scopeHash != hash }
-        await transport.cancel { $0.scopeHash == hash }
-        await manifestWriter.discard { $0.hasPrefix(hash + "/") }
+        await engine.cancelTasks { $0.scopeHash == hash }
+        await engine.discardManifests { EpisodeKey.path($0, isInScope: hash) }
         for ep in episodes(in: scopeKey) {
-            manifests[ep.episodeKey] = nil
-            facts[ep.episodeKey] = nil
-            unsaved[ep.episodeKey] = nil
+            // Again after the awaits, without touching the writer, which `discard` just emptied.
+            //
+            // 在等待之后再遗忘一次, 不触及写入器, 因为 `discard` 刚刚清空了它.
+            engine.forget(ep.episodeKey, cancelWrite: false)
             setBytes(ep, 0)
             context.delete(ep)
         }
@@ -938,11 +662,14 @@ final class DownloadManager {
     }
 
     /// Marks a completed episode whose files failed to play as damaged and removes its files, so a
-    /// retry downloads it again.
+    /// retry downloads it again. A row deleted or no longer completed (for example after an async
+    /// file check) is left alone.
     ///
-    /// 将播放失败的已完成剧集标记为已损坏并删除其文件, 重试时会重新下载.
+    /// 将播放失败的已完成剧集标记为已损坏并删除其文件, 重试时会重新下载. 已删除或不再处于已完成状态的
+    /// 数据行 (例如经过异步文件检查之后) 保持不变.
     func markDamaged(_ ep: DownloadEpisode) {
-        removeEpisodeFiles(ep)
+        guard DownloadLibrary.isLive(ep), ep.state == .completed else { return }
+        engine.removeEpisodeFiles(ep)
         ep.state = .failed
         ep.failure = .damaged
         ep.doneEntries = 0
@@ -952,15 +679,24 @@ final class DownloadManager {
     }
 
     /// Whether a completed episode's playlist, manifest, and every entry file are on disk. A
-    /// playback failure with intact files is a server or player problem, never damage.
+    /// playback failure with intact files is a server or player problem, never damage. It reads the
+    /// disk on the main actor; prefer `checkFilesIntact(_:)`.
     ///
     /// 已完成剧集的 playlist, manifest 与所有条目文件是否都在磁盘上. 文件完好时的播放失败属于服务
-    /// 或播放器问题, 不算损坏.
+    /// 或播放器问题, 不算损坏. 它在主 actor 上读取磁盘; 优先使用异步版本 `checkFilesIntact(_:)`.
     func filesIntact(_ ep: DownloadEpisode) -> Bool {
-        let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
-        guard FileManager.default.fileExists(atPath: layout.playlistURL(episodeDir: dir).path),
-              let manifest = DownloadManifest.load(from: layout.manifestURL(episodeDir: dir)) else { return false }
-        return manifest.entries.allSatisfy { FileManager.default.fileExists(atPath: dir.appending(path: $0.fileName).path) }
+        layout.filesIntact(episodeDir: layout.episodeDir(ep.key))
+    }
+
+    /// `filesIntact(_:)` off the main actor: the manifest decode and one existence check per entry
+    /// (thousands for a long episode) run on a detached task.
+    ///
+    /// 在主 actor 之外执行的 `filesIntact(_:)`: manifest 解码与逐条目的存在性检查 (长剧集有数千个)
+    /// 在独立任务中运行.
+    func checkFilesIntact(_ ep: DownloadEpisode) async -> Bool {
+        let layout = layout
+        let dir = layout.episodeDir(ep.key)
+        return await Task.detached(priority: .userInitiated) { layout.filesIntact(episodeDir: dir) }.value
     }
 
     /// Stores the local watch position of an episode.
@@ -983,31 +719,21 @@ final class DownloadManager {
         allowsCellular = value
         defaults.set(value, forKey: Self.cellularKey)
         guard let scope = activeScopeKey else { return }
-        let hash = DownloadPaths.scopeHash(scope)
         // Only tasks created under the old policy; they stay claimed during the cancel, and the
         // pump afterwards re-creates them under the new one.
         //
         // 只取消按旧策略创建的任务; 取消期间它们保持占用, 之后的队列推进会按新策略重建它们.
-        await cancelClaimed(inFlight.filter { $0.scopeHash == hash })
-        schedulePump()
+        await engine.cancelInFlight(scopeHash: DownloadPaths.scopeHash(scope))
+        engine.schedulePump()
     }
 
     // MARK: - Playback
 
-    /// Loopback URL of a completed episode. One server rooted at the downloads directory serves
-    /// every scope, so playing the next episode from another account's download never restarts it
-    /// under the item that is still playing.
+    /// Loopback URL of a completed episode; see `LocalPlaybackHost`.
     ///
-    /// 已完成剧集的 loopback URL. 一个以下载目录为根的服务覆盖所有作用域, 因此播放另一个账号下载的
-    /// 下一集时, 不会在仍在播放的 item 下重启服务.
+    /// 已完成剧集的 loopback URL; 参见 `LocalPlaybackHost`.
     func localPlaybackURL(for ep: DownloadEpisode) async throws -> URL {
-        let server = self.server ?? LocalMediaServer(root: layout.root)
-        self.server = server
-        _ = try await server.start()
-        guard let url = server.url(forRelativePath: "\(ep.scopeHash)/\(ep.showDir)/\(ep.episodeDir)/index.m3u8") else {
-            throw LocalMediaServerError.notReady
-        }
-        return url
+        try await playback.playbackURL(for: ep.key)
     }
 
     // MARK: - Lifecycle
@@ -1020,21 +746,17 @@ final class DownloadManager {
     func handleScenePhase(_ phase: ScenePhase) async {
         switch phase {
         case .active, .inactive:
-            let returning = !isForeground
-            isForeground = true
+            let returning = !engine.isForeground
+            engine.isForeground = true
             if returning {
-                if let server { _ = try? await server.start() }
-                await reconcile()
+                await playback.enterForeground()
+                await engine.reconcile()
             }
-            schedulePump()
+            engine.schedulePump()
         case .background:
-            isForeground = false
-            // The app has no background audio, so playback stops here; release the socket and
-            // rebind the same port on return.
-            //
-            // App 没有后台音频, 播放会在此停止; 释放 socket, 返回前台时重新绑定同一端口.
-            server?.stop()
-            await persistAll()
+            engine.isForeground = false
+            playback.enterBackground()
+            await engine.persistAll()
         @unknown default:
             break
         }
@@ -1049,726 +771,31 @@ final class DownloadManager {
     /// 队列推进不再准备新的剧集, 唤醒流程也不再等待它, 从而在 iOS 挂起 App 之前完成持久化; 仍在队列中的
     /// 剧集由下一次前台或唤醒推进继续处理.
     func handleBackgroundWake() async {
-        let deadline = ContinuousClock.now.advanced(by: wakeBudget)
-        await transport.waitForBackgroundEvents()
-        await transport.drainEvents()
-        await reconcile()
-        backgroundWake = true
-        wakeDeadline = deadline
-        schedulePump()
-        await waitForIdle(until: deadline)
-        backgroundWake = false
-        wakeDeadline = nil
-        await persistAll()
+        await engine.handleBackgroundWake()
     }
 
-    /// Rebuilds the in-flight set from the transport: keeps current-generation tasks for missing
-    /// entries of downloading episodes and cancels the rest.
+    /// Rebuilds the in-flight set from the transport; see `DownloadEngine.reconcile()`.
     ///
-    /// 依据传输层重建进行中的任务集合: 保留下载中剧集缺失条目的当前代任务, 取消其余任务.
+    /// 依据传输层重建进行中的任务集合; 参见 `DownloadEngine.reconcile()`.
     func reconcile() async {
-        // Events of tasks that already finished are no longer in `outstanding()`; apply them first,
-        // or their entries would be enqueued again.
-        //
-        // 已完成任务的事件不再出现在 `outstanding()` 中; 必须先处理这些事件, 否则对应条目会被重复提交.
-        await transport.drainEvents()
-        await preloadManifests(of: downloadingEpisodes())
-        let before = inFlight
-        let watch = UUID()
-        cancelledDuringReconcile[watch] = []
-        let outstanding = await transport.outstanding()
-        let cancelledMeanwhile = cancelledDuringReconcile.removeValue(forKey: watch) ?? []
-        var keep: Set<DownloadTaskID> = []
-        var stale: Set<DownloadTaskID> = []
-        for id in outstanding where !cancelledMeanwhile.contains(id) {
-            if let ep = episode(forKey: id.episodeKey), ep.state == .downloading, let manifest = manifest(for: ep),
-               manifest.generation == id.generation, manifest.entries.indices.contains(id.entryIndex),
-               !manifest.entries[id.entryIndex].done {
-                keep.insert(id)
-            } else {
-                stale.insert(id)
-            }
-        }
-        // Merge rather than overwrite: a pump that ran during the await added tasks the snapshot
-        // may predate. Claims from before the await that the transport no longer has are dropped,
-        // except IDs cancelled meanwhile: a claim on those now belongs to a task re-created since.
-        //
-        // 合并而非覆盖: 等待期间运行的队列推进新增的任务可能晚于快照. 等待之前的占用若已不在传输层中,
-        // 则被丢弃; 但期间被取消的 ID 除外: 对它们的占用此时属于之后重建的任务.
-        inFlight = keep.union(inFlight.subtracting(before.subtracting(cancelledMeanwhile)))
-        await cancelClaimed(stale)
+        await engine.reconcile()
     }
 
     /// Returns when no pump is running.
     ///
     /// 没有正在运行的队列推进时返回.
     func waitForIdle() async {
-        while let task = pumpTask { await task.value }
-    }
-
-    /// Returns when no pump is running or the deadline passes, whichever comes first. A prepare in
-    /// flight at the deadline keeps running; it does not hold up the caller.
-    ///
-    /// 没有正在运行的队列推进或到达截止时间时返回, 以先到者为准. 截止时仍在进行的准备会继续执行, 但不会
-    /// 阻塞调用方.
-    private func waitForIdle(until deadline: ContinuousClock.Instant) async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let resumer = ResumeOnce(continuation)
-            let timer = Task {
-                try? await Task.sleep(until: deadline, clock: .continuous)
-                resumer.resume()
-            }
-            Task {
-                await self.waitForIdle()
-                timer.cancel()
-                resumer.resume()
-            }
-        }
+        await engine.waitForIdle()
     }
 
     /// Writes cached manifests and pending row changes, and returns once the manifests are on disk.
     ///
     /// 写入缓存的 manifest 与待保存的数据行变化, 并在 manifest 落盘后返回.
     func persistAll() async {
-        flushAllProgress()
-        for (key, manifest) in manifests {
-            manifestWriter.submit(manifest, to: layout.manifestURL(episodeDir: layout.root.appending(path: key, directoryHint: .isDirectory)),
-                                  key: key)
-        }
-        unsaved = [:]
-        saveContext()
-        await manifestWriter.flushAll()
+        await engine.persistAll()
     }
 
-    // MARK: - Pump
-
-    private func schedulePump() {
-        pumpRequested = true
-        guard pumpTask == nil else { return }
-        pumpTask = Task { [weak self] in
-            while let self, self.pumpRequested {
-                self.pumpRequested = false
-                await self.pumpOnce()
-            }
-            self?.pumpTask = nil
-        }
-    }
-
-    private func pumpOnce() async {
-        guard isForeground || backgroundWake, let scopeKey = activeScopeKey, let preparer else { return }
-        let candidates = episodes(in: scopeKey)
-            .filter { $0.state == .queued || $0.state == .downloading }
-            .sorted { $0.queueOrder < $1.queueOrder }
-        await preloadManifests(of: candidates)
-        guard self.preparer != nil else { return }
-        for (position, ep) in candidates.enumerated() {
-            guard activeScopeKey == scopeKey else { return }
-            guard inFlight.count < outstandingLimit else {
-                starved = true
-                return
-            }
-            // The app may have gone to the background, or a row may have been deleted, while the
-            // previous episode was preparing.
-            //
-            // 上一集准备期间, App 可能已进入后台, 或某行可能已被删除.
-            guard isForeground || backgroundWake else { return }
-            guard isLive(ep) else { continue }
-            let priority: Float = position < 2 ? URLSessionTask.highPriority : URLSessionTask.defaultPriority
-            if ep.state == .downloading {
-                if let manifest = manifest(for: ep) {
-                    // A complete manifest on a downloading row means the app stopped between writing
-                    // the manifest and saving the row in `complete`; finish it now.
-                    //
-                    // 下载中的行对应一个已完成的 manifest, 说明 App 在 `complete` 写入 manifest 之后,
-                    // 保存数据行之前停止了; 此处补完.
-                    if manifest.isComplete {
-                        await complete(ep, manifest)
-                    } else {
-                        enqueueMissing(ep, manifest, priority: priority)
-                    }
-                    continue
-                }
-                ep.state = .queued
-            }
-            guard ep.state == .queued, mayPrepare else { continue }
-            let key = ep.episodeKey
-            await prepare(ep, with: preparer, priority: priority)
-            if self.preparer == nil || activeScopeKey != scopeKey { return }
-            if let current = episode(forKey: key), current.pauseReason == .signedOut { return }
-        }
-    }
-
-    /// Whether the pump may start preparing an episode: in the foreground, or during a background
-    /// wake before its deadline.
-    ///
-    /// 队列推进是否可以开始准备剧集: 处于前台, 或处于后台唤醒且尚未到达截止时间.
-    private var mayPrepare: Bool {
-        if isForeground { return true }
-        guard backgroundWake, let wakeDeadline else { return false }
-        return ContinuousClock.now < wakeDeadline
-    }
-
-    private func prepare(_ ep: DownloadEpisode, with preparer: any DownloadPreparing, priority: Float) async {
-        let key = ep.episodeKey
-        let generation = (manifest(for: ep)?.generation ?? 0) + 1
-        // No structural bump: rows and the picker observe `preparingKeys` directly.
-        //
-        // 不做结构递增: 数据行与选集面板直接观察 `preparingKeys`.
-        preparingKeys.insert(key)
-        let result: Result<DownloadManifest, Error>
-        do {
-            result = .success(try await preparer.prepare(episodeURL: ep.episodeURL, sourceKey: ep.sourceKey,
-                                                         generation: generation))
-        } catch {
-            result = .failure(error)
-        }
-        preparingKeys.remove(key)
-        guard let current = episode(forKey: key), current.state == .queued else { return }
-        switch result {
-        case .success(let fresh):
-            var next = fresh
-            // Read after the await: a delete and re-queue meanwhile removed the old files.
-            //
-            // 在 await 之后读取: 期间若被删除并重新加入队列, 旧文件已被移除.
-            if let existing = manifest(for: current) {
-                if let remapped = existing.remapping(onto: fresh) {
-                    next = remapped
-                    let layout = remapped.lines == fresh.lines ? "fresh" : "saved"
-                    logger.info("download resume remaps manifest episode=\(key, privacy: .public) done=\(existing.doneCount, privacy: .public)/\(existing.entries.count, privacy: .public) layout=\(layout, privacy: .public)")
-                } else if !(existing.hasUpstreamIdentities && fresh.hasUpstreamIdentities), existing.matches(fresh) {
-                    // Direct URLs can change on every fetch (signed CDNs), so files that line up by
-                    // index and duration are kept. Proxied identities are reliable: when they differ,
-                    // the files differ, even if the durations match.
-                    //
-                    // 直连 URL 每次获取都可能变化 (带签名的 CDN), 因此按序号与时长对得上的文件会被保留.
-                    // 代理身份是可靠的: 身份不同即文件不同, 即使时长一致.
-                    next = existing.adopting(urlsFrom: fresh)
-                    logger.info("download resume adopts manifest episode=\(key, privacy: .public) done=\(existing.doneCount, privacy: .public)/\(existing.entries.count, privacy: .public)")
-                } else {
-                    // The summary holds only counts, kinds, and durations, so it is safe in public.
-                    //
-                    // 摘要只包含数量, 类型与时长, 因此可以公开记录.
-                    logger.notice("download playlist changed, restarting episode=\(key, privacy: .public) done=\(existing.doneCount, privacy: .public) \(existing.mismatchSummary(fresh), privacy: .public)")
-                    dropCachedManifest(key)
-                    await manifestWriter.discard { $0 == key }
-                    guard isLive(current), current.state == .queued else { return }
-                    removeEpisodeFiles(current)
-                }
-            } else if current.doneEntries > 0 {
-                logger.notice("download manifest missing, starting over episode=\(key, privacy: .public) rowDone=\(current.doneEntries, privacy: .public)/\(current.totalEntries, privacy: .public)")
-            }
-            // The writer never creates directories (a late write must not bring a deleted episode
-            // back), so the first save creates it here.
-            //
-            // 写入器从不创建目录 (迟到的写入不能让已删除的剧集重新出现), 因此首次保存时在此创建.
-            try? FileManager.default.createDirectory(
-                at: layout.episodeDir(scopeHash: current.scopeHash, showDir: current.showDir,
-                                      episodeDir: current.episodeDir),
-                withIntermediateDirectories: true)
-            saveManifest(next, for: current)
-            progressPending.remove(key)
-            current.totalEntries = next.entries.count
-            current.doneEntries = next.doneCount
-            setBytes(current, next.totalBytes)
-            current.state = .downloading
-            saveContext()
-            bump()
-            // When the app went to the background during the prepare, tasks created now would be
-            // discretionary; the next foreground pump enqueues them from the saved manifest.
-            //
-            // 若 App 在准备期间已进入后台, 此时创建的任务会被视为 discretionary; 由下一次前台推进依据
-            // 已保存的 manifest 提交.
-            if next.isComplete {
-                await complete(current, next)
-            } else if isForeground || backgroundWake {
-                enqueueMissing(current, next, priority: priority)
-            }
-        case .failure(let error):
-            switch error as? DownloadPrepareError {
-            case .format(let parse):
-                await fail(current, parse == .separateAudio ? .separateAudio : .unsupportedFormat)
-            case .status(let status):
-                await fail(current, .sourceStatus(status))
-            case .signedOut:
-                await pauseScope(current.scopeKey, reason: .signedOut)
-            case .network, nil:
-                break
-            }
-        }
-    }
-
-    private func enqueueMissing(_ ep: DownloadEpisode, _ manifest: DownloadManifest, priority: Float) {
-        guard !preparingKeys.contains(ep.episodeKey) else { return }
-        let room = outstandingLimit - inFlight.count
-        guard room > 0 else {
-            starved = true
-            return
-        }
-        var requests: [DownloadTaskRequest] = []
-        for entry in manifest.entries where !entry.done {
-            let id = taskID(ep, generation: manifest.generation, entry: entry.index)
-            guard !inFlight.contains(id), cancelling[id] == nil else { continue }
-            if requests.count >= room {
-                starved = true
-                break
-            }
-            requests.append(DownloadTaskRequest(id: id, url: entry.remoteURL, earliestBegin: nil, priority: priority,
-                                                allowsCellular: allowsCellular))
-        }
-        guard !requests.isEmpty else { return }
-        transport.enqueue(requests)
-        inFlight.formUnion(requests.map(\.id))
-    }
-
-    /// Free slots that make a starved queue pump again: a tenth of the limit, at least one, so a
-    /// long episode refills in batches instead of once per finished entry.
-    ///
-    /// 让受限队列再次推进所需的空位数: 上限的十分之一, 至少为一, 因此长剧集按批补充, 而不是每完成一个
-    /// 条目就推进一次.
-    private var refillBatch: Int { max(1, outstandingLimit / 10) }
-
-    /// Pumps again when a starved queue has `refillBatch` free slots.
-    ///
-    /// 受限队列有 `refillBatch` 个空位时再次推进.
-    private func pumpIfRoomOpened() {
-        guard starved, inFlight.count <= outstandingLimit - refillBatch else { return }
-        starved = false
-        schedulePump()
-    }
-
-    // MARK: - Events
-
-    /// Handles one transport event; the transport delivers them one at a time.
-    ///
-    /// 处理一个传输事件; 传输层逐个投递事件.
-    func process(_ event: DownloadTransportEvent) async {
-        switch event {
-        case .finished(let id, let info):
-            inFlight.remove(id)
-            await handleFinished(id, info)
-        case .failed(let id, let code):
-            inFlight.remove(id)
-            if let outcome = DownloadEntryValidator.classify(transportError: URLError(code)) {
-                await apply(outcome, to: id)
-            }
-        case .storageFull(let id):
-            inFlight.remove(id)
-            await pauseAll(reason: .noSpace)
-        }
-        pumpIfRoomOpened()
-    }
-
-    /// The row, entry, and ciphertext flag of a finished task, or nil when the task is stale. It
-    /// returns no manifest, so the caller holds no second reference and can mark the cached one
-    /// done in place instead of copying every entry of a long episode.
-    ///
-    /// 已完成任务对应的数据行, 条目与密文标记; 任务已过期时返回 nil. 它不返回 manifest, 因此调用方不持有
-    /// 第二个引用, 可以就地标记缓存中的 manifest, 而不必复制长剧集的每个条目.
-    private func finishedEntry(_ id: DownloadTaskID) -> (DownloadEpisode, DownloadManifest.Entry, Bool)? {
-        guard let ep = episode(forKey: id.episodeKey), ep.state == .downloading,
-              let manifest = manifest(for: ep), manifest.generation == id.generation,
-              manifest.entries.indices.contains(id.entryIndex), !manifest.entries[id.entryIndex].done else {
-            return nil
-        }
-        let encrypted = facts(for: ep.episodeKey, manifest).encrypted.contains(id.entryIndex)
-        return (ep, manifest.entries[id.entryIndex], encrypted)
-    }
-
-    private func handleFinished(_ id: DownloadTaskID, _ info: DownloadResponseInfo) async {
-        guard let (ep, entry, encrypted) = finishedEntry(id) else {
-            try? FileManager.default.removeItem(at: info.file)
-            return
-        }
-        let key = ep.episodeKey
-        let outcome = DownloadEntryValidator.classify(url: info.url, status: info.status, contentType: info.contentType,
-                                                      head: info.head, size: info.size, kind: entry.kind,
-                                                      encrypted: encrypted)
-        guard outcome == .accept else {
-            try? FileManager.default.removeItem(at: info.file)
-            await apply(outcome, to: id)
-            return
-        }
-        let destination = layout.episodeDir(id).appending(path: entry.fileName)
-        do {
-            try? FileManager.default.removeItem(at: destination)
-            try FileManager.default.moveItem(at: info.file, to: destination)
-        } catch {
-            if DownloadSessionDelegate.isOutOfSpace(error) {
-                await pauseAll(reason: .noSpace)
-            } else {
-                await apply(.retry(.invalidContent), to: id)
-            }
-            return
-        }
-        manifests[key]?.entries[id.entryIndex].done = true
-        manifests[key]?.entries[id.entryIndex].bytes = info.size
-        guard let manifest = manifests[key] else { return }
-        // The row catches up on the progress tick (or the next state transition), not per entry.
-        //
-        // 数据行在进度通知 (或下一次状态切换) 时同步, 而不是每个条目同步一次.
-        progressPending.insert(key)
-        if ep.refreshCount != 0 { ep.refreshCount = 0 }
-        scheduleProgress()
-        facts[key]?.remaining -= 1
-        if (facts[key]?.remaining ?? 0) <= 0 {
-            // Recheck the count against the manifest; a mismatch resets it.
-            //
-            // 对照 manifest 重新核实计数; 不一致时重置计数.
-            let missing = manifest.missingCount
-            facts[key]?.remaining = missing
-            if missing == 0 {
-                await complete(ep, manifest)
-                schedulePump()
-                return
-            }
-        }
-        let pending = (unsaved[key] ?? 0) + 1
-        // Long episodes save less often: every save encodes the whole manifest.
-        //
-        // 长剧集降低保存频率: 每次保存都要编码整个 manifest.
-        if pending >= max(Self.saveEvery, manifest.entries.count / 50) {
-            saveManifest(manifest, for: ep)
-            flushProgress(of: ep)
-            // Keep the episode pending, so the tick still records its show for badge readers.
-            //
-            // 让该集保持待同步, 进度通知因此仍会为选集角标记录其所属剧集.
-            progressPending.insert(key)
-            saveContext()
-        } else {
-            unsaved[key] = pending
-        }
-    }
-
-    private func apply(_ outcome: EntryOutcome, to id: DownloadTaskID) async {
-        guard let ep = episode(forKey: id.episodeKey), ep.state == .downloading,
-              var manifest = manifest(for: ep), manifest.generation == id.generation,
-              manifest.entries.indices.contains(id.entryIndex), !manifest.entries[id.entryIndex].done else { return }
-        switch outcome {
-        case .accept:
-            return
-        case .tokenExpired:
-            await refresh(ep, generation: manifest.generation)
-        case .reject(let failure):
-            await fail(ep, failure)
-        case .retry(let failure):
-            manifest.entries[id.entryIndex].attempts += 1
-            let attempts = manifest.entries[id.entryIndex].attempts
-            // In memory only; the next coalesced save (or a pause, fail, or persist) writes it.
-            //
-            // 只保存在内存中; 下一次合并保存 (或暂停, 失败, 持久化) 时写入.
-            manifests[ep.episodeKey] = manifest
-            guard attempts <= Self.retryDelays.count else {
-                await fail(ep, failure)
-                return
-            }
-            // A cancel of this ID is in flight; the pump after it re-creates the task.
-            //
-            // 该 ID 的取消正在进行; 取消之后的队列推进会重建该任务.
-            guard cancelling[id] == nil else { return }
-            let request = DownloadTaskRequest(id: id, url: manifest.entries[id.entryIndex].remoteURL,
-                                              earliestBegin: now().addingTimeInterval(Self.retryDelays[attempts - 1]),
-                                              priority: URLSessionTask.defaultPriority, allowsCellular: allowsCellular)
-            transport.enqueue([request])
-            inFlight.insert(id)
-        }
-    }
-
-    private func refresh(_ ep: DownloadEpisode, generation: Int) async {
-        guard ep.state == .downloading else { return }
-        if ep.refreshCount >= Self.refreshLimit {
-            await fail(ep, .sourceRejects)
-            return
-        }
-        ep.refreshCount += 1
-        ep.state = .queued
-        flushProgress(of: ep)
-        if let manifest = manifests[ep.episodeKey] { saveManifest(manifest, for: ep) }
-        saveContext()
-        bump()
-        let key = ep.episodeKey
-        inFlight = inFlight.filter { !($0.episodeKey == key && $0.generation <= generation) }
-        await transport.cancel { $0.episodeKey == key && $0.generation <= generation }
-        schedulePump()
-    }
-
-    private func fail(_ ep: DownloadEpisode, _ failure: DownloadFailure) async {
-        ep.state = .failed
-        ep.failure = failure
-        flushProgress(of: ep)
-        let generation = currentGeneration(of: ep)
-        if let manifest = manifests[ep.episodeKey] { saveManifest(manifest, for: ep) }
-        saveContext()
-        bump()
-        await manifestWriter.flush(ep.episodeKey)
-        await cancelTasks(of: ep, upTo: generation)
-        schedulePump()
-    }
-
-    private func complete(_ ep: DownloadEpisode, _ manifest: DownloadManifest) async {
-        let key = ep.episodeKey
-        guard !completing.contains(key) else { return }
-        completing.insert(key)
-        defer { completing.remove(key) }
-        let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
-        do {
-            try LocalPlaylistWriter.write(manifest).write(to: layout.playlistURL(episodeDir: dir), atomically: true,
-                                                          encoding: .utf8)
-        } catch {
-            logger.error("download playlist write failed: \(error.localizedDescription, privacy: .public)")
-            if DownloadSessionDelegate.isOutOfSpace(error) {
-                await pauseAll(reason: .noSpace)
-            } else {
-                await fail(ep, .invalidContent)
-            }
-            return
-        }
-        try? FileManager.default.removeItem(at: dir.appending(path: "incoming", directoryHint: .isDirectory))
-        // The playlist is written first; the complete manifest follows, and the row turns completed
-        // only once both are on disk. A pause or sign-out during the await still completes it,
-        // since every file is present; only a failure or a delete stops it.
-        //
-        // 先写 playlist; 完整的 manifest 随后写入, 两者都落盘后数据行才变为已完成. 等待期间的暂停或登出
-        // 仍会让它完成, 因为所有文件都在; 只有失败或删除才会中止.
-        manifestWriter.submit(manifest, to: layout.manifestURL(episodeDir: dir), key: key)
-        await manifestWriter.flush(key)
-        guard isLive(ep), ep.state != .failed else { return }
-        ep.pauseReason = nil
-        manifests[ep.episodeKey] = nil
-        facts[ep.episodeKey] = nil
-        unsaved[ep.episodeKey] = nil
-        progressPending.remove(ep.episodeKey)
-        ep.state = .completed
-        ep.completedAt = now()
-        ep.totalEntries = manifest.entries.count
-        ep.doneEntries = manifest.doneCount
-        setBytes(ep, manifest.totalBytes)
-        ep.durationSec = manifest.totalDuration
-        saveContext()
-        bump()
-    }
-
-    // MARK: - Helpers
-
-    /// Whether a row is still in the store; rows deleted across an `await` must not be read.
-    ///
-    /// 数据行是否仍在存储中; 跨越 `await` 期间被删除的行不能再读取.
-    private func isLive(_ ep: DownloadEpisode) -> Bool {
-        !ep.isDeleted && ep.modelContext != nil
-    }
-
-    private func taskID(_ ep: DownloadEpisode, generation: Int, entry: Int) -> DownloadTaskID {
-        DownloadTaskID(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir, generation: generation,
-                       entryIndex: entry)
-    }
-
-    /// The generation of an episode's cached manifest, or `.max` (every generation) without one.
-    ///
-    /// 某集缓存 manifest 的 generation; 没有缓存时为 `.max` (即所有 generation).
-    private func currentGeneration(of ep: DownloadEpisode) -> Int {
-        manifests[ep.episodeKey]?.generation ?? .max
-    }
-
-    /// Cancels an episode's tasks up to `generation`, captured before the caller's first await; a
-    /// newer generation comes from a prepare that ran during the awaits and must survive.
-    ///
-    /// 取消某集截至 `generation` 的任务 (由调用方在第一次 await 之前取得); 更新一代的任务来自等待期间
-    /// 完成的准备, 必须保留.
-    private func cancelTasks(of ep: DownloadEpisode, upTo generation: Int) async {
-        let key = ep.episodeKey
-        inFlight = inFlight.filter { !($0.episodeKey == key && $0.generation <= generation) }
-        await transport.cancel { $0.episodeKey == key && $0.generation <= generation }
-    }
-
-    /// Cancels tasks by ID while keeping the IDs claimed (see `cancelling`), then releases them for
-    /// the next pump.
-    ///
-    /// 按 ID 取消任务, 期间保持这些 ID 被占用 (见 `cancelling`), 之后释放给下一次队列推进.
-    private func cancelClaimed(_ ids: Set<DownloadTaskID>) async {
-        guard !ids.isEmpty else { return }
-        for id in ids { cancelling[id, default: 0] += 1 }
-        for watch in cancelledDuringReconcile.keys { cancelledDuringReconcile[watch]?.formUnion(ids) }
-        await transport.cancel { ids.contains($0) }
-        for id in ids {
-            let count = (cancelling[id] ?? 1) - 1
-            cancelling[id] = count > 0 ? count : nil
-        }
-        inFlight.subtract(ids)
-    }
-
-    /// Copies an episode's cached manifest progress to its row, writing only changed values.
-    ///
-    /// 将某集缓存的 manifest 进度写入其数据行, 只写入发生变化的值.
-    private func flushProgress(of ep: DownloadEpisode) {
-        progressPending.remove(ep.episodeKey)
-        guard let manifest = manifests[ep.episodeKey] else { return }
-        let done = manifest.doneCount
-        let bytes = manifest.totalBytes
-        if ep.doneEntries != done { ep.doneEntries = done }
-        setBytes(ep, bytes)
-    }
-
-    /// Flushes every episode with pending progress.
-    ///
-    /// 写入所有有待同步进度的剧集.
-    @discardableResult
-    private func flushAllProgress() -> Set<String> {
-        let keys = progressPending
-        progressPending = []
-        var shows: Set<String> = []
-        for key in keys {
-            guard let ep = episode(forKey: key), isLive(ep) else { continue }
-            flushProgress(of: ep)
-            shows.insert(ep.showDir)
-        }
-        return shows
-    }
-
-    /// Downloading rows of every scope.
-    ///
-    /// 所有作用域中下载中的数据行.
-    private func downloadingEpisodes() -> [DownloadEpisode] {
-        let downloading = DownloadState.downloading.rawValue
-        let descriptor = FetchDescriptor<DownloadEpisode>(predicate: #Predicate { $0.stateRaw == downloading })
-        return (try? context.fetch(descriptor)) ?? []
-    }
-
-    /// Decodes the saved manifests of downloading rows that are not cached yet off the main actor
-    /// (a long episode's manifest is megabytes of JSON), so the reconcile or pump that follows reads
-    /// them from the cache. Returns at once when nothing needs decoding. A manifest is cached only
-    /// when its row is still live, still downloading, and still the row of its key, and nothing
-    /// cached one meanwhile; otherwise `manifest(for:)` reads the disk later as before.
-    ///
-    /// 在主 actor 之外解码尚未缓存的下载中数据行的已保存 manifest (长剧集的 manifest 是数 MB 的 JSON),
-    /// 之后的对账或队列推进因此直接读取缓存. 没有需要解码的内容时立即返回. 只有当数据行仍然存在, 仍在
-    /// 下载, 仍是该键对应的数据行, 且期间没有其他操作缓存过 manifest 时才会缓存; 否则仍由
-    /// `manifest(for:)` 像以前一样稍后读取磁盘.
-    private func preloadManifests(of rows: [DownloadEpisode]) async {
-        var wanted: [String: DownloadEpisode] = [:]
-        var files: [(key: String, url: URL)] = []
-        for ep in rows where ep.state == .downloading && manifests[ep.episodeKey] == nil && wanted[ep.episodeKey] == nil {
-            wanted[ep.episodeKey] = ep
-            let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
-            files.append((ep.episodeKey, layout.manifestURL(episodeDir: dir)))
-        }
-        guard !files.isEmpty else { return }
-        let loaded = await Task.detached(priority: .userInitiated) {
-            files.compactMap { file in DownloadManifest.load(from: file.url).map { (file.key, $0) } }
-        }.value
-        for (key, manifest) in loaded {
-            guard manifests[key] == nil, let row = wanted[key], isLive(row), row.state == .downloading,
-                  episode(forKey: key) === row else { continue }
-            manifests[key] = manifest
-            facts[key] = nil
-        }
-    }
-
-    private func manifest(for ep: DownloadEpisode) -> DownloadManifest? {
-        if let cached = manifests[ep.episodeKey] { return cached }
-        let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
-        guard let loaded = DownloadManifest.load(from: layout.manifestURL(episodeDir: dir)) else { return nil }
-        manifests[ep.episodeKey] = loaded
-        facts[ep.episodeKey] = nil
-        return loaded
-    }
-
-    /// Caches a manifest and queues it for the background writer; callers that need it on disk
-    /// before continuing await `manifestWriter.flush`.
-    ///
-    /// 缓存 manifest 并交给后台写入器; 需要在继续之前落盘的调用方会等待 `manifestWriter.flush`.
-    private func saveManifest(_ manifest: DownloadManifest, for ep: DownloadEpisode) {
-        manifests[ep.episodeKey] = manifest
-        unsaved[ep.episodeKey] = 0
-        let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
-        manifestWriter.submit(manifest, to: layout.manifestURL(episodeDir: dir), key: ep.episodeKey)
-    }
-
-    /// Forgets an episode's cached manifest and pending writes, so nothing submits it again.
-    ///
-    /// 丢弃某集缓存的 manifest 与待写入快照, 之后不会再提交它.
-    private func dropCachedManifest(_ key: String) {
-        manifests[key] = nil
-        facts[key] = nil
-        unsaved[key] = nil
-        progressPending.remove(key)
-        manifestWriter.cancel(key)
-    }
-
-    /// Removes an episode's files (moved to the trash at once, deleted off the main actor) and
-    /// cached manifest. Callers with a manifest write possibly in
-    /// progress await `manifestWriter.discard` first; `markDamaged` only sees completed episodes,
-    /// whose last write `complete` already flushed, so dropping a pending one is enough there.
-    /// The writer never creates directories either, so a late write cannot bring the files back.
-    ///
-    /// 删除某集的文件 (立即移入回收站, 在主 actor 之外删除) 与缓存的 manifest. 可能有 manifest 写入正在进行的调用方会先等待
-    /// 对 `manifestWriter.discard` 的调用; 而 `markDamaged` 只处理已完成的剧集, 其最后一次写入已由
-    /// 对 `complete` 的调用落盘, 因此丢弃待写入快照即可. 写入器也从不创建目录, 迟到的写入无法让文件
-    /// 重新出现.
-    private func removeEpisodeFiles(_ ep: DownloadEpisode) {
-        manifestWriter.cancel(ep.episodeKey)
-        manifests[ep.episodeKey] = nil
-        facts[ep.episodeKey] = nil
-        unsaved[ep.episodeKey] = nil
-        progressPending.remove(ep.episodeKey)
-        trash.discard(layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir))
-    }
-
-    private func fetchCover(scopeKey: String, showKey: String, from url: URL) async {
-        guard let data = await coverFetcher(url),
-              let show = show(scopeKey: scopeKey, showKey: showKey) else { return }
-        let dir = layout.showDir(scopeHash: show.scopeHash, showDir: show.showDir)
-        do {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            try data.write(to: dir.appending(path: "cover.jpg"), options: .atomic)
-        } catch {
-            return
-        }
-        show.coverFile = "cover.jpg"
-        saveContext()
-        bump()
-    }
-
-    private func saveContext() {
-        do {
-            try context.save()
-        } catch {
-            logger.error("download rows save failed: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
-    /// Marks a structural change and recounts the active episodes.
-    ///
-    /// 标记一次结构变化, 并重新统计进行中的集数.
-    private func bump() {
-        changeCount &+= 1
-        recountActive()
-    }
-
-    /// Schedules one progress notification at the end of the current interval; entries finishing
-    /// before it fires share it.
-    ///
-    /// 在当前间隔结束时安排一次进度通知; 在它发出之前完成的条目共用这一次通知.
-    private func scheduleProgress() {
-        guard progressTask == nil else { return }
-        let interval = progressInterval
-        let wait = progressWait
-        progressTask = Task { [weak self] in
-            await wait(interval)
-            guard let self else { return }
-            self.progressTask = nil
-            // Rows get the cached manifest's progress, which can run ahead of the manifest on disk
-            // (saved every `saveEvery` entries or on a state change); after a crash the row may
-            // show less on relaunch. That rewind is display only: the files and the saved manifest
-            // stay consistent.
-            //
-            // 数据行写入缓存 manifest 的进度, 它可能领先于磁盘上的 manifest (每 `saveEvery` 个条目或
-            // 状态切换时才保存); 崩溃后重启时数据行显示的进度可能回退. 这种回退只影响展示: 文件与已保存
-            // 的 manifest 保持一致.
-            let shows = self.flushAllProgress()
-            let tick = self.progressTick &+ 1
-            for show in shows { self.showProgressTicks[show] = tick }
-            self.progressTick = tick
-        }
-    }
+    // MARK: - Storage
 
     /// Recomputes storage use from the rows and refreshes free space off the main actor, for
     /// example when a screen showing them appears.
@@ -1788,23 +815,18 @@ final class DownloadManager {
         if freeBytes != free { freeBytes = free }
     }
 
-    /// Writes an episode's bytes and moves the cached total by the difference.
-    ///
-    /// 写入某集的字节数, 并按差值调整缓存的总量.
-    private func setBytes(_ ep: DownloadEpisode, _ value: Int64) {
-        guard ep.bytes != value else { return }
-        let delta = value - ep.bytes
-        ep.bytes = value
-        usedBytes += delta
-    }
-
     /// Recomputes the cached total from every row; only at launch and on demand.
     ///
     /// 依据所有数据行重新计算缓存的总量; 只在启动与按需时执行.
     private func recomputeBytes() {
-        let all = (try? context.fetch(FetchDescriptor<DownloadEpisode>())) ?? []
-        let total = all.reduce(Int64(0)) { $0 + $1.bytes }
+        let total = library.totalBytes()
         if usedBytes != total { usedBytes = total }
+    }
+
+    // MARK: - Observed state
+
+    private func saveContext() {
+        engine.saveContext()
     }
 
     /// Recounts queued and downloading episodes of the active scope with a count query; assigns only
@@ -1812,16 +834,52 @@ final class DownloadManager {
     ///
     /// 用计数查询重新统计当前作用域中排队与下载中的集数; 只在数值变化时赋值, 因此 tab 角标只随状态变化.
     private func recountActive() {
-        var count = 0
-        if let scope = activeScopeKey {
-            let queued = DownloadState.queued.rawValue
-            let downloading = DownloadState.downloading.rawValue
-            let descriptor = FetchDescriptor<DownloadEpisode>(predicate: #Predicate {
-                $0.scopeKey == scope && ($0.stateRaw == queued || $0.stateRaw == downloading)
-            })
-            count = (try? context.fetchCount(descriptor)) ?? 0
-        }
+        let count = library.activeEpisodeCount(in: activeScopeKey)
         if count != activeEpisodeCount { activeEpisodeCount = count }
+    }
+
+    /// The progress counter of one show, created on first use.
+    ///
+    /// 某部剧的进度计数, 首次使用时创建.
+    private func showTick(_ showKey: String) -> DownloadShowTick {
+        if let tick = showTicks[showKey] { return tick }
+        let tick = DownloadShowTick()
+        showTicks[showKey] = tick
+        return tick
+    }
+}
+
+extension DownloadManager: DownloadEngineHost {
+    /// Marks a structural change: recounts the active episodes; the snapshot rebuilds on its next read.
+    ///
+    /// 标记一次结构变化: 重新统计进行中的集数; 快照在下次读取时重建.
+    func bump() {
+        changeCount &+= 1
+        recountActive()
+    }
+
+    /// Writes an episode's bytes and moves the cached total by the difference.
+    ///
+    /// 写入某集的字节数, 并按差值调整缓存的总量.
+    func setBytes(_ ep: DownloadEpisode, _ value: Int64) {
+        guard ep.bytes != value else { return }
+        let delta = value - ep.bytes
+        ep.bytes = value
+        usedBytes += delta
+    }
+
+    func setPreparing(_ key: String, _ preparing: Bool) {
+        if preparing {
+            preparingKeys.insert(key)
+        } else {
+            preparingKeys.remove(key)
+        }
+    }
+
+    func progressTicked(showKeys: Set<String>) {
+        let tick = progressTick &+ 1
+        for showKey in showKeys { showTick(showKey).advance(to: tick) }
+        progressTick = tick
     }
 }
 
@@ -1836,47 +894,14 @@ extension DownloadManager: LocalEpisodeProviding {
 
     func reportPlaybackFailure(showKey: String, sourceKey: String, videoId: String, episodeIndex: Int) {
         guard let ep = completedCopy(showKey: showKey, sourceKey: sourceKey, videoId: videoId,
-                                     episodeIndex: episodeIndex),
-              !filesIntact(ep) else { return }
-        markDamaged(ep)
-    }
-}
-
-extension DownloadManager {
-    /// A completed copy of the episode in any scope, the active scope's first. The show key is part
-    /// of the match, since source keys are names each server's admin picks and two servers can
-    /// reuse one for different upstreams.
-    ///
-    /// 任一作用域中该集的已完成副本, 优先当前作用域. 剧集键也参与匹配, 因为来源键是各服务端管理员自定义
-    /// 的名称, 两个服务端可能把同一个名称用于不同的上游.
-    func completedCopy(showKey: String, sourceKey: String, videoId: String, episodeIndex: Int) -> DownloadEpisode? {
-        let completed = DownloadState.completed.rawValue
-        let descriptor = FetchDescriptor<DownloadEpisode>(predicate: #Predicate {
-            $0.showKey == showKey && $0.sourceKey == sourceKey && $0.videoId == videoId
-                && $0.episodeIndex == episodeIndex && $0.stateRaw == completed
-        })
-        let copies = (try? context.fetch(descriptor)) ?? []
-        return copies.first { $0.scopeKey == activeScopeKey } ?? copies.max { $0.createdAt < $1.createdAt }
-    }
-}
-
-/// Resumes a continuation once, however many callers race to resume it.
-///
-/// 只恢复一次 continuation, 无论有多少调用方竞相恢复它.
-@MainActor
-private final class ResumeOnce {
-    private var continuation: CheckedContinuation<Void, Never>?
-
-    init(_ continuation: CheckedContinuation<Void, Never>) {
-        self.continuation = continuation
-    }
-
-    /// Resumes the continuation on the first call; later calls do nothing.
-    ///
-    /// 首次调用时恢复 continuation; 之后的调用不做任何事.
-    func resume() {
-        continuation?.resume()
-        continuation = nil
+                                     episodeIndex: episodeIndex) else { return }
+        // The file check runs off the main actor; the row may be deleted or re-downloaded meanwhile.
+        //
+        // 文件检查在主 actor 之外运行; 期间该行可能被删除或重新下载.
+        Task {
+            guard !(await checkFilesIntact(ep)) else { return }
+            markDamaged(ep)
+        }
     }
 }
 #endif

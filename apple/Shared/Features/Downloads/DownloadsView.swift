@@ -18,13 +18,14 @@ struct DownloadShowRoute: Hashable {
 
 /// The Downloads tab, and the only screen in offline mode: active summary, one row per show of the
 /// device's library (every server and account, signed in, anonymous, or offline), and storage use.
-/// The body depends only on structural changes and fetches the library's episodes once;
-/// the summary, each show row, and the footer are their own views, so a finished entry re-renders
-/// only the views that show its progress.
+/// The body reads only the manager's `librarySnapshot` and active scope, which change with
+/// structure, and fetches nothing; the summary, each show row, and the footer are their own
+/// views, so a finished entry re-renders only the views that show its progress.
 ///
 /// 下载 tab, 也是离线模式下唯一的页面: 进行中汇总, 本机下载库中每部剧一行 (涵盖所有服务器与账号, 无论
-/// 已登录, 匿名还是离线), 以及存储占用. 页面主体只依赖结构变化, 并且只读取一次下载库中的剧集; 汇总, 每部剧的行与底部各自是独立视图, 因此完成一个条目只会重新渲染
-/// 展示其进度的视图.
+/// 已登录, 匿名还是离线), 以及存储占用. 页面主体只读取管理器的 `librarySnapshot` 与当前作用域,
+/// 二者只随结构变化, 且不做任何查询; 汇总, 每部剧的行与底部各自是独立视图, 因此完成一个条目只会重新
+/// 渲染展示其进度的视图.
 struct DownloadsView: View {
     let mode: DownloadsMode
     @Environment(DownloadManager.self) private var downloads
@@ -33,28 +34,26 @@ struct DownloadsView: View {
     @State private var selection = Set<String>()
 
     var body: some View {
-        let _ = downloads.changeCount
+        let library = downloads.librarySnapshot
         let scope = downloads.activeScopeKey
-        let shows = downloads.libraryShows()
-        let episodes = downloads.libraryEpisodes()
-        let byShow = Dictionary(grouping: episodes, by: \.showKey)
+        let shows = library.shows
         List(selection: $selection.onlyWhileEditing(editMode.isEditing)) {
             if mode == .offline {
                 Section { offlineBanner }
             }
-            if mode == .online, let scope {
+            if mode == .online, scope != nil {
                 // The scope's own rows, not the merged library: these are what the pump downloads
                 // and what Pause All and Resume All act on.
                 //
                 // 使用作用域自身的数据行而非合并后的下载库: 下载队列处理的以及全部暂停与全部继续作用的
                 // 正是这些行.
-                DownloadsActiveSummary(episodes: downloads.episodes(in: scope))
+                DownloadsActiveSummary(episodes: library.scopeEpisodes)
             }
             if !shows.isEmpty {
                 Section {
                     ForEach(shows, id: \.showKey) { show in
                         NavigationLink(value: DownloadShowRoute(showKey: show.showKey)) {
-                            DownloadShowRow(show: show, episodes: byShow[show.showKey] ?? [], mode: mode)
+                            DownloadShowRow(show: show, episodes: library.episodes(showKey: show.showKey), mode: mode)
                         }
                         .tag(show.showKey)
                         .swipeActions { DownloadDeleteSwipe { await downloads.deleteShowFromLibrary(showKey: show.showKey) } }
@@ -92,7 +91,7 @@ struct DownloadsView: View {
 
     private var offlineBanner: some View {
         HStack(spacing: Spacing.md) {
-            Image(systemName: "wifi.slash").font(.title3).foregroundStyle(.orange)
+            Image(systemName: "wifi.slash").font(.title3).foregroundStyle(StatusColor.warning)
             VStack(alignment: .leading, spacing: Spacing.xxs) {
                 Text("Offline mode").font(AppFont.bodyEmphasis)
                 Group {
@@ -140,7 +139,7 @@ struct DownloadDeleteSwipe: View {
             Label("Delete", systemImage: "trash")
                 .labelStyle(.iconOnly)
         }
-        .tint(.red)
+        .tint(StatusColor.danger)
     }
 }
 
@@ -220,7 +219,7 @@ private struct DownloadShowRow: View {
                         ProgressView(value: progress)
                     }
                 } else if failed > 0 {
-                    Text("\(failed) failed").font(AppFont.footnote).foregroundStyle(.red)
+                    Text("\(failed) failed").font(AppFont.footnote).foregroundStyle(StatusColor.danger)
                 } else if let waiting = unfinished.first(where: { !downloads.canManage($0) }) {
                     Text(DownloadFormatting.waitingText(for: waiting, state: downloads.displayState(of: waiting),
                                                         activeScopeKey: downloads.activeScopeKey))
@@ -265,42 +264,6 @@ private struct DownloadsStorageFooter: View {
                 guard !Task.isCancelled else { return }
                 await downloads.refreshFreeSpace()
             }
-        }
-    }
-}
-
-/// Root of offline mode: the downloads list in its own stack. A network that comes back (an
-/// unsatisfied path turning satisfied) reconnects once; while an offline player is open the
-/// reconnect waits until it closes. Closing a player without such a change does nothing, so a
-/// server that is down but reachable by path does not cause a reconnect loop.
-///
-/// 离线模式的根视图: 独立导航栈中的下载列表. 网络恢复 (路径由不可用变为可用) 时自动重连一次; 若离线
-/// 播放器正在播放, 则等它关闭后再重连. 没有发生这种变化时关闭播放器不会触发任何操作, 因此服务端宕机但
-/// 网络可达时不会反复重连.
-struct OfflineRootView: View {
-    @Environment(AppViewModel.self) private var appVM
-    @Environment(DownloadManager.self) private var downloads
-    @State private var pendingReconnect = false
-
-    var body: some View {
-        NavigationStack {
-            DownloadsView(mode: .offline)
-        }
-        .onChange(of: downloads.network?.isSatisfied ?? false) { wasSatisfied, satisfied in
-            // Opened from server setup there is no server to reconnect to.
-            //
-            // 从服务器设置页打开时没有可重连的服务器.
-            guard !wasSatisfied, satisfied, !appVM.serverURL.isEmpty else { return }
-            if downloads.offlinePlaybackActive {
-                pendingReconnect = true
-            } else {
-                Task { await appVM.reconnect() }
-            }
-        }
-        .onChange(of: downloads.offlinePlaybackActive) { _, active in
-            guard !active, pendingReconnect else { return }
-            pendingReconnect = false
-            if downloads.network?.isSatisfied == true { Task { await appVM.reconnect() } }
         }
     }
 }

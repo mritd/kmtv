@@ -1017,7 +1017,7 @@ final class PlayerViewModelTests: XCTestCase {
 
     @MainActor
     func testBufferBadgeBandChangesOnlyAcrossThirtySecondSteps() {
-        let band = PlayerViewModel.bufferBadgeBand
+        let band = BufferBadge.band
 
         XCTAssertEqual(band(0), band(29), "inside one band the readout stays put")
         XCTAssertNotEqual(band(29), band(30), "crossing 30s is worth a glance")

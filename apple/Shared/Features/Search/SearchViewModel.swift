@@ -27,6 +27,7 @@ final class SearchViewModel {
     private let apiClient: any SearchAPIProtocol
     private let syncStore: SyncStore?
     private let syncEngine: SyncEngine?
+    private let toasts: any ToastPresenting
     private let logger = Logger(subsystem: "com.mritd.kmtv", category: "api")
     private var searchTask: Task<Void, Never>?
     /// Monotonic search generation; results of older generations are dropped.
@@ -41,10 +42,15 @@ final class SearchViewModel {
         Array((syncStore?.searchItems ?? []).prefix(20))
     }
 
-    init(apiClient: any SearchAPIProtocol, syncStore: SyncStore?, syncEngine: SyncEngine?) {
+    /// `toasts` shows search failures.
+    ///
+    /// `toasts` 显示搜索失败提示.
+    init(apiClient: any SearchAPIProtocol, syncStore: SyncStore?, syncEngine: SyncEngine?,
+         toasts: any ToastPresenting = ToastManager.shared) {
         self.apiClient = apiClient
         self.syncStore = syncStore
         self.syncEngine = syncEngine
+        self.toasts = toasts
     }
 
     /// Runs a search the user submitted from the search field or a history chip, and records it.
@@ -187,13 +193,7 @@ final class SearchViewModel {
                 if Task.isCancelled || error is CancellationError { return abandon(generation) }
                 guard generation == searchGeneration else { return }
                 logger.error("Search failed: \(error.localizedDescription)")
-                let message: String
-                if let apiError = error as? APIError {
-                    message = apiError.localizedMessage
-                } else {
-                    message = error.localizedDescription
-                }
-                ToastManager.shared.show(message)
+                toasts.show(error: error)
             }
         }
         guard generation == searchGeneration else { return }

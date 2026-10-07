@@ -91,3 +91,28 @@ struct ServerErrorResponse: Decodable {
     let error: String
     let code: Int?
 }
+
+extension Error {
+    /// Whether this error only reports a cancelled task or request: `CancellationError`,
+    /// `URLError(.cancelled)`, or an `APIError.networkError` wrapping either.
+    ///
+    /// 该错误是否只表示任务或请求被取消: `CancellationError`, `URLError(.cancelled)`,
+    /// 或包装了二者之一的 `APIError.networkError`.
+    var isCancellation: Bool {
+        if self is CancellationError { return true }
+        if let urlError = self as? URLError { return urlError.code == .cancelled }
+        if case .networkError(let inner) = self as? APIError { return inner.isCancellation }
+        return false
+    }
+
+    /// The message to show the user, or nil for a cancellation, which is never reported. An
+    /// `APIError` gives its `localizedMessage`; any other error its `localizedDescription`.
+    ///
+    /// 展示给用户的提示; 取消从不提示, 返回 nil. `APIError` 返回其 `localizedMessage`,
+    /// 其他错误返回 `localizedDescription`.
+    var userMessage: String? {
+        guard !isCancellation else { return nil }
+        if let apiError = self as? APIError { return apiError.localizedMessage }
+        return localizedDescription
+    }
+}

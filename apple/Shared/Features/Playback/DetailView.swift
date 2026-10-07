@@ -90,7 +90,7 @@ struct DetailView: View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.largeTitle)
-                .foregroundStyle(.red)
+                .foregroundStyle(StatusColor.danger)
             Text(title).font(.title2.bold()).foregroundStyle(.primary)
             Text(message).foregroundStyle(.secondary)
         }
@@ -105,7 +105,7 @@ struct DetailView: View {
                 sourcesSection(vm)
                 episodesSection(vm)
                 if let error = vm.error {
-                    Text(error).foregroundStyle(.red).padding()
+                    Text(error).foregroundStyle(StatusColor.danger).padding()
                 }
             }
             .padding(.top, 80)
@@ -135,26 +135,26 @@ struct DetailView: View {
             posterImage(vm)
             infoColumn(vm)
         }
-        .padding(.horizontal, 48)
+        .padding(.horizontal, TVSpacing.page)
     }
 
     @ViewBuilder
     private func posterImage(_ vm: PlayerViewModel) -> some View {
         KFImage(coverURL(vm.detail?.cover))
             .placeholder {
-                RoundedRectangle(cornerRadius: 12).fill(Color(white: 0.2)).aspectRatio(2/3, contentMode: .fit)
+                RoundedRectangle(cornerRadius: TVRadius.card).fill(TVSurface.posterPlaceholder).aspectRatio(2/3, contentMode: .fit)
             }
             .fade(duration: 0.25)
             .resizable()
             .aspectRatio(2/3, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .clipShape(RoundedRectangle(cornerRadius: TVRadius.card))
             .frame(width: 350)
     }
 
     @ViewBuilder
     private func infoColumn(_ vm: PlayerViewModel) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(vm.detail?.title ?? title).font(.title.bold()).foregroundStyle(.primary)
+            Text(verbatim: vm.detail?.title ?? title).font(.title.bold()).foregroundStyle(.primary)
             Text(DisplayFormatters.metaLine([vm.detail?.type, vm.detail?.year, vm.detail?.area]))
                 .foregroundStyle(.secondary)
             if let director = vm.detail?.director, !director.isEmpty {
@@ -166,7 +166,7 @@ struct DetailView: View {
                     .font(.callout).foregroundStyle(.secondary).lineLimit(2)
             }
             if let desc = vm.detail?.desc, !desc.isEmpty {
-                let cleaned = Self.cleanDescription(desc)
+                let cleaned = DisplayFormatters.cleanDescription(desc)
                 Text(cleaned).font(.callout).foregroundStyle(.secondary.opacity(0.7)).lineLimit(4)
             }
             actionButtons(vm)
@@ -204,7 +204,7 @@ struct DetailView: View {
     private func sourcesSection(_ vm: PlayerViewModel) -> some View {
         if vm.sources.count > 1 {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Sources").font(.headline).padding(.horizontal, 48)
+                Text("Sources").font(.headline).padding(.horizontal, TVSpacing.page)
                     .foregroundStyle(.primary)
                 sourceButtons(vm)
             }
@@ -221,14 +221,14 @@ struct DetailView: View {
                 }
             }
         }
-        .padding(.horizontal, 48)
+        .padding(.horizontal, TVSpacing.page)
     }
 
     @ViewBuilder
     private func episodesSection(_ vm: PlayerViewModel) -> some View {
         if vm.episodes.count > 1 {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Episodes").font(.headline).padding(.horizontal, 48)
+                Text("Episodes").font(.headline).padding(.horizontal, TVSpacing.page)
                     .foregroundStyle(.primary)
                 episodeButtons(vm)
             }
@@ -245,36 +245,11 @@ struct DetailView: View {
                 }
             }
         }
-        .padding(.horizontal, 48)
-    }
-
-    /// Clean description: collapse whitespace and remove repeated content.
-    /// Many sources return the same paragraph duplicated (e.g. "ABCABC").
-    ///
-    /// 清洗简介: 合并空白并移除重复内容, 兼容部分源返回整段重复文本的情况.
-    private static func cleanDescription(_ desc: String) -> String {
-        let trimmed = desc.components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }.joined(separator: " ")
-        guard !trimmed.isEmpty else { return trimmed }
-        // Check if the string is a repeated substring.
-        //
-        // 检查文本是否由同一段子串重复拼接而成.
-        let len = trimmed.count
-        for half in [len / 2, len / 2 + 1, len / 2 - 1] where half > 0 && half < len {
-            let prefix = String(trimmed.prefix(half))
-            if trimmed.hasPrefix(prefix) && trimmed.dropFirst(half).hasPrefix(prefix) {
-                return prefix.trimmingCharacters(in: .whitespaces)
-            }
-        }
-        return trimmed
+        .padding(.horizontal, TVSpacing.page)
     }
 
     private func coverURL(_ cover: String?) -> URL? {
-        guard let cover, !cover.isEmpty else { return nil }
-        if cover.hasPrefix("/"), let client = appVM.apiClient {
-            return URL(string: client.baseURL + cover)
-        }
-        return URL(string: cover)
+        resolveAssetURL(cover, baseURL: appVM.apiClient?.baseURL)
     }
 }
 
@@ -296,82 +271,26 @@ private struct DetailActionButtonLabel: View {
     let systemImage: String
     var isPrimary: Bool = false
     var isActive: Bool = false
-    @Environment(\.isFocused) private var isFocused
 
     var body: some View {
         Label(text, systemImage: systemImage)
             .font(.callout.weight(.semibold))
-            .foregroundStyle(foregroundColor)
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
-            .background(backgroundColor)
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(borderColor, lineWidth: isFocused ? 2 : 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .scaleEffect(isFocused ? 1.05 : 1.0)
-            .animation(.easeInOut(duration: 0.15), value: isFocused)
-    }
-
-    private var foregroundColor: Color {
-        if isFocused { return .white }
-        if isPrimary || isActive { return Theme.accent }
-        return Color(white: 0.8)
-    }
-
-    private var backgroundColor: Color {
-        if isPrimary && isFocused { return Theme.accent.opacity(0.4) }
-        if isFocused { return Color.white.opacity(0.15) }
-        if isPrimary { return Theme.accent.opacity(0.2) }
-        if isActive { return Theme.accent.opacity(0.1) }
-        return Color(white: 0.15)
-    }
-
-    private var borderColor: Color {
-        if isPrimary || isActive { return Theme.accent.opacity(isFocused ? 0.8 : 0.5) }
-        if isFocused { return Color.white.opacity(0.4) }
-        return Color(white: 0.25)
+            .tvFocusableLabel(primary: isPrimary, active: isActive)
     }
 }
 
 private struct DetailEpisodeButtonLabel: View {
     let name: String
     let isSelected: Bool
-    @Environment(\.isFocused) private var isFocused
 
     var body: some View {
         Text(name)
             .font(.caption)
-            .foregroundStyle(foregroundColor)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
-            .background(backgroundColor)
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(borderColor, lineWidth: isFocused ? 2 : 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .scaleEffect(isFocused ? 1.05 : 1.0)
-            .animation(.easeInOut(duration: 0.15), value: isFocused)
-    }
-
-    private var foregroundColor: Color {
-        if isSelected { return .white }
-        if isFocused { return .white }
-        return Color(white: 0.7)
-    }
-
-    private var backgroundColor: Color {
-        if isSelected { return Theme.accent.opacity(0.3) }
-        if isFocused { return Color.white.opacity(0.15) }
-        return Color(white: 0.15)
-    }
-
-    private var borderColor: Color {
-        if isSelected { return Theme.accent }
-        if isFocused { return Color.white.opacity(0.4) }
-        return Color(white: 0.25)
+            .tvFocusableLabel(selected: isSelected)
     }
 }
 #endif

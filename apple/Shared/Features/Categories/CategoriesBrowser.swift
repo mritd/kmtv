@@ -1,6 +1,5 @@
 #if os(iOS)
 import SwiftUI
-import SkeletonUI
 
 /// The iOS categories screen: category tiles, a filter bar, and a poster grid, all scrolling as one
 /// page, with a back-to-top button once the page has scrolled down. On iPad the tiles are compact
@@ -10,7 +9,10 @@ import SkeletonUI
 /// 分类卡片为紧凑胶囊.
 struct CategoriesBrowser: View {
     let vm: CategoriesViewModel
-    let apiClient: APIClient?
+    /// The server base URL that server-relative covers resolve against.
+    ///
+    /// 服务端相对封面路径所基于的服务器地址.
+    let baseURL: String?
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var position = ScrollPosition(edge: .top)
     @State private var scrolled = false
@@ -22,10 +24,6 @@ struct CategoriesBrowser: View {
     private static let backToTopDistance: CGFloat = 1200
 
     private var metrics: MediaMetrics { MediaMetrics(sizeClass) }
-
-    private var columns: [GridItem] {
-        [GridItem(.adaptive(minimum: metrics.gridMinimum, maximum: metrics.gridMaximum), spacing: metrics.posterSpacing)]
-    }
 
     var body: some View {
         ScrollView {
@@ -220,11 +218,11 @@ struct CategoriesBrowser: View {
             .padding(.top, Spacing.xxl)
         } else {
             VStack(alignment: .leading, spacing: Spacing.xl) {
-                LazyVGrid(columns: columns, spacing: metrics.posterSpacing) {
+                PosterGrid {
                     ForEach(vm.items) { item in
                         NavigationLink(value: SearchQuery(query: item.title, coverHint: item.cover)) {
                             VideoCard(title: item.title, cover: item.cover, subtitle: item.year,
-                                      rating: item.rate, apiClient: apiClient)
+                                      rating: item.rate, baseURL: baseURL)
                         }
                         .buttonStyle(.pressable)
                         .accessibilityIdentifier("categoryItem_\(item.id)")
@@ -243,22 +241,11 @@ struct CategoriesBrowser: View {
         }
     }
 
+    /// Enough cells to fill the first screen, so landscape is not left half empty.
+    ///
+    /// 足以填满第一屏, 横屏时不会空出半屏.
     private var skeleton: some View {
-        LazyVGrid(columns: columns, spacing: metrics.posterSpacing) {
-            // Enough cells to fill the first screen, so landscape is not left half empty.
-            //
-            // 足以填满第一屏, 横屏时不会空出半屏.
-            ForEach(0..<(metrics.regular ? 16 : 9), id: \.self) { _ in
-                VStack(alignment: .leading, spacing: 6) {
-                    RoundedRectangle(cornerRadius: Radius.md)
-                        .skeleton(with: true, shape: .rounded(.radius(Radius.md, style: .continuous)))
-                        .aspectRatio(2/3, contentMode: .fit)
-                    RoundedRectangle(cornerRadius: 3)
-                        .skeleton(with: true, shape: .rounded(.radius(3, style: .continuous)))
-                        .frame(height: 12)
-                }
-            }
-        }
+        PosterSkeletonGrid(count: metrics.regular ? 16 : 9)
     }
 }
 

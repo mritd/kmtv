@@ -110,7 +110,7 @@ struct EpisodePickerSheet: View {
                     .minimumScaleFactor(0.8)
                 Group {
                     switch badge {
-                    case .downloaded: Text("Downloaded").foregroundStyle(.green)
+                    case .downloaded: Text("Downloaded").foregroundStyle(StatusColor.success)
                     case .downloading: Text("Downloading").foregroundStyle(theme.accent)
                     case .queued: Text("Waiting").foregroundStyle(.secondary)
                     case nil:

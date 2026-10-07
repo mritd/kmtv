@@ -1,8 +1,11 @@
 import SwiftUI
-import SkeletonUI
 
 struct CategoriesView: View {
     @Environment(AppViewModel.self) private var appVM
+    /// Learns the category cards' covers; absent on tvOS.
+    ///
+    /// 登记分类卡片的封面; tvOS 上不存在.
+    @Environment(CoverRegistry.self) private var covers: CoverRegistry?
     #if os(tvOS)
     var onSearch: ((SearchQuery) -> Void)?
     #else
@@ -31,7 +34,7 @@ struct CategoriesView: View {
         #endif
         .task {
             if viewModel == nil, let client = appVM.apiClient {
-                let vm = CategoriesViewModel(apiClient: client, baseURL: client.baseURL)
+                let vm = CategoriesViewModel(apiClient: client, baseURL: client.baseURL, covers: covers)
                 viewModel = vm
                 // The first load runs in its own task: leaving the tab cancels this view task, and a
                 // cancelled first load would leave the page empty, with no refresh on tvOS.
@@ -53,7 +56,7 @@ struct CategoriesView: View {
         #if os(tvOS)
         tvContent(vm)
         #else
-        CategoriesBrowser(vm: vm, apiClient: appVM.apiClient)
+        CategoriesBrowser(vm: vm, baseURL: appVM.apiClient?.baseURL)
         #endif
     }
 
@@ -87,7 +90,7 @@ struct CategoriesView: View {
 
     @ViewBuilder
     private func tvItemGrid(_ vm: CategoriesViewModel) -> some View {
-        LazyVGrid(columns: gridLayout, spacing: gridSpacing) {
+        PosterGrid {
             ForEach(vm.items) { item in
                 Button {
                     onSearch?(SearchQuery(query: item.title, coverHint: item.cover))
@@ -97,7 +100,7 @@ struct CategoriesView: View {
                         cover: item.cover,
                         subtitle: item.year,
                         rating: item.rate,
-                        apiClient: appVM.apiClient
+                        baseURL: appVM.apiClient?.baseURL
                     )
                 }
                 .buttonStyle(.tvScale)
@@ -109,7 +112,7 @@ struct CategoriesView: View {
                 }
             }
         }
-        .padding(48)
+        .padding(TVSpacing.page)
         .focusSection()
     }
     #endif
@@ -131,7 +134,7 @@ struct CategoriesView: View {
                     .accessibilityIdentifier("mainCategory_\(group.key)")
                 }
             }
-            .padding(.horizontal, 48)
+            .padding(.horizontal, TVSpacing.page)
         }
         .padding(.top, 4)
     }
@@ -153,7 +156,7 @@ struct CategoriesView: View {
                     .accessibilityIdentifier("subCategory_\(sub.name)")
                 }
             }
-            .padding(.horizontal, 48)
+            .padding(.horizontal, TVSpacing.page)
         }
         .padding(.top, 12)
         .padding(.bottom, 6)
@@ -177,17 +180,9 @@ struct CategoriesView: View {
                     .accessibilityIdentifier("region_\(region.name)")
                 }
             }
-            .padding(.horizontal, 48)
+            .padding(.horizontal, TVSpacing.page)
         }
         .padding(.bottom, 12)
-    }
-
-    private var gridSpacing: CGFloat {
-        32
-    }
-
-    private var gridLayout: [GridItem] {
-        Array(repeating: GridItem(.flexible(), spacing: 32), count: 5)
     }
 
     private var emptyState: some View {
@@ -202,22 +197,8 @@ struct CategoriesView: View {
 
     private var skeletonGrid: some View {
         ScrollView {
-            LazyVGrid(columns: gridLayout, spacing: gridSpacing) {
-                ForEach(0..<9, id: \.self) { _ in
-                    VStack(alignment: .leading, spacing: 4) {
-                        RoundedRectangle(cornerRadius: 8)
-                            .skeleton(with: true, shape: .rounded(.radius(8, style: .continuous)))
-                            .aspectRatio(2/3, contentMode: .fit)
-                        RoundedRectangle(cornerRadius: 3)
-                            .skeleton(with: true, shape: .rounded(.radius(3, style: .continuous)))
-                            .frame(height: 12)
-                        RoundedRectangle(cornerRadius: 3)
-                            .skeleton(with: true, shape: .rounded(.radius(3, style: .continuous)))
-                            .frame(width: 40, height: 10)
-                    }
-                }
-            }
-            .padding(48)
+            PosterSkeletonGrid(count: 9, showsMeta: true)
+                .padding(TVSpacing.page)
         }
     }
 

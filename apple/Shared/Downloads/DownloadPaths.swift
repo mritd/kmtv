@@ -62,10 +62,15 @@ struct DownloadTaskID: Hashable, Sendable, CustomStringConvertible {
                   entryIndex: entryIndex)
     }
 
+    /// Typed identity of the episode this task belongs to.
+    ///
+    /// 该任务所属剧集的类型化身份.
+    var episode: EpisodeKey { EpisodeKey(scopeHash: scopeHash, showDir: showDir, episodeDir: episodeDir) }
+
     /// Key of the episode this task belongs to.
     ///
     /// 该任务所属剧集的键.
-    var episodeKey: String { "\(scopeHash)/\(showDir)/\(episodeDir)" }
+    var episodeKey: String { episode.relativePath }
 
     var description: String { "\(episodeKey)/\(generation)/\(entryIndex)" }
 }
@@ -117,11 +122,18 @@ struct DownloadLayout: Sendable {
         self.showDir(scopeHash: scopeHash, showDir: showDir).appending(path: episodeDir, directoryHint: .isDirectory)
     }
 
+    /// Directory of an episode by its typed key.
+    ///
+    /// 按类型化键得到的单集目录.
+    func episodeDir(_ key: EpisodeKey) -> URL {
+        episodeDir(scopeHash: key.scopeHash, showDir: key.showDir, episodeDir: key.episodeDir)
+    }
+
     /// Directory of the episode a task belongs to.
     ///
     /// 任务所属单集的目录.
     func episodeDir(_ id: DownloadTaskID) -> URL {
-        episodeDir(scopeHash: id.scopeHash, showDir: id.showDir, episodeDir: id.episodeDir)
+        episodeDir(id.episode)
     }
 
     /// Where the delegate drops a finished file before the manager checks its generation.
@@ -141,4 +153,16 @@ struct DownloadLayout: Sendable {
     ///
     /// 单集目录中的 `index.m3u8`.
     func playlistURL(episodeDir: URL) -> URL { episodeDir.appending(path: "index.m3u8") }
+
+    /// Whether an episode directory holds its playlist, its manifest, and every entry file the
+    /// manifest names. It decodes the manifest and checks each file, so callers on the main actor
+    /// run it on a detached task.
+    ///
+    /// 单集目录中是否有其 playlist, manifest 以及 manifest 列出的每个条目文件. 它会解码 manifest 并逐个
+    /// 检查文件, 因此主 actor 上的调用方应在独立任务中运行它.
+    func filesIntact(episodeDir dir: URL) -> Bool {
+        guard FileManager.default.fileExists(atPath: playlistURL(episodeDir: dir).path),
+              let manifest = DownloadManifest.load(from: manifestURL(episodeDir: dir)) else { return false }
+        return manifest.entries.allSatisfy { FileManager.default.fileExists(atPath: dir.appending(path: $0.fileName).path) }
+    }
 }

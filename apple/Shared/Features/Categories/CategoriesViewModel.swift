@@ -21,6 +21,8 @@ final class CategoriesViewModel {
     private var currentStart = 0
     private let pageSize = 20
     private let baseURL: String
+    private let covers: CoverRegistry?
+    private let toasts: any ToastPresenting
     private var fetchTask: Task<Void, Never>?
     /// Monotonic request generation used to ignore stale category responses.
     ///
@@ -32,9 +34,16 @@ final class CategoriesViewModel {
         return categoryGroups[selectedGroupIndex]
     }
 
-    init(apiClient: any DoubanAPIProtocol, baseURL: String = "") {
+    /// `covers` learns the cards' covers (nil on tvOS and in tests that do not cover it); `toasts`
+    /// shows load failures.
+    ///
+    /// `covers` 登记卡片封面 (tvOS 与不涉及它的测试中为 nil); `toasts` 显示加载失败提示.
+    init(apiClient: any DoubanAPIProtocol, baseURL: String = "", covers: CoverRegistry?,
+         toasts: any ToastPresenting = ToastManager.shared) {
         self.apiClient = apiClient
         self.baseURL = baseURL
+        self.covers = covers
+        self.toasts = toasts
     }
 
     /// The single refresh entry point for pull-to-refresh and the empty-state Retry button: loads
@@ -123,9 +132,7 @@ final class CategoriesViewModel {
             // 用户切换分类筛选后, 忽略过期的响应.
             guard gen == fetchGeneration else { return }
             items = response.items
-            #if os(iOS)
-            CoverRegistry.remember(response.items, baseURL: baseURL)
-            #endif
+            covers?.remember(response.items, baseURL: baseURL)
             currentStart = response.items.count
             hasMore = response.items.count >= pageSize
         } catch {
@@ -156,9 +163,7 @@ final class CategoriesViewModel {
             let existingIds = Set(items.map(\.id))
             let newItems = response.items.filter { !existingIds.contains($0.id) }
             items.append(contentsOf: newItems)
-            #if os(iOS)
-            CoverRegistry.remember(newItems, baseURL: baseURL)
-            #endif
+            covers?.remember(newItems, baseURL: baseURL)
             currentStart += response.items.count
             hasMore = response.items.count >= pageSize
         } catch {
@@ -182,16 +187,10 @@ final class CategoriesViewModel {
     }
 
     private func isCancellation(_ error: Error) -> Bool {
-        Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled
+        Task.isCancelled || error.isCancellation
     }
 
     private func handleError(_ error: Error) {
-        let message: String
-        if let apiError = error as? APIError {
-            message = apiError.localizedMessage
-        } else {
-            message = error.localizedDescription
-        }
-        ToastManager.shared.show(message)
+        toasts.show(error: error)
     }
 }

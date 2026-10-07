@@ -22,21 +22,16 @@ struct KMTVApp: App {
         downloads = DownloadManager(context: container.mainContext, layout: layout,
                                     transport: BackgroundDownloadTransport(layout: layout),
                                     network: DownloadNetworkMonitor())
-        // View model tests record covers; keep them out of the real registry.
-        //
-        // 视图模型测试会登记封面; 让它们不进入真实的登记表.
-        if Self.hostsUnitTests, let store = UserDefaults(suiteName: "KMTVTests.covers") {
-            store.removePersistentDomain(forName: "KMTVTests.covers")
-            CoverRegistry.use(store)
-        }
     }
 
     /// Whether the process hosts unit tests. The app then shows nothing and never bootstraps, so
     /// a test that posts `.authExpired` or saves an identity cannot sign out or overwrite the real
-    /// session stored on the simulator.
+    /// session stored on the simulator. `RootView` is never built either, so the cover registry over
+    /// `UserDefaults.standard` is never created; tests build their own.
     ///
     /// 进程是否作为单元测试宿主运行. 此时 App 不显示任何内容, 也不执行启动流程, 因此发送
-    /// `.authExpired` 或保存身份的测试不会登出或覆盖模拟器上保存的真实会话.
+    /// `.authExpired` 或保存身份的测试不会登出或覆盖模拟器上保存的真实会话. `RootView` 也不会被创建,
+    /// 因此基于 `UserDefaults.standard` 的封面登记表从不创建; 测试会创建自己的登记表.
     static let hostsUnitTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 
     var body: some Scene {
@@ -64,6 +59,14 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var appVM: AppViewModel?
+    /// The app's cover registry. A lazy static, so it is created once, on the first body of this view
+    /// (a `@State` default would build and discard one each time the app body re-creates this view),
+    /// and the unit test host, which never builds this view, never opens it.
+    ///
+    /// App 的封面登记表. 使用惰性静态属性, 因此只会在本视图首次求值时创建一次 (`@State` 默认值会在 App
+    /// 主体每次重建本视图时创建并丢弃一个实例), 且从不创建本视图的单元测试宿主也不会打开它.
+    private static let appCovers = CoverRegistry(defaults: .standard)
+    private var covers: CoverRegistry { Self.appCovers }
     @AppStorage(AppearanceKeys.theme) private var storedTheme = AppTheme.fallback.rawValue
     @AppStorage(AppearanceKeys.mode) private var storedMode = AppearanceMode.system.rawValue
 
@@ -79,6 +82,7 @@ struct RootView: View {
         }
         .tint(theme.accent)
         .environment(\.appTheme, theme)
+        .environment(covers)
         .preferredColorScheme(AppearanceMode(stored: storedMode).colorScheme)
         .onChange(of: storedTheme, initial: true) { _, stored in
             Self.applyWindowTint(AppTheme(stored: stored))
@@ -102,34 +106,10 @@ struct RootView: View {
     @ViewBuilder
     private var contentView: some View {
         if let appVM {
-            switch appVM.state {
-            case .loading:
-                ConnectingView(serverAddress: appVM.serverURL)
-                    .environment(appVM)
-            case .serverSetup:
-                ServerSetupView()
-                    .environment(appVM)
-            case .authenticated:
+            AppRootSwitch(appVM: appVM) {
                 ContentView()
-                    .environment(appVM)
-            case .offline:
+            } offline: {
                 OfflineRootView()
-                    .environment(appVM)
-            case .incompatibleServer(let serverVersion, let requiredVersion):
-                VStack(spacing: 16) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 48))
-                        .foregroundStyle(.orange)
-                    Text(String(localized: "Server Incompatible"))
-                        .font(.title2.bold())
-                    Text("Server version \(serverVersion) is too old. This app requires \(requiredVersion) or later.")
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
-                    Button(String(localized: "Change Server")) {
-                        appVM.disconnectServer()
-                    }
-                }
-                .padding()
             }
         } else {
             ProgressView()

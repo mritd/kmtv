@@ -81,23 +81,6 @@ struct Source: Codable, Sendable, Identifiable {
     }
 }
 
-/// Request payload for creating a video source.
-///
-/// 创建视频源的请求载荷.
-struct CreateSourceRequest: Codable, Sendable {
-    let key: String
-    let name: String
-    let api: String
-    var detail: String = ""
-    var comment: String = ""
-    var isAdult: Bool = false
-
-    enum CodingKeys: String, CodingKey {
-        case key, name, api, detail, comment
-        case isAdult = "is_adult"
-    }
-}
-
 /// Request payload for partially updating a video source.
 ///
 /// 部分更新视频源的请求载荷.
@@ -113,20 +96,6 @@ struct UpdateSourceRequest: Codable, Sendable {
         case name, api, detail, comment, enabled
         case isAdult = "is_adult"
     }
-}
-
-/// Source health-check response.
-///
-/// 视频源健康检查响应.
-struct HealthCheckResponse: Codable, Sendable {
-    let health: String
-}
-
-/// Source import response.
-///
-/// 视频源导入响应.
-struct ImportResponse: Codable, Sendable {
-    let imported: Int
 }
 
 /// Admin subscription list response.
@@ -184,21 +153,6 @@ struct CreateUserRequest: Codable, Sendable {
     let password: String
     var role: String = "user"
     var allowAdultContent: Bool = false
-
-    enum CodingKeys: String, CodingKey {
-        case username, password, role
-        case allowAdultContent = "allow_adult_content"
-    }
-}
-
-/// Request payload for partially updating a user.
-///
-/// 部分更新用户的请求载荷.
-struct UpdateUserRequest: Codable, Sendable {
-    var username: String?
-    var password: String?
-    var role: String?
-    var allowAdultContent: Bool?
 
     enum CodingKeys: String, CodingKey {
         case username, password, role

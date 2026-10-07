@@ -86,8 +86,8 @@ struct TVCategoryTabLabel: View {
                 .fill(isSelected ? Theme.accent : .clear)
                 .frame(height: 2)
         }
-        .scaleEffect(isFocused ? 1.05 : 1.0)
-        .animation(.easeInOut(duration: 0.15), value: isFocused)
+        .scaleEffect(isFocused ? TVFocus.scale : 1.0)
+        .animation(TVFocus.animation, value: isFocused)
     }
 
     private var foregroundColor: Color {
@@ -117,7 +117,7 @@ struct TVChipLabel: View {
                     .strokeBorder(borderColor, lineWidth: isFocused ? 2 : 1)
             )
             .clipShape(Capsule())
-            .animation(.easeInOut(duration: 0.15), value: isFocused)
+            .animation(TVFocus.animation, value: isFocused)
     }
 
     private var foregroundColor: Color {
@@ -128,14 +128,14 @@ struct TVChipLabel: View {
 
     private var backgroundColor: Color {
         if isSelected { return Theme.accent.opacity(0.4) }
-        if isFocused { return Color.white.opacity(0.15) }
+        if isFocused { return TVFocus.focusedFill }
         return .clear
     }
 
     private var borderColor: Color {
         if isSelected { return Theme.accent }
-        if isFocused { return Color.white.opacity(0.4) }
-        return Color(white: 0.25)
+        if isFocused { return TVFocus.focusedBorder }
+        return TVFocus.idleBorder
     }
 }
 #endif

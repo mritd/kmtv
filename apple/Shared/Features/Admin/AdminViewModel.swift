@@ -64,8 +64,8 @@ final class AdminViewModel {
     ///
     /// 展示失败信息; 请求被取消 (例如切换标签页会取消加载) 时不展示.
     private func report(_ error: Error) {
-        guard !Task.isCancelled else { return }
-        self.error = error.localizedDescription
+        guard !Task.isCancelled, let message = error.userMessage else { return }
+        self.error = message
     }
 
     // MARK: - Sources
@@ -130,7 +130,7 @@ final class AdminViewModel {
         do {
             _ = try await apiClient.createSubscription(CreateSubscriptionRequest(url: url, autoUpdate: autoUpdate, interval: interval))
         } catch {
-            createError = error.localizedDescription
+            createError = error.userMessage
             return false
         }
         await loadSubscriptions()
@@ -184,7 +184,7 @@ final class AdminViewModel {
                 allowAdultContent: allowAdultContent
             ))
         } catch {
-            createError = error.localizedDescription
+            createError = error.userMessage
             return false
         }
         await loadUsers()

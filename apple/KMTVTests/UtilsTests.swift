@@ -24,6 +24,41 @@ final class UtilsTests: XCTestCase {
         XCTAssertEqual(DisplayFormatters.bestDescription(title: "Movie", desc: "Movie"), nil)
     }
 
+    func testCleanDescriptionCollapsesWhitespaceAndKeepsOneCopyOfARepeat() {
+        XCTAssertEqual(DisplayFormatters.cleanDescription("  A  story\n\nabout   things "), "A story\nabout things")
+        XCTAssertEqual(DisplayFormatters.cleanDescription("Part one.\nPart two.\nPart one.\nPart two."),
+                       "Part one.\nPart two.")
+        XCTAssertEqual(DisplayFormatters.cleanDescription("ABCABC"), "ABC")
+        XCTAssertEqual(DisplayFormatters.cleanDescription("一个故事。\n一个故事。"), "一个故事。")
+        XCTAssertEqual(DisplayFormatters.cleanDescription("ABCABCX"), "ABCABCX")
+        XCTAssertEqual(DisplayFormatters.cleanDescription("好好学习"), "好好学习")
+        XCTAssertEqual(DisplayFormatters.cleanDescription(" \n "), "")
+    }
+
+    func testBestDescriptionCleansAndSkipsTitleOnlyText() {
+        XCTAssertEqual(DisplayFormatters.bestDescription(title: "Movie", desc: " Movie\n"), nil)
+        XCTAssertEqual(DisplayFormatters.bestDescription(title: "Movie", desc: "Plot  line\nPlot  line"), "Plot line")
+        XCTAssertEqual(DisplayFormatters.bestDescription(title: "Movie", desc: ""), nil)
+    }
+
+    func testRatingBadgeTextHidesMissingRatings() {
+        XCTAssertNil(RatingBadge.text(for: nil))
+        XCTAssertNil(RatingBadge.text(for: ""))
+        XCTAssertNil(RatingBadge.text(for: "0"))
+        XCTAssertNil(RatingBadge.text(for: "0.0"))
+        XCTAssertEqual(RatingBadge.text(for: "7.9"), "7.9")
+    }
+
+    func testResolveAssetURLPrefixesServerRelativePaths() {
+        XCTAssertEqual(resolveAssetURL("/api/v1/image?u=a", baseURL: "http://localhost:8081"),
+                       URL(string: "http://localhost:8081/api/v1/image?u=a"))
+        XCTAssertEqual(resolveAssetURL("https://img.example.com/a.jpg", baseURL: "http://localhost:8081"),
+                       URL(string: "https://img.example.com/a.jpg"))
+        XCTAssertEqual(resolveAssetURL("/cover.jpg", baseURL: nil), URL(string: "/cover.jpg"))
+        XCTAssertNil(resolveAssetURL("", baseURL: "http://localhost:8081"))
+        XCTAssertNil(resolveAssetURL(nil, baseURL: "http://localhost:8081"))
+    }
+
     func testMetaLineSkipsEmptyParts() {
         XCTAssertEqual(DisplayFormatters.metaLine(["TV", "2025"]), "TV | 2025")
         XCTAssertEqual(DisplayFormatters.metaLine(["", "2025"]), "2025")

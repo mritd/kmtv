@@ -224,7 +224,7 @@ extension View {
             .background(Surface.raised, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                    .strokeBorder(invalid ? Color.red : Surface.separator.opacity(0.6), lineWidth: invalid ? 1.5 : 0.5)
+                    .strokeBorder(invalid ? StatusColor.danger : Surface.separator.opacity(0.6), lineWidth: invalid ? 1.5 : 0.5)
             }
     }
 
@@ -240,3 +240,27 @@ extension View {
     }
 }
 #endif
+
+/// Semantic status colors, shared by iOS and tvOS, so success, caution, warning, and failure read
+/// the same on every screen. They are the system colors the screens used before.
+///
+/// 语义状态色, iOS 与 tvOS 共用, 使成功, 提醒, 警告与失败在各页面中含义一致. 取值即各页面此前使用的
+/// 系统颜色.
+enum StatusColor {
+    /// Done, healthy, or fast.
+    ///
+    /// 已完成, 健康或速度快.
+    static let success = Color.green
+    /// Slower than expected, but working.
+    ///
+    /// 比预期慢, 但仍可用.
+    static let caution = Color.yellow
+    /// Needs attention: offline, incompatible, or slow.
+    ///
+    /// 需要注意: 离线, 不兼容或速度慢.
+    static let warning = Color.orange
+    /// Failed, invalid, destructive, or restricted content.
+    ///
+    /// 失败, 无效, 破坏性操作或受限内容.
+    static let danger = Color.red
+}

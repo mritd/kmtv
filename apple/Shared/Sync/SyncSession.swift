@@ -47,9 +47,14 @@ final class SyncSession {
     /// `onScopeDropped` runs when a sync reset drops the scope's data because its user ID was reused.
     ///
     /// `onScopeDropped` 在同步重置因用户 ID 被复用而丢弃作用域数据时调用.
+    ///
+    /// `toasts` tells the user when the server refused favorites over its limit.
+    ///
+    /// `toasts` 在服务端因超出上限拒绝收藏时提示用户.
     init(context: ModelContext, serverURL: String, user: User, api: (any SyncAPIProtocol)?,
          activeUserID: (@MainActor @Sendable () -> Int64?)? = nil,
          onScopeDropped: (() -> Void)? = nil,
+         toasts: any ToastPresenting = ToastManager.shared,
          reachability: @escaping SyncReachability = SyncSession.systemReachability,
          beginBackgroundTask: @escaping SyncBackgroundTaskStarter = SyncSession.systemBackgroundTask) {
         self.reachability = reachability
@@ -61,7 +66,7 @@ final class SyncSession {
             let bound = UserBoundSyncAPI(base: api, userID: userID, activeUserID: activeUserID)
             let engine = SyncEngine(api: bound, store: store)
             engine.onScopeDropped = onScopeDropped
-            engine.onLimit = { _ in ToastManager.shared.show(String(localized: "Favorites are full")) }
+            engine.onLimit = { _ in toasts.show(String(localized: "Favorites are full")) }
             self.engine = engine
         } else {
             engine = nil

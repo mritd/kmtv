@@ -18,7 +18,7 @@ final class CategoriesViewModelTests: XCTestCase {
         api.recommend = DoubanListResponse(items: [
             DoubanItem(id: "1", title: "Movie", cover: "", rate: "8.0", year: "2026")
         ])
-        let vm = CategoriesViewModel(apiClient: api)
+        let vm = CategoriesViewModel(apiClient: api, covers: nil)
 
         await vm.loadCategories()
 
@@ -41,7 +41,7 @@ final class CategoriesViewModelTests: XCTestCase {
         ])
         let page = (0..<20).map { DoubanItem(id: "\($0)", title: "M\($0)", cover: "", rate: "", year: "") }
         api.recommend = DoubanListResponse(items: page)
-        let vm = CategoriesViewModel(apiClient: api)
+        let vm = CategoriesViewModel(apiClient: api, covers: nil)
         await vm.loadCategories()
         XCTAssertTrue(vm.hasMore)
 
@@ -81,7 +81,7 @@ final class CategoriesViewModelTests: XCTestCase {
             DoubanListResponse(items: [DoubanItem(id: "1", title: "Movie", cover: "", rate: "8.0", year: "2026")]),
             DoubanListResponse(items: [DoubanItem(id: "2", title: "TV", cover: "", rate: "8.5", year: "2026")])
         ]
-        let vm = CategoriesViewModel(apiClient: api)
+        let vm = CategoriesViewModel(apiClient: api, covers: nil)
 
         await vm.loadCategories()
         vm.selectGroup(at: 1)
@@ -117,7 +117,7 @@ final class CategoriesViewModelTests: XCTestCase {
                 DoubanItem(id: "20", title: "Movie 20", cover: "", rate: "8.0", year: "2026")
             ])
         ]
-        let vm = CategoriesViewModel(apiClient: api)
+        let vm = CategoriesViewModel(apiClient: api, covers: nil)
 
         await vm.loadCategories()
         await vm.loadMore()

@@ -114,7 +114,7 @@ struct TVSearchContentView: View {
                     ContentUnavailableView("No results found", systemImage: "magnifyingglass")
                 }
             }
-            .padding(48)
+            .padding(TVSpacing.page)
         }
         .scrollClipDisabled()
         .searchable(text: $viewModel.query, prompt: "Search videos...")
@@ -133,7 +133,7 @@ struct TVSearchContentView: View {
     }
 
     private var tvSearchResults: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 32), count: 5), spacing: 32) {
+        PosterGrid {
             // SearchResult.id can collide across rows that share title/provider but differ by year.
             // Use the namespaced row index so SwiftUI never reuses a result or skeleton incorrectly.
             //
@@ -149,7 +149,7 @@ struct TVSearchContentView: View {
                         cover: result.cover,
                         subtitle: DisplayFormatters.metaLine([result.type, result.year]),
                         rating: nil,
-                        apiClient: appVM.apiClient
+                        baseURL: appVM.apiClient?.baseURL
                     )
                 }
                 .buttonStyle(.tvScale)
@@ -159,16 +159,9 @@ struct TVSearchContentView: View {
     }
 
     private var tvSearchSkeleton: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 32), count: 5), spacing: 32) {
+        PosterGrid {
             ForEach((0..<10).map(SearchRowIdentity.skeleton), id: \.self) { _ in
-                VStack(alignment: .leading, spacing: 4) {
-                    RoundedRectangle(cornerRadius: 8)
-                        .skeleton(with: true, shape: .rounded(.radius(8, style: .continuous)))
-                        .aspectRatio(2/3, contentMode: .fit)
-                    RoundedRectangle(cornerRadius: 3)
-                        .skeleton(with: true, shape: .rounded(.radius(3, style: .continuous)))
-                        .frame(height: 12)
-                }
+                PosterSkeleton()
             }
         }
     }
@@ -182,7 +175,6 @@ struct SearchContentView: View {
     @Bindable var viewModel: SearchViewModel
     @Binding var path: NavigationPath
     let appVM: AppViewModel
-    @Environment(\.appTheme) private var theme
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
@@ -303,12 +295,7 @@ struct SearchContentView: View {
                     Label("\(result.sources.count) sources", systemImage: "server.rack")
                         .foregroundStyle(.secondary)
                     if let source = result.sources.first, source.durationMs > 0 {
-                        Text(DisplayFormatters.latency(source.durationMs))
-                            .monospacedDigit()
-                            .foregroundStyle(theme.accent)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(theme.accentTint, in: Capsule())
+                        AppBadge(verbatim: DisplayFormatters.latency(source.durationMs), tone: .accent)
                     }
                 }
                 .font(AppFont.meta)
@@ -325,11 +312,7 @@ struct SearchContentView: View {
     }
 
     private func coverURL(_ cover: String) -> URL? {
-        guard !cover.isEmpty else { return nil }
-        if cover.hasPrefix("/"), let client = appVM.apiClient {
-            return URL(string: client.baseURL + cover)
-        }
-        return URL(string: cover)
+        resolveAssetURL(cover, baseURL: appVM.apiClient?.baseURL)
     }
 
     private var searchSkeleton: some View {

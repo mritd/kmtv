@@ -2,15 +2,15 @@
 import SwiftUI
 
 /// One show's downloaded episodes from the device's library (every server and account) grouped by
-/// source, with play, download more, per-episode actions, and the offline player. The body depends
-/// only on structural changes and never reads the sync store; the header and each row are their
-/// own views, so a finished entry re-renders only the row that shows it, and a saved watch
-/// position only the header.
+/// source, with play, download more, per-episode actions, and the offline player. The body reads
+/// only the manager's `librarySnapshot`, which changes with structure, fetches nothing, and never
+/// reads the sync store; the header and each row are their own views, so a finished entry
+/// re-renders only the row that shows it, and a saved watch position only the header.
 ///
 /// 某部剧在本机下载库中 (涵盖所有服务器与账号) 按来源分组的已下载剧集, 提供播放, 下载更多, 单集操作
-/// 以及离线播放器. 页面主体只依赖结构
-/// 变化, 且从不读取同步存储; 头部与每一行都是独立视图, 因此完成一个条目只会重新渲染展示它的那一行,
-/// 保存观看位置只会重新渲染头部.
+/// 以及离线播放器. 页面主体只读取管理器的 `librarySnapshot` (只随结构变化), 不做任何查询, 且从不
+/// 读取同步存储; 头部与每一行都是独立视图, 因此完成一个条目只会重新渲染展示它的那一行, 保存观看位置
+/// 只会重新渲染头部.
 struct DownloadShowView: View {
     let showKey: String
     let mode: DownloadsMode
@@ -32,9 +32,9 @@ struct DownloadShowView: View {
     }
 
     var body: some View {
-        let _ = downloads.changeCount
-        if let show = downloads.libraryShow(showKey: showKey) {
-            let episodes = downloads.libraryEpisodes(showKey: showKey)
+        let library = downloads.librarySnapshot
+        if let show = library.show(showKey: showKey) {
+            let episodes = library.episodes(showKey: showKey)
             List(selection: $selection.onlyWhileEditing(editMode.isEditing)) {
                 Section {
                     DownloadShowHeader(show: show, episodes: episodes, mode: mode,
@@ -253,11 +253,11 @@ private struct DownloadEpisodeRow: View {
     private func stateIcon(_ state: DownloadDisplayState) -> some View {
         switch state {
         case .completed:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.title3)
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(StatusColor.success).font(.title3)
         case .downloading(let progress):
             ProgressView(value: progress).progressViewStyle(.circular).frame(width: 24, height: 24)
         case .failed:
-            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red).font(.title3)
+            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(StatusColor.danger).font(.title3)
         case .paused:
             Image(systemName: "pause.circle").foregroundStyle(.secondary).font(.title3)
         default:
@@ -280,7 +280,7 @@ private struct DownloadEpisodeRow: View {
 
     private func subtitleColor(_ state: DownloadDisplayState) -> AnyShapeStyle {
         switch state {
-        case .failed: AnyShapeStyle(.red)
+        case .failed: AnyShapeStyle(StatusColor.danger)
         case .downloading, .preparing: AnyShapeStyle(.tint)
         default: AnyShapeStyle(.secondary)
         }

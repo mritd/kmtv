@@ -92,3 +92,38 @@ final class EpisodeSelectionTests: XCTestCase {
         XCTAssertEqual(selection.sourceName(), "missing")
     }
 }
+
+extension EpisodeSelectionTests {
+    private func twoLineSelection(line: Int, episode: Int) -> EpisodeSelection {
+        let detail = VideoDetail(
+            id: "v1", title: "Video", type: "", year: "", cover: "", desc: "", director: "", actor: "", area: "",
+            episodes: [
+                [Episode(name: "第1集", url: "a1"), Episode(name: "第2集", url: "a2"), Episode(name: "第3集", url: "a3")],
+                [Episode(name: "EP01", url: "b1")],
+            ]
+        )
+        return EpisodeSelection(detail: detail, sources: [], currentSourceKey: "s1",
+                                currentLineIndex: line, currentEpisodeIndex: episode)
+    }
+
+    func testClampedIndicesFollowTheClampedLine() {
+        XCTAssertTrue(twoLineSelection(line: 0, episode: 2).clampedIndices() == (0, 2))
+        XCTAssertTrue(twoLineSelection(line: 5, episode: 2).clampedIndices() == (1, 0))
+        XCTAssertTrue(twoLineSelection(line: -1, episode: -3).clampedIndices() == (0, 0))
+        let empty = EpisodeSelection(detail: nil, sources: [], currentSourceKey: "s1",
+                                     currentLineIndex: 3, currentEpisodeIndex: 4)
+        XCTAssertTrue(empty.clampedIndices() == (0, 0))
+    }
+
+    func testEpisodeMatchingComparesTheFirstNumber() {
+        let selection = twoLineSelection(line: 0, episode: 0)
+        XCTAssertEqual(selection.episodeIndex(matchingNumberIn: "EP2"), 1)
+        XCTAssertEqual(selection.episodeIndex(matchingNumberIn: "Episode 3 (HD 1080)"), 2)
+        XCTAssertNil(selection.episodeIndex(matchingNumberIn: "EP9"))
+        XCTAssertNil(selection.episodeIndex(matchingNumberIn: "Finale"))
+        // Numbers compare as text, as before: "01" does not match "1".
+        //
+        // 数字按文本比较, 与此前一致: "01" 不匹配 "1".
+        XCTAssertNil(selection.episodeIndex(matchingNumberIn: "EP01"))
+    }
+}

@@ -32,7 +32,7 @@ private struct DownloadsEditing: ViewModifier {
                         // Red like other deletes; the app-wide accent tint would otherwise color it.
                         //
                         // 与其他删除操作一样使用红色; 否则会被全局强调色着色.
-                        .tint(.red)
+                        .tint(StatusColor.danger)
                     }
                 }
             }

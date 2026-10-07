@@ -230,6 +230,173 @@ final class OfflinePlayerViewModelTests: XCTestCase {
     }
 }
 
+// MARK: - Transport through the playback engine
+
+extension OfflinePlayerViewModelTests {
+    /// A model for episode `index` that plays through `engine` from a fixed loopback URL.
+    ///
+    /// 剧集 `index` 的模型, 通过 `engine` 播放固定的 loopback URL.
+    private func engineViewModel(_ index: Int, engine: FakePlaybackEngine) throws -> OfflinePlayerViewModel {
+        let ep = try XCTUnwrap(episode(index))
+        let show = try XCTUnwrap(manager.show(scopeKey: scope, showKey: ep.showKey))
+        return OfflinePlayerViewModel(manager: manager, show: show, episode: ep, modelContext: container.mainContext,
+                                      serverURL: "https://kmtv.example", syncStore: sync,
+                                      playbackURL: { _ in URL(string: "http://127.0.0.1:1/index.m3u8")! },
+                                      engine: engine)
+    }
+
+    func testStartPlaysTheLocalItemWithItsTitlesAndWatchesPauses() async throws {
+        let engine = FakePlaybackEngine()
+        let vm = try engineViewModel(0, engine: engine)
+
+        await vm.start()
+
+        let start = try XCTUnwrap(engine.starts.first)
+        XCTAssertEqual(engine.starts.count, 1)
+        XCTAssertFalse(start.allowsExternalPlayback, "AirPlay cannot reach the loopback server")
+        XCTAssertEqual(start.rate, 1)
+        XCTAssertEqual(start.loadTimeout, PlaybackCoordinator.localLoadTimeout)
+        XCTAssertEqual(engine.metadata?.title, "Show")
+        XCTAssertEqual(engine.metadata?.subtitle, "EP1")
+        XCTAssertTrue(engine.observesPause)
+        XCTAssertNotNil(vm.player)
+    }
+
+    func testSuspendCheckpointsAndPausesAndResumeRebuildsAtTheCheckpoint() async throws {
+        let engine = FakePlaybackEngine()
+        let vm = try engineViewModel(0, engine: engine)
+        await vm.start()
+        engine.playhead = 120
+        engine.duration = 600
+
+        vm.suspend()
+
+        XCTAssertEqual(engine.watchdogSuspensions, 1)
+        XCTAssertEqual(engine.pauses, 1)
+        XCTAssertEqual(episode(0)?.positionSec, 120)
+        XCTAssertEqual(vm.resumePosition, 120)
+
+        await vm.resume()
+
+        XCTAssertEqual(engine.starts.count, 2)
+        XCTAssertEqual(engine.starts.last?.startTime, 120)
+    }
+
+    func testCloseCheckpointsAndReleasesTheEngine() async throws {
+        let engine = FakePlaybackEngine()
+        let vm = try engineViewModel(0, engine: engine)
+        await vm.start()
+        engine.playhead = 200
+        engine.duration = 600
+
+        vm.close()
+
+        XCTAssertEqual(engine.cleanups, 1)
+        XCTAssertEqual(engine.pauseObservationsCleared, 1, "close removes the pause observation itself")
+        XCTAssertFalse(engine.observesPause)
+        XCTAssertNil(vm.player)
+        XCTAssertEqual(episode(0)?.positionSec, 200)
+        XCTAssertEqual(sync.watch(title: "Show")?.progressSec, 200)
+    }
+
+    func testAnItemFailureWithIntactFilesRebuildsOnceAtTheCheckpoint() async throws {
+        let engine = FakePlaybackEngine()
+        let vm = try engineViewModel(0, engine: engine)
+        await vm.start()
+        engine.playhead = 90
+        engine.duration = 600
+
+        engine.callbacks?.onError(nil)
+        XCTAssertNil(vm.player)
+        XCTAssertEqual(engine.cleanups, 1)
+        // The files are checked off the main actor before the outcome is decided.
+        //
+        // 先在主 actor 之外检查文件, 再决定结果.
+        await vm.failureTask?.value
+        await vm.restartTask?.value
+
+        XCTAssertEqual(engine.starts.count, 2)
+        XCTAssertEqual(engine.starts.last?.startTime, 90)
+        XCTAssertNil(vm.error)
+
+        engine.callbacks?.onError("failed again")
+        await vm.failureTask?.value
+        XCTAssertNotNil(vm.error)
+        XCTAssertEqual(try XCTUnwrap(episode(0)).state, .completed)
+    }
+
+    func testAnItemFailureWithMissingFilesMarksTheEpisodeDamaged() async throws {
+        let engine = FakePlaybackEngine()
+        let vm = try engineViewModel(0, engine: engine)
+        await vm.start()
+        let ep = try XCTUnwrap(episode(0))
+        let layout = DownloadLayout(root: root)
+        let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
+        try FileManager.default.removeItem(at: layout.playlistURL(episodeDir: dir))
+
+        engine.callbacks?.onError(nil)
+        XCTAssertNil(vm.player, "the player goes away before the files are checked")
+        await vm.failureTask?.value
+
+        XCTAssertEqual(ep.failure, .damaged)
+        XCTAssertNotNil(vm.error)
+        XCTAssertNil(vm.restartTask)
+    }
+
+    func testAFailureOvertakenByAStartLeavesTheNewItemAlone() async throws {
+        let engine = FakePlaybackEngine()
+        let vm = try engineViewModel(0, engine: engine)
+        await vm.start()
+        let ep = try XCTUnwrap(episode(0))
+        let layout = DownloadLayout(root: root)
+        let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
+        try FileManager.default.removeItem(at: layout.playlistURL(episodeDir: dir))
+
+        engine.callbacks?.onError(nil)
+        // A start lands while the files are being checked; the stale check decides nothing.
+        //
+        // 文件检查期间有新的 start 落地; 过期的检查不做任何决定.
+        await vm.start()
+        await vm.failureTask?.value
+
+        XCTAssertNotNil(vm.player)
+        XCTAssertNil(vm.error)
+        XCTAssertNil(ep.failure)
+        XCTAssertEqual(engine.starts.count, 2)
+    }
+
+    func testTheEndOfAnEpisodeFinishesItAndPlaysTheNextCompletedOne() async throws {
+        let engine = FakePlaybackEngine()
+        let vm = try engineViewModel(0, engine: engine)
+        await vm.start()
+        engine.callbacks?.onTime(500, 600)
+
+        engine.callbacks?.onEnd()
+        await vm.restartTask?.value
+
+        XCTAssertEqual(episode(0)?.finished, true)
+        XCTAssertEqual(episode(0)?.positionSec, 600)
+        XCTAssertEqual(vm.episode.episodeIndex, 2)
+        XCTAssertEqual(engine.starts.count, 2)
+        XCTAssertEqual(engine.metadata?.subtitle, "EP3")
+    }
+
+    func testThePausedStateShowsOnlyAfterTheDebounce() async throws {
+        let engine = FakePlaybackEngine()
+        let vm = try engineViewModel(0, engine: engine)
+        await vm.start()
+
+        engine.reportPaused(true)
+        XCTAssertFalse(vm.isPaused)
+        await waitUntil { vm.isPaused }
+        XCTAssertTrue(vm.isPaused)
+        XCTAssertTrue(vm.showsUpNext)
+
+        engine.reportPaused(false)
+        XCTAssertFalse(vm.isPaused)
+    }
+}
+
 /// Settable instant for the view model's injected clock.
 ///
 /// 供视图模型注入时钟使用的可设置时间点.

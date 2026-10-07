@@ -79,11 +79,7 @@ struct FullScreenPlayerRepresentable: UIViewControllerRepresentable {
         #if os(iOS)
         vc.allowsVideoFrameAnalysis = false
         #endif
-        vc.speeds = [
-            AVPlaybackSpeed(rate: 1.0, localizedName: "1x"),
-            AVPlaybackSpeed(rate: 1.5, localizedName: "1.5x"),
-            AVPlaybackSpeed(rate: 2.0, localizedName: "2x"),
-        ]
+        vc.speeds = PlaybackRates.all.map { AVPlaybackSpeed(rate: $0, localizedName: PlaybackRates.label($0)) }
         return vc
     }
 
