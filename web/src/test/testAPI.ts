@@ -14,6 +14,7 @@ export function createTestAPI(overrides: Partial<APIClient> = {}): APIClient {
       avatar: "/api/v1/avatar/admin",
     }),
     deleteAvatar: async () => ({ id: 1, username: "admin", role: "admin" }),
+    avatarImage: async () => new Blob(["GIF89a"], { type: "image/gif" }),
     getSettings: async () => ({ settings: { version: "v0.0.0-dev" } }),
     updateSettings: async () => undefined,
     search: async () => ({ results: [] }),

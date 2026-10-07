@@ -9,7 +9,7 @@
  *   - File size validation (files > 256 KB rejected client-side).
  *   - Successful upload updates auth snapshot.
  *   - Upload error surfaces toast message.
- *   - Delete button hidden when no avatar.
+ *   - Delete button hidden when no avatar or the server's default avatar.
  *   - Successful delete removes avatar.
  *
  *   - 初始渲染 (头像或首字母).
@@ -17,7 +17,7 @@
  *   - 文件大小校验 (大于 256 KB 的文件在客户端被拒绝).
  *   - 成功上传后更新 auth 快照.
  *   - 上传失败时显示 toast 消息.
- *   - 无头像时隐藏删除按钮.
+ *   - 无头像或为服务端默认头像时隐藏删除按钮.
  *   - 成功删除后移除头像.
  */
 import { QueryClient } from "@tanstack/react-query";
@@ -42,14 +42,17 @@ import { MAX_AVATAR_BYTES, AvatarField } from "./AvatarField";
 
 interface RenderOptions {
   hasAvatar?: boolean;
+  defaultAvatar?: boolean;
+  avatarFails?: boolean;
 }
 
-function renderAvatarField({ hasAvatar = false }: RenderOptions = {}) {
+function renderAvatarField({ hasAvatar = false, defaultAvatar = false, avatarFails = false }: RenderOptions = {}) {
   const user = {
     id: 1,
     username: "testuser",
     role: "admin" as const,
-    ...(hasAvatar ? { avatar: "/api/v1/avatar/testuser" } : {}),
+    ...(hasAvatar ? { avatar: "/api/v1/avatar/testuser?v=1" } : {}),
+    ...(defaultAvatar ? { avatar: "/api/v1/avatar/testuser?v=default-1", avatar_is_default: true } : {}),
   };
   const tokenStore = createMemoryTokenStore({
     accessToken: "tok",
@@ -57,7 +60,12 @@ function renderAvatarField({ hasAvatar = false }: RenderOptions = {}) {
     user,
   });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const api = createTestAPI();
+  const api = createTestAPI({
+    avatarImage: vi.fn(async () => {
+      if (avatarFails) throw new Error("401");
+      return new Blob(["GIF89a"], { type: "image/gif" });
+    }),
+  });
   return {
     api,
     ...render(
@@ -107,14 +115,25 @@ describe("AvatarField", () => {
   });
 
   describe("when an avatar is set", () => {
-    it("renders the avatar image element", () => {
-      const { container } = renderAvatarField({ hasAvatar: true });
-      // The avatar img has alt="" and its wrapper has aria-hidden="true", so we query the DOM directly.
+    it("loads the avatar with the API client and renders it as an object URL", async () => {
+      const { api, container } = renderAvatarField({ hasAvatar: true });
+      // The avatar route is protected, so the image comes from api.avatarImage (bearer header),
+      // not from an <img> pointing at the route. alt="" plus aria-hidden means a DOM query.
       //
-      // 头像 img 的 alt="" 且其容器有 aria-hidden="true", 因此直接查询 DOM.
-      const img = container.querySelector<HTMLImageElement>("img.avatar-field-image img, img");
-      expect(img).not.toBeNull();
-      expect(img?.src).toContain("/api/v1/avatar/testuser");
+      // 头像接口受保护, 因此图片来自 api.avatarImage (带 bearer header), 而不是直接指向接口的 <img>.
+      // alt="" 且有 aria-hidden, 因此直接查询 DOM.
+      await waitFor(() => {
+        expect(container.querySelector<HTMLImageElement>("img")?.src).toMatch(/^blob:/);
+      });
+      expect(api.avatarImage).toHaveBeenCalledWith("/api/v1/avatar/testuser?v=1", expect.anything());
+    });
+
+    it("falls back to the initial when the avatar fails to load", async () => {
+      const { container } = renderAvatarField({ hasAvatar: true, avatarFails: true });
+      await waitFor(() => {
+        expect(container.querySelector(".avatar-field-initial")?.textContent).toBe("T");
+      });
+      expect(container.querySelector("img")).toBeNull();
     });
 
     it("shows the delete button", () => {
@@ -123,6 +142,17 @@ describe("AvatarField", () => {
       //
       // 用户已有头像时必须出现删除按钮.
       expect(screen.getByRole("button", { name: /删除|delete/i })).toBeInTheDocument();
+    });
+  });
+
+  describe("when the server's default avatar is set", () => {
+    it("shows the default image without a delete button", async () => {
+      const { api, container } = renderAvatarField({ defaultAvatar: true });
+      await waitFor(() => {
+        expect(container.querySelector("img")).not.toBeNull();
+      });
+      expect(api.avatarImage).toHaveBeenCalledWith("/api/v1/avatar/testuser?v=default-1", expect.anything());
+      expect(screen.queryByRole("button", { name: /删除|delete/i })).toBeNull();
     });
   });
 
@@ -210,8 +240,7 @@ describe("AvatarField", () => {
       // 成功上传后头像图片应出现 (因 alt="" + aria-hidden 使用 DOM 查询).
       await waitFor(() => {
         const img = container.querySelector<HTMLImageElement>("img");
-        expect(img).not.toBeNull();
-        expect(img?.src).toContain("/api/v1/avatar/testuser");
+        expect(img?.src).toMatch(/^blob:/);
       });
     });
   });

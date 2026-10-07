@@ -278,6 +278,8 @@ Durable architectural decisions for the KMTV Go backend, native Apple clients, a
 - Downloads are scoped to (server, user) like sync data, identified per source by (source, video, episode index), and never synced to other devices.
 - The server proxies `EXT-X-MAP`, `EXT-X-MEDIA`, `EXT-X-I-FRAME-STREAM-INF`, and `EXT-X-SESSION-KEY` URIs as well.
 - When the server is unreachable at launch and the last identity has completed downloads, the app opens in offline mode with only the Downloads screen.
+- Amended 2026-10-06: completed downloads stay watchable offline whatever server the app is set up with and whether anyone is signed in. The device keeps every identity that used downloads (`kmtv.downloads.knownIdentities`, most recent first, 20 at most); signing out clears only the last identity. An unreachable server at launch opens the identity of the configured server first, else the most recent one; the connecting and setup screens offer "Watch Downloads Offline", asking for the account when several have downloads, and offline mode can switch accounts.
+- Amended 2026-10-07: downloads are one device library, local first whatever server or account made them. The Downloads screen, the online player's local copies and episode badges, and offline mode show every scope's downloads to anyone, signed in, anonymous, or offline; copies of one show or episode under several accounts read as one (a completed copy wins, then the active scope's). Anyone can play and delete them; only the signed-in account's unfinished episodes can be paused, resumed, or retried, since that needs its media tokens, and other accounts' wait for that account. An episode another account already finished is not downloaded again, and activating an account deletes its unfinished copies of such episodes. Local copies match by show as well as source, video, and episode, since source keys are per-server names. One loopback server rooted at the downloads directory serves every scope. Offline mode opens whenever any completed download exists, with no account choice; only the configured server's known identity records watch progress, never another server's or a signed-out account's. Settings delete every download at once. Storage stays scoped on disk per (server, user).
 
 **Consequences:**
 - Download traffic in proxy mode passes through the KMTV server, and each preparation signs one media-token row per entry.
@@ -306,3 +308,37 @@ Durable architectural decisions for the KMTV Go backend, native Apple clients, a
 - Each playlist is filtered on its own, so a source whose audio or subtitle renditions do not carry the same ad runs can end up with misaligned discontinuities between renditions.
 - Turning the filter on or off changes the playlist of affected episodes, so an iOS download in progress restarts once when it resumes.
 
+## ADR-019: iOS Design Tokens And Built-In Accent Themes
+
+**Context:**
+- iOS screens mixed 12 font styles and 9 corner radii; custom sections used 11-12 pt text next to 17 pt system rows, and white cards sat on a near-white page with no separation.
+- Users want to pick the app's color; one brand accent does not suit everyone.
+
+**Decision:**
+- iOS views take type, spacing, radius, and surfaces from `apple/Shared/DesignSystem/Tokens.swift` (`AppFont`, `Spacing`, `Radius`, `Surface`). Neutrals are the system grouped colors, so custom pages match native lists in light and dark mode.
+- The accent comes from one of five built-in themes (`AppTheme`: Classic Blue, Aurora, Indigo, Terminal, Graphite) with separate light and dark values that each reach 4.5:1 on their canvas. The theme and the appearance mode (System, Light, Dark) are per-device `@AppStorage` preferences, never synced.
+- `RootView` injects the theme with `.tint` and `@Environment(\.appTheme)` and applies `preferredColorScheme`; views never read the accent from a static color, so changing it re-renders in place.
+- Settings-like screens use native grouped lists; media screens are poster-first with `PosterCard` artwork and `PosterPlaceholder` for missing covers.
+- tvOS keeps `Theme` and its current look.
+
+**Consequences:**
+- New iOS UI must use the tokens; the iOS `Theme` color aliases are gone, so a stray `Theme.accent` on iOS fails to compile.
+- Adding a theme means adding a case with light, dark, and on-accent values; `AppThemeTests` checks contrast.
+- Web, Android, and tvOS do not follow the iOS theme choice.
+
+## ADR-020: Server-Provided Default Avatar
+
+**Context:**
+- Users without an upload got a different stand-in on each client (Web and Android initials, an iOS glyph), and changing it meant changing every client.
+- Avatar URLs were the same for every image a user ever had, served with `Cache-Control: max-age=3600`, so a browser could keep showing a replaced avatar for up to an hour.
+
+**Decision:**
+- The server embeds one default avatar (`server/internal/avatar/default.gif`, an animated pixel-art cat) and serves it from `GET /api/v1/avatar/{username}` for users without an upload and for unknown usernames, so the route does not reveal which users exist. Anonymous visitors are not users and get no avatar fields.
+- Every user object from the `/auth` endpoints carries `avatar` and `avatar_is_default`; admin user lists carry neither. Clients show the avatar and offer Remove only when `avatar_is_default` is false.
+- Avatar URLs carry a `v` query: `default-N` for the default image (bump N when it changes) and a hash of the stored image otherwise.
+
+**Consequences:**
+- A new client needs no avatar fallback of its own beyond a load-failure state, and older clients show the default avatar unchanged; they only offer a Remove that does nothing for it.
+- The avatar route is protected and accepts only the bearer header, so every client fetches avatar bytes through its API client (Web renders them as object URLs) instead of pointing an image element at the URL.
+- iOS plays animated avatars with Kingfisher's `KFAnimatedImage` (first frame under Reduce Motion); Android labels avatar data URIs by sniffing the image bytes.
+- Replacing the default image is a server release, not a client one.

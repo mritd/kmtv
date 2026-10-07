@@ -182,12 +182,21 @@ func (ds *DoubanService) GetRecommendByFilters(ctx context.Context, kind, tag, f
 		tagParts = append(tagParts, region)
 	}
 
-	apiURL := "https://m.douban.com/rexxar/api/v2/" + url.PathEscape(kind) + "/recommend?" + url.Values{
+	query := url.Values{
 		"start":               {strconv.Itoa(start)},
 		"count":               {strconv.Itoa(count)},
 		"selected_categories": {string(selectedJSON)},
 		"tags":                {strings.Join(tagParts, ",")},
-	}.Encode()
+	}
+	// With no filter at all Douban answers a short curated list (a few titles plus playlist and ad
+	// cards); sorting by recent popularity returns the full catalog instead.
+	//
+	// 没有任何筛选条件时, Douban 只返回一个简短的精选列表 (少量作品, 外加片单与广告卡片); 按近期热度
+	// 排序则返回完整片库.
+	if len(selectedCategories) == 0 {
+		query.Set("sort", "U")
+	}
+	apiURL := "https://m.douban.com/rexxar/api/v2/" + url.PathEscape(kind) + "/recommend?" + query.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {

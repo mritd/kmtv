@@ -22,6 +22,8 @@ The canonical decision log is [`docs/ADR.md`](../ADR.md). Record new decisions t
 - ADR-016: Unified offline-first sync for watch history, favorites, and search history
 - ADR-017: iOS offline downloads through a background URLSession and a loopback media server
 - ADR-018: Proxied playlists drop inserted ad runs (by segment directory), behind `ad_filter_enabled`
+- ADR-019: iOS uses shared design tokens and five built-in accent themes chosen per device (2026-10-06)
+- ADR-020: The server serves one embedded default avatar and versioned avatar URLs; clients hide Remove when `avatar_is_default` (2026-10-07)
 
 ## Implementation choices under ADR-016 (2026-10-02)
 

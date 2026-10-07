@@ -40,7 +40,7 @@ struct SearchView: View {
             }
         }
         #if os(iOS)
-        .background(Theme.bgPrimary)
+        .background(Surface.canvas)
         .navigationTitle("Search")
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -217,64 +217,87 @@ struct TVSearchContentView: View {
 }
 #endif
 
+#if os(iOS)
 struct SearchContentView: View {
     @Bindable var viewModel: SearchViewModel
     @Binding var path: NavigationPath
     let appVM: AppViewModel
     @Binding var coverHint: String
     @Binding var resumeIntent: EpisodeResumeIntent?
+    @Environment(\.appTheme) private var theme
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(Theme.textSecondary)
-                SearchTextField(
-                    text: $viewModel.query,
-                    placeholder: String(localized: "Search videos..."),
-                    onSubmit: {
-                        coverHint = ""
-                        resumeIntent = nil
-                        Task { await viewModel.submitSearch() }
-                    }
-                )
-                .frame(height: 22)
-                if !viewModel.query.isEmpty {
-                    Button {
-                        coverHint = ""
-                        resumeIntent = nil
-                        viewModel.query = ""
-                        viewModel.clearResults()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(Theme.textSecondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Theme.bgSecondary)
-            )
-            .padding()
+            searchField
+                .padding(.horizontal, Spacing.page)
+                .padding(.vertical, Spacing.sm)
 
             ScrollView {
-                LazyVStack(spacing: 0) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     if viewModel.isSearching {
                         if !viewModel.searchPhase.isEmpty {
                             searchProgressView
                         }
-                        searchSkeleton
+                        resultColumns { searchSkeleton }
                     } else if !viewModel.results.isEmpty {
-                        searchResults
+                        resultColumns { searchResults }
                     } else if viewModel.hasSearched && !viewModel.isSearching {
                         emptyState
                     } else {
                         historySection
                     }
                 }
+                .padding(.bottom, Spacing.xl)
             }
+            .scrollDismissesKeyboard(.immediately)
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: Spacing.sm) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            SearchTextField(
+                text: $viewModel.query,
+                placeholder: String(localized: "Search videos..."),
+                onSubmit: {
+                    coverHint = ""
+                    resumeIntent = nil
+                    Task { await viewModel.submitSearch() }
+                }
+            )
+            .frame(height: 22)
+            if !viewModel.query.isEmpty {
+                Button {
+                    coverHint = ""
+                    resumeIntent = nil
+                    viewModel.query = ""
+                    viewModel.clearResults()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Clear"))
+            }
+        }
+        .padding(.horizontal, Spacing.md)
+        .frame(minHeight: 44)
+        .background(Surface.fill, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    }
+
+    /// Two columns of result rows on iPad, where a single row would leave most of the width empty;
+    /// one column on phones.
+    ///
+    /// iPad 上以两栏显示结果行, 单栏会空出大部分宽度; 手机上为单栏.
+    @ViewBuilder
+    private func resultColumns(@ViewBuilder _ rows: () -> some View) -> some View {
+        if sizeClass == .regular {
+            let column = GridItem(.flexible(), spacing: 0, alignment: .top)
+            LazyVGrid(columns: [column, column], spacing: 0) { rows() }
+        } else {
+            rows()
         }
     }
 
@@ -302,67 +325,58 @@ struct SearchContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressable)
             .accessibilityIdentifier("searchResult")
         }
     }
 
     private func searchResultRow(_ result: SearchResult) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            KFImage(coverURL(result.cover))
-                .placeholder {
-                    RoundedRectangle(cornerRadius: 6).fill(Theme.bgCard)
-                        .overlay {
-                            Image(systemName: "film").foregroundStyle(Theme.textSecondary)
-                        }
-                }
-                .fade(duration: 0.25)
-                .resizable()
-                .aspectRatio(2/3, contentMode: .fill)
-                .frame(width: 80, height: 120)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+        HStack(alignment: .top, spacing: Spacing.md) {
+            Color.clear
+                .frame(width: 72, height: 108)
+                .overlay { ArtworkImage(url: coverURL(result.cover), title: result.title, compactPlaceholder: true) }
+                .artworkFrame(radius: Radius.sm)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
                 Text(result.title)
-                    .font(.body.bold())
-                    .foregroundStyle(Theme.textPrimary)
+                    .font(AppFont.bodyEmphasis)
+                    .foregroundStyle(.primary)
                     .lineLimit(2)
-                Text(DisplayFormatters.metaLine([result.type, result.year]))
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.textSecondary)
+                let meta = DisplayFormatters.metaLine([result.type, result.year], separator: " · ")
+                if !meta.isEmpty {
+                    Text(meta)
+                        .font(AppFont.secondary)
+                        .foregroundStyle(.secondary)
+                }
                 if let desc = DisplayFormatters.bestDescription(title: result.title, desc: result.desc) {
                     Text(desc)
-                        .font(.caption)
-                        .foregroundStyle(Theme.textSecondary.opacity(0.7))
+                        .font(AppFont.footnote)
+                        .foregroundStyle(.secondary)
                         .lineLimit(2)
-                } else {
-                    Text("No description available")
-                        .font(.caption)
-                        .foregroundStyle(Theme.textSecondary.opacity(0.4))
-                        .italic()
                 }
-                HStack(spacing: 8) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "server.rack")
-                            .font(.caption2)
-                        Text("\(result.sources.count) sources")
-                            .font(.caption)
-                    }
+                HStack(spacing: Spacing.sm) {
+                    Label("\(result.sources.count) sources", systemImage: "server.rack")
+                        .foregroundStyle(.secondary)
                     if let source = result.sources.first, source.durationMs > 0 {
                         Text(DisplayFormatters.latency(source.durationMs))
-                            .font(.caption2)
+                            .monospacedDigit()
+                            .foregroundStyle(theme.accent)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Theme.accent.opacity(0.2))
-                            .clipShape(Capsule())
+                            .background(theme.accentTint, in: Capsule())
                     }
                 }
-                .foregroundStyle(Theme.textSecondary)
+                .font(AppFont.meta)
+                .padding(.top, Spacing.xxs)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Spacing.page)
+        .padding(.vertical, Spacing.md)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Surface.separator).frame(height: 0.5)
+                .padding(.leading, Spacing.page + 72 + Spacing.md)
+        }
     }
 
     private func coverURL(_ cover: String) -> URL? {
@@ -374,13 +388,13 @@ struct SearchContentView: View {
     }
 
     private var searchSkeleton: some View {
-        ForEach((0..<4).map(SearchRowIdentity.skeleton), id: \.self) { _ in
-            HStack(alignment: .center, spacing: 12) {
-                RoundedRectangle(cornerRadius: 6)
-                    .skeleton(with: true, shape: .rounded(.radius(6, style: .continuous)))
-                    .frame(width: 80, height: 120)
+        ForEach((0..<(sizeClass == .regular ? 8 : 4)).map(SearchRowIdentity.skeleton), id: \.self) { _ in
+            HStack(alignment: .top, spacing: Spacing.md) {
+                RoundedRectangle(cornerRadius: Radius.sm)
+                    .skeleton(with: true, shape: .rounded(.radius(Radius.sm, style: .continuous)))
+                    .frame(width: 72, height: 108)
 
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
                     RoundedRectangle(cornerRadius: 3)
                         .skeleton(with: true, shape: .rounded(.radius(3, style: .continuous)))
                         .frame(width: 160, height: 16)
@@ -391,10 +405,11 @@ struct SearchContentView: View {
                         .skeleton(with: true, shape: .rounded(.radius(3, style: .continuous)))
                         .frame(width: 200, height: 12)
                 }
+                .padding(.top, Spacing.xs)
                 Spacer()
             }
-            .padding(.horizontal)
-            .padding(.vertical, 10)
+            .padding(.horizontal, Spacing.page)
+            .padding(.vertical, Spacing.md)
         }
     }
 
@@ -405,18 +420,18 @@ struct SearchContentView: View {
     }
 
     private var searchProgressView: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
             ProgressView()
-                #if os(iOS)
                 .controlSize(.small)
-                #endif
             Text(progressText)
-                .font(.caption)
-                .foregroundStyle(Theme.textSecondary)
+                .font(AppFont.footnote)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
         }
         .accessibilityIdentifier("searchProgress")
-        .padding(.horizontal)
-        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, Spacing.page)
+        .padding(.vertical, Spacing.sm)
     }
 
     private var progressText: String {
@@ -433,55 +448,37 @@ struct SearchContentView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.largeTitle)
-                .foregroundStyle(Theme.textSecondary.opacity(0.5))
-            Text("No results found")
-                .foregroundStyle(Theme.textSecondary)
+        ContentUnavailableView {
+            Label("No results found", systemImage: "magnifyingglass")
         }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 40)
+        .padding(.top, Spacing.xxl)
     }
 
+    @ViewBuilder
     private var historySection: some View {
-        Group {
-            if !viewModel.searchHistory.isEmpty {
-                HStack {
-                    Text("Search History")
-                        .font(.headline)
-                        .foregroundStyle(Theme.textPrimary)
-                    Spacer()
+        if !viewModel.searchHistory.isEmpty {
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                SectionHeader(Text("Search History")) {
                     Button("Clear") { viewModel.clearHistory() }
-                        .font(.caption)
-                        .foregroundStyle(Theme.textSecondary)
+                        .foregroundStyle(.secondary)
                 }
-                .padding(.top, 8)
-                .padding(.horizontal)
-
-                FlowLayout(spacing: 8) {
+                FlowLayout(spacing: Spacing.sm) {
                     ForEach(viewModel.searchHistory, id: \.query) { item in
-                        Button {
+                        Button(item.query) {
                             coverHint = ""
                             resumeIntent = nil
                             Task { await viewModel.submitSearch(query: item.query) }
-                        } label: {
-                            Text(item.query)
-                                .font(.caption)
-                                .foregroundStyle(Theme.textPrimary)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(Theme.bgSecondary)
-                                .clipShape(Capsule())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.chip(selected: false, minHeight: 34, capsule: true))
                     }
                 }
-                .padding(.horizontal)
             }
+            .padding(.horizontal, Spacing.page)
+            .padding(.top, Spacing.sm)
         }
     }
 }
+#endif
 
 private struct SearchResultRow: Identifiable {
     /// Namespaced identity avoids SwiftUI reusing skeleton rows for real results.

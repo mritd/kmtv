@@ -389,6 +389,115 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: DownloadManager.cellularKey))
     }
 
+    // MARK: - Library
+
+    /// Inserts a show row and one episode row per index directly, as another scope's downloads
+    /// would be on disk; completed and paused rows never start transfers.
+    @discardableResult
+    private func insertLibraryRows(scope: String, title: String, indexes: [Int], state: DownloadState,
+                                   createdAt: Date) -> [DownloadEpisode] {
+        let context = container.mainContext
+        let show = DownloadShow(scopeKey: scope, title: title, cover: "", type: "", year: "", createdAt: createdAt)
+        context.insert(show)
+        let rows = indexes.map { index in
+            let ep = DownloadEpisode(show: show, sourceKey: "src", sourceName: "Source", videoId: "v-\(title)",
+                                     episodeIndex: index, episodeName: "E\(index + 1)", lineIndex: 0,
+                                     episodeCount: 10, episodeURL: "u", queueOrder: index, createdAt: createdAt)
+            ep.state = state
+            context.insert(ep)
+            return ep
+        }
+        try? context.save()
+        return rows
+    }
+
+    func testLibraryMergesShowsAndEpisodesAcrossScopes() async throws {
+        let other = syncScopeKey(serverURL: "https://other.example", userID: 2)
+        insertLibraryRows(scope: other, title: "Show", indexes: [0, 1], state: .completed,
+                          createdAt: Date(timeIntervalSince1970: 10))
+        insertLibraryRows(scope: scope, title: "Show", indexes: [1, 2], state: .paused,
+                          createdAt: Date(timeIntervalSince1970: 20))
+        insertLibraryRows(scope: other, title: "Other Show", indexes: [0], state: .completed,
+                          createdAt: Date(timeIntervalSince1970: 5))
+
+        XCTAssertEqual(manager.libraryShows().map(\.title), ["Show", "Other Show"])
+        XCTAssertEqual(manager.libraryShow(showKey: normalizeSyncKey("Show"))?.scopeKey, scope,
+                       "the active scope's row stands for the show")
+
+        let episodes = manager.libraryEpisodes(showKey: normalizeSyncKey("Show"))
+        XCTAssertEqual(episodes.map(\.episodeIndex), [0, 1, 2])
+        XCTAssertEqual(episodes.map(\.scopeKey), [other, other, scope])
+        guard episodes.count == 3 else { return }
+        XCTAssertEqual(episodes[1].scopeKey, other, "a completed copy wins over the active scope's paused one")
+        XCTAssertEqual(episodes[1].state, .completed)
+        XCTAssertTrue(manager.canManage(episodes[2]))
+        XCTAssertFalse(manager.canManage(episodes[0]), "another account's episode cannot be managed here")
+        XCTAssertTrue(manager.hasCompletedDownloads)
+    }
+
+    func testLibraryDeletesEveryCopy() async throws {
+        let other = syncScopeKey(serverURL: "https://other.example", userID: 2)
+        insertLibraryRows(scope: other, title: "Show", indexes: [0, 1], state: .completed,
+                          createdAt: Date(timeIntervalSince1970: 10))
+        insertLibraryRows(scope: scope, title: "Show", indexes: [0], state: .completed,
+                          createdAt: Date(timeIntervalSince1970: 20))
+        let showKey = normalizeSyncKey("Show")
+
+        await manager.deleteFromLibrary(manager.libraryEpisodes(showKey: showKey)[0])
+        XCTAssertEqual(manager.libraryEpisodes(showKey: showKey).map(\.episodeIndex), [1],
+                       "both copies of the episode are gone")
+
+        await manager.deleteShowFromLibrary(showKey: showKey)
+        XCTAssertTrue(manager.libraryShows().isEmpty)
+
+        insertLibraryRows(scope: other, title: "Again", indexes: [0], state: .completed, createdAt: .now)
+        await manager.deleteAllDownloads()
+        XCTAssertTrue(manager.libraryEpisodes().isEmpty)
+        XCTAssertFalse(manager.hasCompletedDownloads)
+    }
+
+    func testLocalPlaybackUsesAnotherAccountsCopy() async throws {
+        let other = syncScopeKey(serverURL: "https://other.example", userID: 2)
+        let rows = insertLibraryRows(scope: other, title: "Show", indexes: [0], state: .completed, createdAt: .now)
+        let dir = layout.scopeDir(rows[0].scopeHash).appending(path: "\(rows[0].showDir)/\(rows[0].episodeDir)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("#EXTM3U\n".utf8).write(to: dir.appending(path: "index.m3u8"))
+
+        let showKey = normalizeSyncKey("Show")
+        let url = await manager.localPlaybackURL(showKey: showKey, sourceKey: "src", videoId: "v-Show", episodeIndex: 0)
+        XCTAssertNotNil(url, "downloads are local first whoever is signed in")
+        XCTAssertTrue(url?.absoluteString.hasSuffix("/\(rows[0].scopeHash)/\(rows[0].showDir)/\(rows[0].episodeDir)/index.m3u8") == true,
+                      "one server rooted at the downloads directory serves every scope")
+        let missing = await manager.localPlaybackURL(showKey: showKey, sourceKey: "src", videoId: "v-Show", episodeIndex: 1)
+        XCTAssertNil(missing)
+        let otherShow = await manager.localPlaybackURL(showKey: normalizeSyncKey("Another"), sourceKey: "src",
+                                                       videoId: "v-Show", episodeIndex: 0)
+        XCTAssertNil(otherShow, "a matching source key on another show is a different video")
+    }
+
+    func testEnqueueSkipsEpisodesAnotherAccountDownloaded() async throws {
+        let other = syncScopeKey(serverURL: "https://other.example", userID: 2)
+        let rows = insertLibraryRows(scope: other, title: "Show", indexes: [0], state: .completed, createdAt: .now)
+        let request = DownloadEpisodeRequest(sourceKey: "src", sourceName: "Source", videoId: rows[0].videoId,
+                                             episodeIndex: 0, episodeName: "E1", lineIndex: 0, episodeCount: 10,
+                                             episodeURL: "u")
+        let added = try manager.enqueue(show: DownloadShowInfo(title: "Show", cover: "", type: "", year: "", coverURL: nil),
+                                        episodes: [request])
+        XCTAssertEqual(added, 0)
+        XCTAssertTrue(manager.episodes(in: scope).isEmpty)
+    }
+
+    func testActivationDropsCopiesAnotherAccountFinished() async throws {
+        let other = syncScopeKey(serverURL: "https://other.example", userID: 2)
+        insertLibraryRows(scope: other, title: "Show", indexes: [0], state: .completed, createdAt: .now)
+        let mine = insertLibraryRows(scope: scope, title: "Show", indexes: [0, 1], state: .paused, createdAt: .now)
+        for ep in mine { ep.pauseReason = .signedOut }
+        await manager.deactivate()
+        await manager.activate(scopeKey: scope, preparer: preparer)
+        XCTAssertEqual(manager.episodes(in: scope).map(\.episodeIndex), [1],
+                       "the finished elsewhere copy is gone; the other one is still queued")
+    }
+
     func testDeleteScopeAndOtherScopeBytes() async throws {
         try await enqueueAndSettle()
         for id in liveIDs(0) { await transport.finish(id, layout: layout) }

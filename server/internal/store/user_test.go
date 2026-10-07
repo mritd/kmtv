@@ -294,12 +294,8 @@ func TestCountAdminUsersAndAvatar(t *testing.T) {
 	if got != "" {
 		t.Fatalf("avatar after delete = %q, want empty", got)
 	}
-	got, err = s.GetAvatar("missing_avatar_user")
-	if err != nil {
-		t.Fatalf("GetAvatar missing user error: %v", err)
-	}
-	if got != "" {
-		t.Fatalf("missing avatar = %q, want empty", got)
+	if _, err := s.GetAvatar("missing_avatar_user"); !errors.Is(err, errs.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for a missing user's avatar, got %v", err)
 	}
 	if err := s.UpdateAvatar(9999, avatar); !errors.Is(err, errs.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound updating missing avatar, got %v", err)

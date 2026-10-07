@@ -9,6 +9,10 @@ struct User: Codable, Sendable {
     let role: String
     let allowAdultContent: Bool
     var avatar: String?
+    /// Whether `avatar` is the server's default avatar rather than an upload.
+    ///
+    /// `avatar` 是否为服务端默认头像, 而非用户上传的头像.
+    var avatarIsDefault: Bool
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -16,14 +20,25 @@ struct User: Codable, Sendable {
         case role
         case allowAdultContent = "allow_adult_content"
         case avatar
+        case avatarIsDefault = "avatar_is_default"
     }
 
-    init(id: Int, username: String, role: String, allowAdultContent: Bool = false, avatar: String? = nil) {
+    init(id: Int, username: String, role: String, allowAdultContent: Bool = false, avatar: String? = nil,
+         avatarIsDefault: Bool = false) {
         self.id = id
         self.username = username
         self.role = role
         self.allowAdultContent = allowAdultContent
         self.avatar = avatar
+        self.avatarIsDefault = avatarIsDefault
+    }
+
+    /// Whether the user uploaded an avatar that can be removed. Servers before default avatars
+    /// omit `avatar` for users without one.
+    ///
+    /// 用户是否上传了可删除的头像. 早于默认头像的服务端在用户没有头像时不返回 `avatar`.
+    var hasUploadedAvatar: Bool {
+        !(avatar ?? "").isEmpty && !avatarIsDefault
     }
 
     init(from decoder: Decoder) throws {
@@ -33,6 +48,7 @@ struct User: Codable, Sendable {
         role = try container.decode(String.self, forKey: .role)
         allowAdultContent = try container.decodeIfPresent(Bool.self, forKey: .allowAdultContent) ?? false
         avatar = try container.decodeIfPresent(String.self, forKey: .avatar)
+        avatarIsDefault = try container.decodeIfPresent(Bool.self, forKey: .avatarIsDefault) ?? false
     }
 }
 
@@ -50,6 +66,7 @@ struct LoginResponse: Codable, Sendable {
         case role
         case allowAdultContent = "allow_adult_content"
         case avatar
+        case avatarIsDefault = "avatar_is_default"
         case accessToken = "access_token"
         case expiresAt = "expires_at"
     }
@@ -64,7 +81,8 @@ struct LoginResponse: Codable, Sendable {
             username: try container.decode(String.self, forKey: .username),
             role: try container.decode(String.self, forKey: .role),
             allowAdultContent: try container.decodeIfPresent(Bool.self, forKey: .allowAdultContent) ?? false,
-            avatar: try container.decodeIfPresent(String.self, forKey: .avatar)
+            avatar: try container.decodeIfPresent(String.self, forKey: .avatar),
+            avatarIsDefault: try container.decodeIfPresent(Bool.self, forKey: .avatarIsDefault) ?? false
         )
         accessToken = try container.decode(String.self, forKey: .accessToken)
         expiresAt = try container.decode(Date.self, forKey: .expiresAt)
@@ -80,6 +98,7 @@ struct LoginResponse: Codable, Sendable {
         try container.encode(user.role, forKey: .role)
         try container.encode(user.allowAdultContent, forKey: .allowAdultContent)
         try container.encodeIfPresent(user.avatar, forKey: .avatar)
+        try container.encode(user.avatarIsDefault, forKey: .avatarIsDefault)
         try container.encode(accessToken, forKey: .accessToken)
         try container.encode(expiresAt, forKey: .expiresAt)
     }

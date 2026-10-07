@@ -128,7 +128,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         // We split it back into User + token for in-memory state.
         //
         // server 返回扁平对象: id/username/role/avatar 加 access_token/expires_at, 这里拆分为 User + token.
-        const user: User = { id: resp.id, username: resp.username, role: resp.role, avatar: resp.avatar };
+        const user: User = {
+          id: resp.id,
+          username: resp.username,
+          role: resp.role,
+          avatar: resp.avatar,
+          avatar_is_default: resp.avatar_is_default,
+        };
         set({ token: resp.access_token, user, status: "authenticated" });
       } else {
         const me = await auth.me();

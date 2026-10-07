@@ -49,6 +49,13 @@ export interface User {
   username: string;
   role: UserRole;
   avatar?: string;
+  /**
+   * avatar_is_default marks `avatar` as the server's default avatar rather than an upload; it is
+   * absent on servers that predate default avatars, which omit `avatar` instead.
+   *
+   * 标记 `avatar` 为服务端默认头像而非用户上传的头像; 早于默认头像的服务端不返回该字段, 而是省略 `avatar`.
+   */
+  avatar_is_default?: boolean;
 }
 
 /**

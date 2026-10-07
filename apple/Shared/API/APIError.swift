@@ -10,6 +10,16 @@ enum APIError: Error, LocalizedError {
     case networkError(Error)
     case decodingError(Error)
 
+    /// Whether the server answered 401; the executor reports it as `.serverError(401, ...)`.
+    ///
+    /// 服务端是否返回了 401; 请求执行器会将其报告为 `.serverError(401, ...)`.
+    var isUnauthorized: Bool {
+        switch self {
+        case .unauthorized, .serverError(401, _, _): true
+        default: false
+        }
+    }
+
     /// LocalizedError bridge used by SwiftUI alerts and generic Error rendering.
     ///
     /// 供 SwiftUI alert 与通用 Error 展示使用的 LocalizedError 桥接.

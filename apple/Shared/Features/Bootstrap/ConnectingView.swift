@@ -4,6 +4,44 @@ struct ConnectingView: View {
     let serverAddress: String
 
     var body: some View {
+        #if os(tvOS)
+        tvBody
+        #else
+        iosBody
+        #endif
+    }
+
+    #if os(iOS)
+    private var iosBody: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            AppMark(size: 72)
+                .padding(.bottom, Spacing.xl)
+            Text(verbatim: "KMTV")
+                .font(AppFont.display)
+                .kerning(2)
+                .padding(.bottom, Spacing.xxl)
+            HStack(spacing: Spacing.sm) {
+                ProgressView()
+                Text("Connecting to server...", comment: "Bootstrap connecting status")
+                    .font(AppFont.secondary)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.bottom, Spacing.sm)
+            Text(serverAddress)
+                .font(AppFont.footnote.monospaced())
+                .foregroundStyle(.tertiary)
+            OfflineEntryButton(delay: .seconds(1.2))
+                .padding(.top, Spacing.xl)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+        .background(Surface.canvas)
+    }
+    #endif
+
+    #if os(tvOS)
+    private var tvBody: some View {
         ZStack {
             // Gradient background.
             //
@@ -77,19 +115,7 @@ struct ConnectingView: View {
         }
     }
 
-    private var iconSize: CGFloat {
-        #if os(tvOS)
-        80
-        #else
-        64
-        #endif
-    }
-
-    private var titleSize: CGFloat {
-        #if os(tvOS)
-        40
-        #else
-        32
-        #endif
-    }
+    private let iconSize: CGFloat = 80
+    private let titleSize: CGFloat = 40
+    #endif
 }

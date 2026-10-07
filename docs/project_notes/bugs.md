@@ -3,6 +3,42 @@
 Bugs worth remembering, newest first: what broke, why, how it was fixed, and how to avoid it again.
 Keep entries short; remove entries that no longer teach anything.
 
+### 2026-10-07 - Categories "All" showed only six titles
+- **Issue**: Movie, sub-category "All", region "All" listed six titles while "Hot" listed hundreds.
+- **Root Cause**: With no filter at all, Douban's `rexxar/api/v2/movie/recommend` answers a curated list of eight cards (six movies, a playlist, an ad); any filter, or `sort=U`, returns the full catalog (`total` 500).
+- **Solution**: `GetRecommendByFilters` adds `sort=U` when `selected_categories` is empty; covered by `TestDoubanGetRecommendByFiltersSortsUnfilteredRequests`.
+- **Prevention**: Check Douban's `total` when a list looks short before blaming the client.
+
+### 2026-10-07 - Categories load-more spinner never stopped
+- **Issue**: Switching sub-categories back and forth on iPad left a spinning indicator under the grid, and paging stopped.
+- **Root Cause**: `loadMore` resets `isLoadingMore` only when its generation is still current; a reload (`fetchItems`) during a page load bumped the generation, so the flag stayed true. iPad shows a whole page at once, so the last card's `onAppear` starts a page load immediately.
+- **Solution**: `fetchItems` clears `isLoadingMore` when it starts a generation; covered by `testReloadDuringLoadMoreClearsLoadingMore`.
+- **Prevention**: A flag guarded by a generation check must be reset by whoever bumps the generation.
+
+### 2026-10-07 - A reset server's 401 said "anonymous access is disabled"
+- **Issue**: After the dev server reset its database, relaunching the app showed "This server does not allow anonymous sign-in" instead of a session-expired message.
+- **Root Cause**: The executor reports 401 as `.serverError(401, 1002, ...)`, so bootstrap's `.unauthorized` branch never ran; both it and `.authExpired` toasted code 1002, which iOS translated as "anonymous access is disabled" although it only means "not logged in".
+- **Solution**: `.authExpired` (posted only for requests that carried a token) says "Session expired, please sign in again"; bootstrap stays silent for a rejected saved token and keeps the anonymous message only when no token was sent (`APIError.isUnauthorized`).
+- **Prevention**: Read 1002 with whether the request carried a token; never match `.unauthorized` alone for a 401.
+
+### 2026-10-07 - Web avatars 401 when anonymous access is off; avatars never refreshed after upload
+- **Issue**: Web drew avatars with `<img src="/api/v1/avatar/...">`, which 401s once `anonymous_access` is off; avatar URLs never changed, so browsers (max-age 3600) and the iOS view kept showing a replaced avatar.
+- **Root Cause**: The avatar route is protected and `middleware.Auth` reads only the `Authorization` header, which an `<img>` cannot send; the URL was `/api/v1/avatar/<username>` for every image a user ever had.
+- **Solution**: Web loads avatars through `api.avatarImage` and renders object URLs (`UserAvatar`); the server appends `?v=<default-N|content hash>` (ADR-020); iOS keys Kingfisher by content hash.
+- **Prevention**: Never point an image element at a protected route; version any cached URL whose content can change.
+
+### 2026-10-07 - Unit tests signed out the simulator session and wiped the cover registry
+- **Issue**: After `KMTVTests` ran, the app on the simulator was back at server setup, and favorites with refused covers lost their fallback.
+- **Root Cause**: The test host is the app itself: `APIClientTests` posted `.authExpired` and the live `AppViewModel` reset to server setup; `AppViewModelSyncTests` and `CoverRegistryTests` wrote to `UserDefaults.standard`.
+- **Solution**: Under XCTest the app renders `Color.clear` and never bootstraps (`KMTVApp.hostsUnitTests`); identity and cover tests use their own `UserDefaults` suites, and the host switches `CoverRegistry` to `KMTVTests.covers`.
+- **Prevention**: Tests never touch `UserDefaults.standard` or post app-wide notifications without isolating the host app.
+
+### 2026-10-06 - Covers saved before the cover-hint fix stayed blank
+- **Issue**: Continue watching and favorites still showed placeholders for shows whose records kept a source cover that answers 403, and opening them from continue watching passed the same bad cover on.
+- **Root Cause**: The 2026-10-06 cover fix only applied when a show was opened from a Douban card; existing records and continue-watching taps kept the source cover.
+- **Solution**: `CoverRegistry` records Douban card covers by normalized title; `ArtworkImage` loads the registered cover when the saved one fails, and continue-watching taps pass it as the cover hint, so the record heals on the next save.
+- **Prevention**: Treat stored upstream covers as unreliable and keep a fallback the app has already loaded (ADR-005).
+
 ### 2026-10-06 - Download progress and offline scrubbing dropped frames; two close buttons
 - **Issue**: On devices, the Downloads screen and the online player page dropped frames while downloads ran; dragging the offline player's scrubber dropped frames; the offline player showed two close buttons.
 - **Root Cause**: `DownloadManager.bump()` ran once per finished segment, re-rendering the root `TabView`, the whole `PlayerView`, and the Downloads screens (per-row fetches, JPEG decodes, `statfs`). The offline player saved progress on position jumps, and each save rebuilt its view model through `fullScreenCover`. It also drew its own close button over the system one.

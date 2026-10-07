@@ -20,6 +20,7 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAdminSettingsQuery } from "@/api/adminHooks";
 import { useAuth } from "@/auth/AuthContext";
 import { IncognitoAvatar } from "@/shared/ui/IncognitoAvatar";
+import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { useI18nStore, type Lang } from "@/store/i18nStore";
 
 // LANGS is the ordered list of selectable UI languages shown in the account popover.
@@ -97,8 +98,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
   // 否则显示用户名首字母作为缩写回退.
   function avatarContent() {
     if (isAnonymous) return <IncognitoAvatar label={t("nav:account.anonymous")} />;
-    if (auth.user?.avatar) return <img src={auth.user.avatar} alt="" />;
-    return <span>{auth.user?.username.slice(0, 1).toUpperCase()}</span>;
+    return (
+      <UserAvatar url={auth.user?.avatar} fallback={<span>{auth.user?.username.slice(0, 1).toUpperCase()}</span>} />
+    );
   }
 
   // handleLoginClick closes the popover and navigates to /login while preserving the

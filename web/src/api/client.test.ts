@@ -38,6 +38,26 @@ describe("APIClient", () => {
     );
   });
 
+  it("fetches avatar images with the bearer token", async () => {
+    const store = createMemoryTokenStore();
+    store.set({
+      accessToken: "Base58Token",
+      expiresAt: "2026-05-23T12:00:00Z",
+      user: { id: 1, username: "admin", role: "admin" },
+    });
+    const fetcher = vi.fn(
+      async () => new Response(new Blob(["GIF89a"]), { status: 200, headers: { "content-type": "image/gif" } }),
+    );
+    const client = createAPIClient({ baseURL: "https://kmtv.example", tokenStore: store, fetcher });
+
+    const blob = await client.avatarImage("/api/v1/avatar/admin?v=default-1");
+
+    expect(await blob.text()).toBe("GIF89a");
+    const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://kmtv.example/api/v1/avatar/admin?v=default-1");
+    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer Base58Token");
+  });
+
   it("stores login tokens and clears them on logout", async () => {
     const store = createMemoryTokenStore();
     const fetcher = vi

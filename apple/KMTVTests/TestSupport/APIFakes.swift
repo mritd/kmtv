@@ -94,6 +94,8 @@ final class DoubanAPIFake: DoubanAPIProtocol, @unchecked Sendable {
     var recommend = DoubanListResponse(items: [])
     var recommendResponses: [DoubanListResponse] = []
     var recommendRequests: [(kind: String, tag: String, format: String, region: String, start: Int, count: Int)] = []
+    /// Awaited once by the next recommend call before it answers, to hold that request in flight.
+    var recommendGate: (@Sendable () async -> Void)?
 
     func doubanHome() async throws -> DoubanHomeResponse {
         if let homeError { throw homeError }
@@ -109,6 +111,10 @@ final class DoubanAPIFake: DoubanAPIProtocol, @unchecked Sendable {
         count: Int
     ) async throws -> DoubanListResponse {
         recommendRequests.append((kind: kind, tag: tag, format: format, region: region, start: start, count: count))
+        if let gate = recommendGate {
+            recommendGate = nil
+            await gate()
+        }
         if !recommendResponses.isEmpty {
             return recommendResponses.removeFirst()
         }

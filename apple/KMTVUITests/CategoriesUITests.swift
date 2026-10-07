@@ -159,9 +159,7 @@ final class CategoriesUITests: XCTestCase {
         saveScreenshot(named: "03_popular")
 
         // Region selection
-        let chineseRegion = app.buttons.matching(identifier: "region_华语").firstMatch
-        XCTAssertTrue(chineseRegion.waitForExistence(timeout: 10), "Chinese region should appear")
-        chineseRegion.tap()
+        XCTAssertTrue(selectRegion("华语", timeout: 10), "Chinese region should appear")
         sleep(3)
         saveScreenshot(named: "04_chinese_region")
     }
@@ -222,12 +220,10 @@ final class CategoriesUITests: XCTestCase {
             }
 
             for region in tab.regions where region != "全部" {
-                let regionBtn = app.buttons.matching(identifier: "region_\(region)").firstMatch
-                guard regionBtn.waitForExistence(timeout: 5) else {
+                guard selectRegion(region, timeout: 5) else {
                     failures.append("\(tab.name)/region \(region): not found")
                     continue
                 }
-                regionBtn.tap()
                 sleep(4)
 
                 let emptyState = app.staticTexts.matching(identifier: "categoriesEmptyState").firstMatch
@@ -236,9 +232,7 @@ final class CategoriesUITests: XCTestCase {
                 }
             }
 
-            let allRegionBtn = app.buttons.matching(identifier: "region_全部").firstMatch
-            if allRegionBtn.waitForExistence(timeout: 3) {
-                allRegionBtn.tap()
+            if !tab.regions.isEmpty, selectRegion("全部", timeout: 3) {
                 sleep(1)
             }
         }
@@ -246,5 +240,16 @@ final class CategoriesUITests: XCTestCase {
         if !failures.isEmpty {
             XCTFail("Categories with no data:\n" + failures.joined(separator: "\n"))
         }
+    }
+
+    /// Opens the region menu on the filter bar and picks `name`.
+    private func selectRegion(_ name: String, timeout: TimeInterval) -> Bool {
+        let menu = app.buttons.matching(identifier: "regionMenu").firstMatch
+        guard menu.waitForExistence(timeout: timeout) else { return false }
+        menu.tap()
+        let item = app.buttons.matching(identifier: "region_\(name)").firstMatch
+        guard item.waitForExistence(timeout: timeout) else { return false }
+        item.tap()
+        return true
     }
 }

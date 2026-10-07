@@ -85,6 +85,12 @@ final class CategoriesViewModel {
         fetchGeneration += 1
         let gen = fetchGeneration
         isLoading = true
+        // A page load of the previous generation leaves the flag alone when it returns, so clear it
+        // here, or the load-more spinner stays and paging stops.
+        //
+        // 上一代次的分页加载返回时不会改动该标记, 因此在此清除; 否则 "加载更多" 的转圈会一直显示,
+        // 分页也随之停止.
+        isLoadingMore = false
         currentStart = 0
         hasMore = true
         defer { if gen == fetchGeneration { isLoading = false } }
@@ -105,6 +111,9 @@ final class CategoriesViewModel {
             // 用户切换分类筛选后, 忽略已取消或过期的响应.
             guard !Task.isCancelled, gen == fetchGeneration else { return }
             items = response.items
+            #if os(iOS)
+            CoverRegistry.remember(response.items, baseURL: (apiClient as? APIClient)?.baseURL ?? "")
+            #endif
             currentStart = response.items.count
             hasMore = response.items.count >= pageSize
         } catch {
@@ -140,6 +149,9 @@ final class CategoriesViewModel {
             let existingIds = Set(items.map(\.id))
             let newItems = response.items.filter { !existingIds.contains($0.id) }
             items.append(contentsOf: newItems)
+            #if os(iOS)
+            CoverRegistry.remember(newItems, baseURL: (apiClient as? APIClient)?.baseURL ?? "")
+            #endif
             currentStart += response.items.count
             hasMore = response.items.count >= pageSize
         } catch {

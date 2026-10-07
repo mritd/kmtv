@@ -1,7 +1,9 @@
+#if os(iOS)
 import SwiftUI
 
 struct AdminView: View {
     @Environment(AppViewModel.self) private var appVM
+    @Environment(\.appTheme) private var theme
     @State private var viewModel: AdminViewModel?
     @State private var selectedTab = 0
 
@@ -13,11 +15,9 @@ struct AdminView: View {
                 ProgressView()
             }
         }
-        .background(Theme.bgPrimary)
+        .readableColumn()
         .navigationTitle("Admin")
-        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        #endif
         .task {
             if viewModel == nil, let client = appVM.apiClient {
                 let vm = AdminViewModel(apiClient: client, currentUserId: appVM.currentUser?.id ?? 0)
@@ -52,8 +52,12 @@ struct AdminView: View {
                 Text("Settings").tag(3)
             }
             .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .padding(.vertical, 8)
+            // As wide as the lists' readable column on iPad.
+            //
+            // 在 iPad 上与列表的可读栏同宽.
+            .frame(maxWidth: PageLayout.readableWidth)
+            .padding(.horizontal, Spacing.page)
+            .padding(.vertical, Spacing.sm)
 
             Group {
                 switch selectedTab {
@@ -94,27 +98,28 @@ struct AdminView: View {
     private func sourcesTab(_ vm: AdminViewModel) -> some View {
         List {
             Section {
+                ForEach(sortedSources, id: \.id) { source in
+                    sourceRow(source, vm: vm)
+                }
+            } header: {
                 HStack {
                     let healthy = vm.sources.filter { $0.health == "healthy" }.count
                     Text("Healthy: \(healthy)/\(vm.sources.count)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
                     Spacer()
                     Button {
                         Task { await vm.checkAllSources() }
                     } label: {
                         if vm.isCheckingAll {
-                            ProgressView()
+                            ProgressView().controlSize(.small)
                         } else {
                             Text("Check All")
                         }
                     }
+                    .font(AppFont.footnote.weight(.semibold))
                     .disabled(vm.isCheckingAll)
                 }
-            }
-
-            ForEach(sortedSources, id: \.id) { source in
-                sourceRow(source, vm: vm)
+                .textCase(nil)
             }
         }
     }
@@ -125,12 +130,12 @@ struct AdminView: View {
             Circle()
                 .fill(healthColor(source.health))
                 .frame(width: 8, height: 8)
-            VStack(alignment: .leading) {
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
                 HStack(spacing: 6) {
-                    Text(source.name).font(.body)
+                    Text(source.name).font(AppFont.body).lineLimit(1)
                     if source.isAdult {
                         Text("NSFW")
-                            .font(.caption2)
+                            .font(AppFont.meta.weight(.semibold))
                             .foregroundStyle(.red)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -138,7 +143,7 @@ struct AdminView: View {
                             .clipShape(Capsule())
                     }
                 }
-                Text(source.key).font(.caption).foregroundStyle(.secondary)
+                Text(source.key).font(AppFont.footnote).foregroundStyle(.secondary)
             }
             Spacer()
             Toggle("", isOn: Binding(
@@ -160,8 +165,7 @@ struct AdminView: View {
         List {
             Section {
                 Button("Add Subscription") { showAddSub = true }
-                    .listRowBackground(Theme.bgCard)
-            }
+                                }
             ForEach(vm.subscriptions, id: \.id) { sub in
                 subscriptionRow(sub, vm: vm)
             }
@@ -184,7 +188,7 @@ struct AdminView: View {
     private func subscriptionRow(_ sub: Subscription, vm: AdminViewModel) -> some View {
         HStack {
             VStack(alignment: .leading) {
-                Text(sub.url).font(.caption).lineLimit(1)
+                Text(sub.url).font(AppFont.footnote).lineLimit(1)
                 HStack(spacing: 4) {
                     Text(String(localized: "Interval (seconds)"))
                     Text("\(sub.interval)")
@@ -192,7 +196,7 @@ struct AdminView: View {
                     Text(String(localized: "Auto Sync"))
                     Text(sub.autoUpdate ? String(localized: "Yes") : String(localized: "No"))
                 }
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(AppFont.meta).foregroundStyle(.secondary)
             }
             Spacer()
             Button {
@@ -207,7 +211,7 @@ struct AdminView: View {
                     Text("Sync")
                 }
             }
-            .font(.caption)
+            .font(AppFont.footnote)
             .disabled(vm.syncingSubId != nil)
         }
     }
@@ -234,7 +238,7 @@ struct AdminView: View {
                         )
                     if isSubURLInvalid {
                         Text(String(localized: "Invalid URL format, must start with http:// or https://"))
-                            .font(.caption2)
+                            .font(AppFont.meta)
                             .foregroundStyle(.red)
                     }
                 }
@@ -276,8 +280,7 @@ struct AdminView: View {
         List {
             Section {
                 Button("Add User") { showAddUser = true }
-                    .listRowBackground(Theme.bgCard)
-            }
+                                }
             ForEach(vm.users, id: \.id) { user in
                 userRow(user, vm: vm)
             }
@@ -307,7 +310,7 @@ struct AdminView: View {
             Spacer()
             if user.allowAdultContent {
                 Text("NSFW")
-                    .font(.caption)
+                    .font(AppFont.footnote)
                     .foregroundStyle(Color.red)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2)
@@ -315,11 +318,11 @@ struct AdminView: View {
                     .clipShape(Capsule())
             }
             Text(user.role == "admin" ? String(localized: "Admin") : String(localized: "Regular User"))
-                .font(.caption)
-                .foregroundStyle(user.role == "admin" ? Color.orange : Color.green)
+                .font(AppFont.footnote)
+                .foregroundStyle(user.role == "admin" ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 2)
-                .background(user.role == "admin" ? Color.orange.opacity(0.2) : Color.green.opacity(0.2))
+                .background(user.role == "admin" ? theme.accentTint : Surface.fill)
                 .clipShape(Capsule())
         }
         .deleteDisabled(user.id == vm.currentUserId)
@@ -338,7 +341,7 @@ struct AdminView: View {
                 SecureField("Confirm Password", text: $newUserConfirmPassword)
                 if !newUserConfirmPassword.isEmpty && !passwordsMatch {
                     Text("Passwords do not match")
-                        .font(.caption)
+                        .font(AppFont.footnote)
                         .foregroundStyle(.red)
                 }
                 Picker("Role", selection: $newUserRole) {
@@ -380,24 +383,17 @@ struct AdminView: View {
             Section {
                 Toggle("Anonymous Access", isOn: settingBinding(vm, key: "anonymous_access"))
                 Toggle("NSFW Filter", isOn: settingBinding(vm, key: "nsfw_filter_enabled"))
+                Toggle("Ad Filter", isOn: settingBinding(vm, key: "ad_filter_enabled"))
             }
             Section {
-                Picker("Access Token TTL", selection: ttlBinding(vm, key: "access_token_ttl", defaultValue: "604800")) {
-                    Text("7 Days").tag("604800")
-                    Text("30 Days").tag("2592000")
-                    Text("365 Days").tag("31536000")
-                }
-                Picker("Media Token TTL", selection: ttlBinding(vm, key: "media_token_ttl", defaultValue: "1800")) {
-                    Text("15 Minutes").tag("900")
-                    Text("30 Minutes").tag("1800")
-                    Text("60 Minutes").tag("3600")
-                    Text("120 Minutes").tag("7200")
-                }
+                ttlPicker("Access Token TTL", vm, key: "access_token_ttl", defaultSeconds: 604_800,
+                          presets: [604_800, 2_592_000, 31_536_000])
+                ttlPicker("Media Token TTL", vm, key: "media_token_ttl", defaultSeconds: 21_600,
+                          presets: [1_800, 3_600, 21_600, 43_200, 86_400])
                 Picker("Playback Mode", selection: playbackModeBinding(vm)) {
                     Text("Backend Proxy").tag("proxy")
                     Text("Client Direct").tag("direct")
                 }
-                Toggle("Filter Inserted Ads", isOn: settingBinding(vm, key: "ad_filter_enabled"))
                 Picker("Image Proxy", selection: imageProxyBinding(vm)) {
                     Text("Backend Proxy").tag("server")
                     Text("Client Direct").tag("direct")
@@ -477,6 +473,24 @@ struct AdminView: View {
                 Task { await vm.updateSetting(key: "douban_image_proxy", value: newValue) }
             }
         )
+    }
+
+    /// A TTL picker over `presets`, in seconds. A stored value outside the presets (the Web admin
+    /// accepts any number of seconds) is listed too, so the picker never shows an empty selection.
+    ///
+    /// 以秒为单位, 在 `presets` 中选择有效期的选择器. 不在预设中的已存值 (Web 管理端允许任意秒数)
+    /// 也会列出, 因此选择器不会显示空白.
+    private func ttlPicker(_ title: LocalizedStringKey, _ vm: AdminViewModel, key: String,
+                           defaultSeconds: Int, presets: [Int]) -> some View {
+        let selection = ttlBinding(vm, key: key, defaultValue: String(defaultSeconds))
+        let current = Int(selection.wrappedValue)
+        let options = presets + (current.map { presets.contains($0) || $0 <= 0 ? [] : [$0] } ?? [])
+        return Picker(title, selection: selection) {
+            ForEach(options.sorted(), id: \.self) { seconds in
+                Text(Duration.seconds(seconds).formatted(.units(allowed: [.days, .hours, .minutes], width: .wide)))
+                    .tag(String(seconds))
+            }
+        }
     }
 
     /// Builds a picker binding for TTL settings stored as seconds.
@@ -565,3 +579,4 @@ private struct NumericSettingField: View {
         Task { await onCommit(clamped) }
     }
 }
+#endif

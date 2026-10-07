@@ -322,14 +322,16 @@ func (s *Store) UpdateAvatar(id int64, avatar string) error {
 	return checkRowsAffected(result)
 }
 
-// GetAvatar returns the base64 data URL for the given username's avatar.
+// GetAvatar returns the base64 data URL for the given username's avatar, empty when the user has
+// none, or errs.ErrNotFound when no such user exists.
 //
-// GetAvatar 返回指定用户名头像的 base64 data URL.
+// GetAvatar 返回指定用户名头像的 base64 data URL; 用户没有头像时为空,
+// 用户不存在时返回 errs.ErrNotFound.
 func (s *Store) GetAvatar(username string) (string, error) {
 	var avatar string
 	err := s.db.QueryRow(`SELECT avatar FROM users WHERE username = ?`, username).Scan(&avatar)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+		return "", errs.ErrNotFound
 	}
 	if err != nil {
 		return "", fmt.Errorf("get avatar: %w", err)

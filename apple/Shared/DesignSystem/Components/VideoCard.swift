@@ -7,13 +7,19 @@ struct VideoCard: View {
     let subtitle: String?
     let rating: String?
     let apiClient: APIClient?
+    /// Watch progress from 0 to 1, drawn along the bottom edge on iOS.
+    ///
+    /// 0 到 1 的观看进度, 在 iOS 上绘制于底边.
+    let progress: Double?
 
-    init(title: String, cover: String, subtitle: String? = nil, rating: String? = nil, apiClient: APIClient? = nil) {
+    init(title: String, cover: String, subtitle: String? = nil, rating: String? = nil, apiClient: APIClient? = nil,
+         progress: Double? = nil) {
         self.title = title
         self.cover = cover
         self.subtitle = subtitle
         self.rating = rating
         self.apiClient = apiClient
+        self.progress = progress
     }
 
     var body: some View {
@@ -26,38 +32,33 @@ struct VideoCard: View {
 
     #if os(iOS)
     private var iosBody: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ZStack(alignment: .topTrailing) {
-                KFImage(imageURL)
-                    .placeholder { placeholder }
-                    .fade(duration: 0.25)
-                    .resizable()
-                    .aspectRatio(2/3, contentMode: .fill)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                Text(rating != nil && !rating!.isEmpty && rating != "0" ? rating! : String(localized: "N/A"))
-                    .font(.system(size: ratingFontSize, weight: .bold).monospacedDigit())
-                    .foregroundStyle(Theme.accent)
-                    .fixedSize()
-                    .padding(.horizontal, ratingPadH)
-                    .padding(.vertical, ratingPadV)
-                    .background(Theme.ratingBadgeBg)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-                    .padding(ratingInset)
-            }
-            .aspectRatio(2/3, contentMode: .fit)
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            Color.clear
+                .aspectRatio(2/3, contentMode: .fit)
+                .overlay { ArtworkImage(url: imageURL, title: title) }
+                .overlay(alignment: .topTrailing) {
+                    if let badge = RatingBadge.text(for: rating) {
+                        RatingBadge(rating: badge).padding(6)
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    if let progress { ArtworkProgressBar(fraction: progress) }
+                }
+                .artworkFrame()
 
             Text(title)
-                .font(.caption)
+                .font(AppFont.caption)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-            if let subtitle {
+                .padding(.top, Spacing.xxs)
+            if let subtitle, !subtitle.isEmpty {
                 Text(subtitle)
-                    .font(.caption2)
+                    .font(AppFont.meta)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
         }
+        .accessibilityElement(children: .combine)
     }
     #endif
 
@@ -109,37 +110,12 @@ struct VideoCard: View {
     }
     #endif
 
-    private var ratingFontSize: CGFloat {
-        #if os(tvOS)
-        16
-        #else
-        10
-        #endif
-    }
-
-    private var ratingPadH: CGFloat {
-        #if os(tvOS)
-        8
-        #else
-        4
-        #endif
-    }
-
-    private var ratingPadV: CGFloat {
-        #if os(tvOS)
-        4
-        #else
-        2
-        #endif
-    }
-
-    private var ratingInset: CGFloat {
-        #if os(tvOS)
-        8
-        #else
-        4
-        #endif
-    }
+    #if os(tvOS)
+    private let ratingFontSize: CGFloat = 16
+    private let ratingPadH: CGFloat = 8
+    private let ratingPadV: CGFloat = 4
+    private let ratingInset: CGFloat = 8
+    #endif
 
     private var imageURL: URL? {
         guard !cover.isEmpty else { return nil }
@@ -149,6 +125,7 @@ struct VideoCard: View {
         return URL(string: cover)
     }
 
+    #if os(tvOS)
     private var placeholder: some View {
         RoundedRectangle(cornerRadius: 8)
             .fill(Theme.bgCard)
@@ -158,4 +135,5 @@ struct VideoCard: View {
                     .foregroundStyle(.secondary)
             }
     }
+    #endif
 }

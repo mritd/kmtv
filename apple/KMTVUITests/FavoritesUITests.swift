@@ -132,7 +132,7 @@ final class FavoritesUITests: XCTestCase {
         saveScreenshot(named: "01_favorites_tab")
 
         // Check if there are any favorite items to tap
-        let firstCell = app.cells.firstMatch
+        let firstCell = app.buttons.matching(identifier: "favoriteItem").firstMatch
         guard firstCell.waitForExistence(timeout: 5) else {
             // No favorites — verify empty state instead
             saveScreenshot(named: "02_no_favorites_empty")

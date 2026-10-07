@@ -327,6 +327,138 @@ final class DownloadManager {
     /// 当前是否可以加入下载 (存在已登录的作用域与准备器).
     var canDownload: Bool { activeScopeKey != nil && hasPreparer }
 
+    // MARK: - Library
+
+    // The library is every download on the device, whatever server or account it was made under:
+    // anyone, signed in, anonymous, or offline, can play and delete it. Copies of one show or episode
+    // under several accounts read as one. Only the active scope's unfinished episodes can be
+    // paused, resumed, or retried, since that needs its account's media tokens.
+    //
+    // 下载库即本机上的全部下载, 无论它是在哪个服务器或账号下完成的: 任何人 (已登录, 匿名或离线) 都可以
+    // 播放和删除. 同一部剧或同一集在多个账号下的副本视为一份. 只有当前作用域中未完成的剧集可以暂停, 继续
+    // 或重试, 因为这需要其账号的媒体 token.
+
+    /// One show per show key across scopes, newest first; the active scope's row stands for the
+    /// show when it has one.
+    ///
+    /// 跨作用域按剧集键每部剧一行, 最新的在前; 当前作用域有该剧时以其数据行代表该剧.
+    func libraryShows() -> [DownloadShow] {
+        let all = (try? context.fetch(FetchDescriptor<DownloadShow>(
+            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]))) ?? []
+        var picked: [String: DownloadShow] = [:]
+        var order: [String] = []
+        for show in all {
+            guard let current = picked[show.showKey] else {
+                picked[show.showKey] = show
+                order.append(show.showKey)
+                continue
+            }
+            if show.scopeKey == activeScopeKey && current.scopeKey != activeScopeKey { picked[show.showKey] = show }
+        }
+        return order.compactMap { picked[$0] }
+    }
+
+    /// The library row of one show.
+    ///
+    /// 某部剧在下载库中的数据行.
+    func libraryShow(showKey: String) -> DownloadShow? {
+        let descriptor = FetchDescriptor<DownloadShow>(predicate: #Predicate { $0.showKey == showKey })
+        let rows = (try? context.fetch(descriptor)) ?? []
+        return rows.first { $0.scopeKey == activeScopeKey } ?? rows.max { $0.createdAt < $1.createdAt }
+    }
+
+    /// One episode per (show, source, video, index) across scopes, optionally of one show, ordered
+    /// by source then index. A completed copy wins, then the active scope's, then the newest.
+    ///
+    /// 跨作用域按 (剧集, 来源, 视频, 序号) 每集一行, 可限定某部剧, 按来源再按序号排序. 已完成的副本优先,
+    /// 其次是当前作用域的, 再次是最新的.
+    func libraryEpisodes(showKey: String? = nil) -> [DownloadEpisode] {
+        let descriptor: FetchDescriptor<DownloadEpisode>
+        if let showKey {
+            descriptor = FetchDescriptor(predicate: #Predicate { $0.showKey == showKey })
+        } else {
+            descriptor = FetchDescriptor()
+        }
+        var picked: [String: DownloadEpisode] = [:]
+        for ep in (try? context.fetch(descriptor)) ?? [] {
+            let key = Self.libraryKey(ep)
+            if let current = picked[key], !libraryPrefers(ep, over: current) { continue }
+            picked[key] = ep
+        }
+        return picked.values.sorted { ($0.sourceKey, $0.episodeIndex) < ($1.sourceKey, $1.episodeIndex) }
+    }
+
+    /// Whether any scope has a completed episode.
+    ///
+    /// 是否有任一作用域存在已完成的剧集.
+    var hasCompletedDownloads: Bool {
+        let completed = DownloadState.completed.rawValue
+        let descriptor = FetchDescriptor<DownloadEpisode>(predicate: #Predicate { $0.stateRaw == completed })
+        return ((try? context.fetchCount(descriptor)) ?? 0) > 0
+    }
+
+    /// Whether this device can pause, resume, or retry the episode: it belongs to the signed-in
+    /// account.
+    ///
+    /// 本机能否暂停, 继续或重试该集: 它属于当前登录的账号.
+    func canManage(_ ep: DownloadEpisode) -> Bool {
+        ep.scopeKey == activeScopeKey && hasPreparer
+    }
+
+    /// Deletes every copy of an episode across scopes.
+    ///
+    /// 删除某一集在所有作用域中的副本.
+    func deleteFromLibrary(_ ep: DownloadEpisode) async {
+        let key = Self.libraryKey(ep)
+        let showKey = ep.showKey
+        let copies = ((try? context.fetch(FetchDescriptor<DownloadEpisode>(
+            predicate: #Predicate { $0.showKey == showKey }))) ?? []).filter { Self.libraryKey($0) == key }
+        for copy in copies { await delete(copy) }
+    }
+
+    /// Deletes every copy of a show across scopes.
+    ///
+    /// 删除某部剧在所有作用域中的副本.
+    func deleteShowFromLibrary(showKey: String) async {
+        let descriptor = FetchDescriptor<DownloadShow>(predicate: #Predicate { $0.showKey == showKey })
+        for show in (try? context.fetch(descriptor)) ?? [] { await deleteShow(show) }
+    }
+
+    /// Deletes every download on the device.
+    ///
+    /// 删除本机上的全部下载.
+    func deleteAllDownloads() async {
+        let shows = (try? context.fetch(FetchDescriptor<DownloadShow>())) ?? []
+        let episodes = (try? context.fetch(FetchDescriptor<DownloadEpisode>())) ?? []
+        for scope in Set(shows.map(\.scopeKey) + episodes.map(\.scopeKey)) { await deleteScope(scope) }
+    }
+
+    /// Deletes a scope's unfinished episodes that another account already downloaded, for example
+    /// a copy paused at sign-out that a second account then finished. The library shows the
+    /// completed copy, so the unfinished one would download unseen.
+    ///
+    /// 删除某个作用域中已被其他账号下载完成的未完成剧集, 例如登出时暂停, 随后被另一个账号下载完成的
+    /// 副本. 下载库显示已完成的那份, 未完成的副本会在看不见的情况下继续下载.
+    private func dropRedundantCopies(in scopeKey: String) async {
+        let redundant = episodes(in: scopeKey).filter { ep in
+            ep.state != .completed && completedCopy(showKey: ep.showKey, sourceKey: ep.sourceKey,
+                                                    videoId: ep.videoId, episodeIndex: ep.episodeIndex) != nil
+        }
+        for ep in redundant { await delete(ep) }
+    }
+
+    private static func libraryKey(_ ep: DownloadEpisode) -> String {
+        "\(ep.showKey)/\(ep.episodeDir)"
+    }
+
+    private func libraryPrefers(_ ep: DownloadEpisode, over current: DownloadEpisode) -> Bool {
+        let done = ep.state == .completed, currentDone = current.state == .completed
+        if done != currentDone { return done }
+        let active = ep.scopeKey == activeScopeKey, currentActive = current.scopeKey == activeScopeKey
+        if active != currentActive { return active }
+        return ep.createdAt > current.createdAt
+    }
+
     // MARK: - Queries
 
     /// Shows of a scope, newest first.
@@ -490,6 +622,7 @@ final class DownloadManager {
         }
         saveContext()
         bump()
+        await dropRedundantCopies(in: scopeKey)
         await reconcile()
         schedulePump()
         retryMissingCovers(scopeKey: scopeKey)
@@ -596,6 +729,12 @@ final class DownloadManager {
         var order = (episodes(in: scopeKey).map(\.queueOrder).max() ?? 0) + 1
         var added = 0
         for request in requests {
+            // Downloads are local first: an episode another account already downloaded plays from
+            // that copy, so it is not downloaded twice.
+            //
+            // 下载是本地优先的: 其他账号已下载的剧集会播放那份副本, 因此不会重复下载.
+            if completedCopy(showKey: showKey, sourceKey: request.sourceKey, videoId: request.videoId,
+                             episodeIndex: request.episodeIndex) != nil { continue }
             if let existing = episode(scopeKey: scopeKey, sourceKey: request.sourceKey, videoId: request.videoId,
                                       episodeIndex: request.episodeIndex) {
                 // Picking a failed or paused episode again retries or resumes it.
@@ -769,7 +908,6 @@ final class DownloadManager {
             context.delete(ep)
         }
         for show in shows(in: scopeKey) { context.delete(show) }
-        if server?.root == layout.scopeDir(hash) { stopServer() }
         try? FileManager.default.removeItem(at: layout.scopeDir(hash))
         saveContext()
         bump()
@@ -840,18 +978,20 @@ final class DownloadManager {
 
     // MARK: - Playback
 
-    /// Loopback URL of a completed episode; starts the server for the episode's scope.
+    /// Loopback URL of a completed episode. One server rooted at the downloads directory serves
+    /// every scope, so playing the next episode from another account's download never restarts it
+    /// under the item that is still playing.
     ///
-    /// 已完成剧集的 loopback URL; 会为该集所属作用域启动服务.
+    /// 已完成剧集的 loopback URL. 一个以下载目录为根的服务覆盖所有作用域, 因此播放另一个账号下载的
+    /// 下一集时, 不会在仍在播放的 item 下重启服务.
     func localPlaybackURL(for ep: DownloadEpisode) async throws -> URL {
-        let scopeDir = layout.scopeDir(ep.scopeHash)
-        if server?.root != scopeDir {
+        if server?.root != layout.root {
             server?.stop()
-            server = LocalMediaServer(root: scopeDir)
+            server = LocalMediaServer(root: layout.root)
         }
         guard let server else { throw LocalMediaServerError.notReady }
         _ = try await server.start()
-        guard let url = server.url(forRelativePath: "\(ep.showDir)/\(ep.episodeDir)/index.m3u8") else {
+        guard let url = server.url(forRelativePath: "\(ep.scopeHash)/\(ep.showDir)/\(ep.episodeDir)/index.m3u8") else {
             throw LocalMediaServerError.notReady
         }
         return url
@@ -1648,16 +1788,35 @@ final class DownloadManager {
 extension DownloadManager: DownloadScopeControlling {}
 
 extension DownloadManager: LocalEpisodeProviding {
-    func localPlaybackURL(scopeKey: String, sourceKey: String, videoId: String, episodeIndex: Int) async -> URL? {
-        guard let ep = episode(scopeKey: scopeKey, sourceKey: sourceKey, videoId: videoId, episodeIndex: episodeIndex),
-              ep.state == .completed else { return nil }
+    func localPlaybackURL(showKey: String, sourceKey: String, videoId: String, episodeIndex: Int) async -> URL? {
+        guard let ep = completedCopy(showKey: showKey, sourceKey: sourceKey, videoId: videoId,
+                                     episodeIndex: episodeIndex) else { return nil }
         return try? await localPlaybackURL(for: ep)
     }
 
-    func reportPlaybackFailure(scopeKey: String, sourceKey: String, videoId: String, episodeIndex: Int) {
-        guard let ep = episode(scopeKey: scopeKey, sourceKey: sourceKey, videoId: videoId, episodeIndex: episodeIndex),
-              ep.state == .completed, !filesIntact(ep) else { return }
+    func reportPlaybackFailure(showKey: String, sourceKey: String, videoId: String, episodeIndex: Int) {
+        guard let ep = completedCopy(showKey: showKey, sourceKey: sourceKey, videoId: videoId,
+                                     episodeIndex: episodeIndex),
+              !filesIntact(ep) else { return }
         markDamaged(ep)
+    }
+}
+
+extension DownloadManager {
+    /// A completed copy of the episode in any scope, the active scope's first. The show key is part
+    /// of the match, since source keys are names each server's admin picks and two servers can
+    /// reuse one for different upstreams.
+    ///
+    /// 任一作用域中该集的已完成副本, 优先当前作用域. 剧集键也参与匹配, 因为来源键是各服务端管理员自定义
+    /// 的名称, 两个服务端可能把同一个名称用于不同的上游.
+    func completedCopy(showKey: String, sourceKey: String, videoId: String, episodeIndex: Int) -> DownloadEpisode? {
+        let completed = DownloadState.completed.rawValue
+        let descriptor = FetchDescriptor<DownloadEpisode>(predicate: #Predicate {
+            $0.showKey == showKey && $0.sourceKey == sourceKey && $0.videoId == videoId
+                && $0.episodeIndex == episodeIndex && $0.stateRaw == completed
+        })
+        let copies = (try? context.fetch(descriptor)) ?? []
+        return copies.first { $0.scopeKey == activeScopeKey } ?? copies.max { $0.createdAt < $1.createdAt }
     }
 }
 

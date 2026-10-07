@@ -5,8 +5,9 @@
  *
  * Responsibilities / 职责:
  *   - Show the current avatar image, or the user's username initial when no avatar is set.
+ *     The server's default avatar is shown but offers no delete button.
  *
- *     显示当前头像图片, 无头像时显示用户名首字母.
+ *     显示当前头像图片, 无头像时显示用户名首字母. 服务端默认头像会显示, 但不提供删除按钮.
  *
  *   - Trigger a hidden <input type="file"> picker on upload button click.
  *
@@ -40,6 +41,7 @@ import { useAPI } from "@/api/context";
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/shared/ui/Button";
 import { toast } from "@/shared/ui/Toast";
+import { UserAvatar } from "@/shared/ui/UserAvatar";
 
 /**
  * MAX_AVATAR_BYTES mirrors the backend ceiling (256 KB) so the client can refuse obvious oversize
@@ -76,6 +78,10 @@ export function AvatarField() {
 
   const user = auth.user;
   const initial = user?.username?.slice(0, 1).toUpperCase() ?? "?";
+  // Only an uploaded avatar can be deleted; the server's default one is not stored per user.
+  //
+  // 只有上传的头像可以删除; 服务端默认头像并未按用户保存.
+  const hasUpload = Boolean(user?.avatar) && !user?.avatar_is_default;
 
   // pickFile delegates click to the hidden file input so the browser opens the native file picker.
   // We use a ref rather than an imperative DOM query to keep the component testable.
@@ -120,7 +126,7 @@ export function AvatarField() {
     // Guard: skip if user has no avatar; button should also be hidden in this state.
     //
     // 防御: 用户无头像时跳过; 此状态下按钮也应隐藏.
-    if (!user?.avatar) return;
+    if (!hasUpload) return;
     setPending("delete");
     try {
       const updated = await api.deleteAvatar();
@@ -139,18 +145,14 @@ export function AvatarField() {
   return (
     <div className="avatar-field">
       <div className="avatar-field-image" aria-hidden="true">
-        {user?.avatar ? (
-          <img src={user.avatar} alt="" />
-        ) : (
-          <span className="avatar-field-initial">{initial}</span>
-        )}
+        <UserAvatar url={user?.avatar} fallback={<span className="avatar-field-initial">{initial}</span>} />
       </div>
       <div className="avatar-field-body">
         <div className="avatar-field-actions">
           <Button type="button" variant="secondary" onClick={pickFile} disabled={pending !== null}>
             {pending === "upload" ? t("avatar.uploadPending") : t("avatar.uploadButton")}
           </Button>
-          {user?.avatar ? (
+          {hasUpload ? (
             <Button type="button" variant="ghost" onClick={onDelete} disabled={pending !== null}>
               {pending === "delete" ? t("avatar.deletePending") : t("avatar.deleteButton")}
             </Button>

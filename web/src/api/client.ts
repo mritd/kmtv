@@ -117,6 +117,13 @@ export interface APIClient {
   changePassword(oldPassword: string, newPassword: string): Promise<void>;
   uploadAvatar(file: File): Promise<User>;
   deleteAvatar(): Promise<User>;
+  /**
+   * avatarImage fetches the image behind a user's `avatar` URL with the bearer header, since the
+   * avatar route is protected and an <img> cannot send it.
+   *
+   * 携带 bearer header 获取用户 `avatar` URL 对应的图片; 头像接口受保护, 而 <img> 无法携带该 header.
+   */
+  avatarImage(avatarURL: string, signal?: AbortSignal): Promise<Blob>;
   getSettings(): Promise<SettingsResponse>;
   updateSettings(settings: Record<string, string>): Promise<void>;
   search(query: string, page?: number): Promise<SearchResponse>;
@@ -240,10 +247,14 @@ export function createAPIClient(options: APIClientOptions): APIClient {
   const fetcher = options.fetcher ?? fetch;
   const tokenStore = options.tokenStore;
 
-  async function request<T>(
+  // send performs an authorized request and throws APIError on a non-2xx response; request and
+  // avatarImage decode the body.
+  //
+  // send 执行带认证的请求, 非 2xx 响应时抛出 APIError; 响应体由 request 与 avatarImage 解码.
+  async function send(
     path: string,
     init: RequestInit & { bodyJSON?: RequestBody; requiresAuth?: boolean } = {},
-  ): Promise<T> {
+  ): Promise<Response> {
     const { bodyJSON, requiresAuth = false, ...requestInit } = init;
     const headers = new Headers(requestInit.headers);
     const snapshot = tokenStore.get();
@@ -298,7 +309,14 @@ export function createAPIClient(options: APIClientOptions): APIClient {
       );
     }
 
-    return parseJSON<T>(response);
+    return response;
+  }
+
+  async function request<T>(
+    path: string,
+    init: RequestInit & { bodyJSON?: RequestBody; requiresAuth?: boolean } = {},
+  ): Promise<T> {
+    return parseJSON<T>(await send(path, init));
   }
 
   return {
@@ -313,6 +331,7 @@ export function createAPIClient(options: APIClientOptions): APIClient {
         username: response.username,
         role: response.role,
         avatar: response.avatar,
+        avatar_is_default: response.avatar_is_default,
       };
 
       tokenStore.set({
@@ -345,6 +364,10 @@ export function createAPIClient(options: APIClientOptions): APIClient {
       return request<User>("/auth/avatar", { method: "PUT", body });
     },
     deleteAvatar: () => request<User>("/auth/avatar", { method: "DELETE" }),
+    async avatarImage(avatarURL, signal) {
+      const path = avatarURL.startsWith("/api/v1/") ? avatarURL.slice("/api/v1".length) : avatarURL;
+      return (await send(path, { signal })).blob();
+    },
     getSettings: () => request<SettingsResponse>("/settings"),
     async updateSettings(settings) {
       await request<MessageResponse>("/admin/settings", {

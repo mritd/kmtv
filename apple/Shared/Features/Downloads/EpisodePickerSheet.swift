@@ -60,6 +60,7 @@ struct EpisodePickerSheet: View {
     let allowsCellular: Bool
     let onDownload: ([Int]) -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appTheme) private var theme
     @State private var selected: Set<Int> = []
 
     private var selectable: [Int] { episodes.indices.filter { badges[$0] == nil } }
@@ -67,16 +68,17 @@ struct EpisodePickerSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: Spacing.md) {
                     Text(DisplayFormatters.metaLine([title, sourceName], separator: " · "))
-                        .font(.caption)
-                        .foregroundStyle(Theme.textSecondary)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 76), spacing: 10)], spacing: 10) {
+                        .font(AppFont.footnote)
+                        .foregroundStyle(.secondary)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 76), spacing: Spacing.sm)], spacing: Spacing.sm) {
                         ForEach(episodes.indices, id: \.self) { index in cell(index) }
                     }
                 }
-                .padding()
+                .padding(Spacing.page)
             }
+            .background(Surface.canvas)
             .navigationTitle("Download Episodes")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -91,7 +93,6 @@ struct EpisodePickerSheet: View {
             }
             .safeAreaInset(edge: .bottom) { footer }
         }
-        .presentationDetents([.medium, .large])
     }
 
     private func cell(_ index: Int) -> some View {
@@ -101,59 +102,72 @@ struct EpisodePickerSheet: View {
             guard badge == nil else { return }
             if isSelected { selected.remove(index) } else { selected.insert(index) }
         } label: {
-            VStack(spacing: 3) {
-                Text(episodes[index].name).font(.footnote).lineLimit(1)
+            VStack(spacing: Spacing.xxs + 1) {
+                Text(episodes[index].name)
+                    .font(AppFont.control)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 Group {
                     switch badge {
                     case .downloaded: Text("Downloaded").foregroundStyle(.green)
-                    case .downloading: Text("Downloading").foregroundStyle(Theme.accent)
-                    case .queued: Text("Waiting").foregroundStyle(Theme.textSecondary)
+                    case .downloading: Text("Downloading").foregroundStyle(theme.accent)
+                    case .queued: Text("Waiting").foregroundStyle(.secondary)
                     case nil:
                         if let source = hints[index] {
-                            Text("From \(source)").foregroundStyle(Theme.textSecondary)
+                            Text("From \(source)").foregroundStyle(.secondary)
                         } else if isSelected {
-                            Text("Selected").foregroundStyle(Theme.accent)
+                            Text("Selected").foregroundStyle(theme.accent)
                         } else {
-                            Text(" ")
+                            Text(verbatim: " ")
                         }
                     }
                 }
-                .font(.caption2)
+                .font(AppFont.meta)
                 .lineLimit(1)
             }
-            .frame(maxWidth: .infinity, minHeight: 52)
-            .padding(.horizontal, 4)
-            .background(isSelected ? Theme.accent.opacity(0.18) : Theme.bgCard)
-            .overlay(RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(isSelected ? Theme.accent : .clear, lineWidth: 1.5))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .frame(maxWidth: .infinity, minHeight: 54)
+            .padding(.horizontal, Spacing.xs)
+            .background(isSelected ? theme.accentTint : Surface.raised,
+                        in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                .strokeBorder(isSelected ? theme.accent : .clear, lineWidth: 1.5))
             .opacity(badge == nil ? 1 : 0.55)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var footer: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Spacing.md) {
             HStack {
                 Text(allowsCellular ? "Downloads over cellular allowed" : "WiFi only · change in Me")
                 Spacer()
                 Text("Free \(DownloadFormatting.bytes(freeSpace))")
+                    .monospacedDigit()
             }
-            .font(.caption)
-            .foregroundStyle(Theme.textSecondary)
+            .font(AppFont.footnote)
+            .foregroundStyle(.secondary)
             Button {
                 onDownload(selected.sorted())
                 dismiss()
             } label: {
                 Text(selected.isEmpty ? String(localized: "Select episodes to download")
                      : String(localized: "Download \(selected.count) episodes"))
-                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .font(AppFont.bodyEmphasis)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    // A neutral fill until something is selected: the system disabled prominent
+                    // style turns into a near-black capsule on the dark bar.
+                    //
+                    // 未选择时使用中性填充: 系统的禁用态醒目按钮在深色底栏上会变成近乎全黑的胶囊.
+                    .foregroundStyle(selected.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(theme.onAccent))
+                    .background(selected.isEmpty ? AnyShapeStyle(Surface.fill) : AnyShapeStyle(theme.accent), in: Capsule())
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.pressable)
             .disabled(selected.isEmpty)
         }
-        .padding()
+        .padding(.horizontal, Spacing.page)
+        .padding(.vertical, Spacing.md)
         .background(.bar)
     }
 }
@@ -221,9 +235,15 @@ struct DownloadBadgesReader<Content: View>: View {
             }
     }
 
+    /// Completed downloads from any account, since they play locally whoever is signed in, plus the
+    /// active scope's unfinished ones, the only unfinished ones this device can act on.
+    ///
+    /// 任一账号的已完成下载 (无论谁登录都会本地播放), 以及当前作用域中未完成的下载 (本机只能操作这些).
     private func capture() -> DownloadBadgeSnapshot {
-        guard let scope = downloads.activeScopeKey, !title.isEmpty else { return DownloadBadgeSnapshot() }
-        let all = downloads.episodes(in: scope, showKey: normalizeSyncKey(title))
+        guard !title.isEmpty else { return DownloadBadgeSnapshot() }
+        let scope = downloads.activeScopeKey
+        let all = downloads.libraryEpisodes(showKey: normalizeSyncKey(title))
+            .filter { $0.state == .completed || $0.scopeKey == scope }
         return DownloadBadgeSnapshot(
             badges: EpisodePickerModel.badges(episodes: all, sourceKey: sourceKey, videoId: videoId,
                                               state: downloads.displayState(of:)),

@@ -30,6 +30,10 @@ struct DoubanItem: Codable, Sendable, Identifiable {
     let cover: String
     let rate: String
     let year: String
+    /// Douban synopsis; `/douban/home` fills it for a limited set of hero candidates only.
+    ///
+    /// Douban 简介; `/douban/home` 只为有限的 hero 候选条目填充该字段.
+    var desc: String? = nil
 }
 
 /// Category filter metadata response.
