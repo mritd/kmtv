@@ -2,6 +2,25 @@
 
 Completed and in-progress work, newest first. There is no issue tracker; entries name the branch instead of a ticket ID.
 
+### 2026-10-07 - feat/ios-redesign: iOS redesign, themes, offline entry, default avatar (ADR-019, ADR-020)
+- **Status**: Implemented on branch `feat/ios-redesign`, ready for review; spec in `docs/superpowers/specs/2026-10-06-ios-redesign-design.md`.
+- **Description**:
+  - iOS screens rebuilt on design tokens with five accent themes and a System/Light/Dark switch; new categories browser, player page, downloads, profile, and admin layouts. tvOS look unchanged.
+  - Offline viewing works without login or network for any known identity (ADR-017 amendment); the download header plays from the saved position (`DownloadResumePicker`).
+  - Refused covers fall back to `CoverRegistry`, and URLs refused with 403/404/410 are remembered so they are not retried.
+  - The server serves a default animated avatar and versioned avatar URLs (ADR-020); iOS, Web, and Android hide Remove for it, and Web loads avatars with the bearer header.
+  - Admin settings: "Ad Filter" sits with the other toggles; token TTL pickers list the stored value even when it is not a preset.
+  - Downloads are one device library whatever server or account made them, visible signed in, anonymous, and offline (ADR-017 amendment 2026-10-07).
+  - A rejected saved token at launch says the session expired instead of "anonymous access is disabled".
+  - iPad (regular width): media tabs scale posters, grids, and the hero (`MediaMetrics`); the home hero shows the poster on its blurred backdrop; categories use compact capsules; search shows two columns; the player puts episodes and settings in a right sidebar from 1000 pt wide; the download picker is a full form sheet; the hero shows the Douban synopsis (`desc` from `/douban/home`, preferred as on Web); toasts sit at the bottom so they clear the top tab bar. Categories (iPhone and iPad) drop the spotlight card and the pinned filter bar, add a back-to-top button, and give the status bar a material once scrolled. Server: unfiltered Douban recommend requests sort by `U`. Tab roots drop large titles there (the top tab bar names the page); Me and Admin sit in a 720 pt column, Downloads is full width. Download lists keep a selection only in edit mode, since an iPad `List(selection:)` also selects rows outside it. A local copy shows the time bar fully buffered and no buffer badge.
+- **Verification (2026-10-07)**: landscape screenshot tour on the iPad Pro 11-inch (M4) iOS 18.6 simulator; `KMTVTests` 401/401 on the iPhone 17 Pro simulator, `go test ./...` and `task lint`, Web 954 tests and `tsc`, Android 573 tests and `tsc`, tvOS build, dark-mode screenshot tour (`ScreenshotTourUITests`) including the region menu test.
+- **Open items**:
+  - Default avatar not yet seen end to end: the running dev server predates it; restart it from the worktree.
+  - Light-mode tour, iPad portrait, iPad Split View widths, and large Dynamic Type not re-checked after the last fixes.
+  - The full UI test suite was not run; it signs out the simulator session.
+  - `errs.NoAvatar` (1103) is no longer returned.
+  - 2026-10-07: `LocalMediaServerTests` and local playback failed with AVPlayer `-12746` and CoreAudio `-66680` (no default audio output) until both simulators were rebooted; afterwards 7/7 passed. The full `KMTVTests` suite was not rerun after the last iPad fixes.
+
 ### 2026-10-06 - feat/ios-offline-downloads: iOS offline downloads (ADR-017)
 - **Status**: Implemented on branch `feat/ios-offline-downloads`; ready for review.
 - **Description**: The iOS app downloads HLS episodes through a background `URLSession` and plays them through a loopback media server. It opens in offline mode when the server is unreachable at launch. The server proxies `EXT-X-MAP`, `EXT-X-MEDIA`, `EXT-X-I-FRAME-STREAM-INF`, and `EXT-X-SESSION-KEY` URIs too.

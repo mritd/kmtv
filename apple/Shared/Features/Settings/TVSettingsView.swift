@@ -1,3 +1,4 @@
+#if os(tvOS)
 import SwiftUI
 
 struct TVSettingsView: View {
@@ -52,13 +53,9 @@ struct TVSettingsView: View {
                 }
             }
         }
-        #if os(iOS)
-        .scrollContentBackground(.hidden)
-        .background(Theme.bgPrimary)
-        .navigationTitle("Settings")
-        #endif
         .task {
             await appVM.fetchServerVersion()
         }
     }
 }
+#endif

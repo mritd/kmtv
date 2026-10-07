@@ -175,6 +175,35 @@ final class ModelsTests: XCTestCase {
         XCTAssertFalse(user.allowAdultContent)
     }
 
+    func testDefaultAvatarIsNotAnUpload() throws {
+        let json = """
+        {"id": 3, "username": "u", "role": "user", "avatar": "/api/v1/avatar/u?v=default-1", "avatar_is_default": true}
+        """.data(using: .utf8)!
+
+        let user = try JSONDecoder().decode(User.self, from: json)
+        XCTAssertEqual(user.avatar, "/api/v1/avatar/u?v=default-1")
+        XCTAssertTrue(user.avatarIsDefault)
+        XCTAssertFalse(user.hasUploadedAvatar)
+        XCTAssertTrue(User(id: 1, username: "a", role: "user", avatar: "/api/v1/avatar/a?v=1").hasUploadedAvatar)
+        XCTAssertFalse(User(id: 1, username: "a", role: "user").hasUploadedAvatar)
+    }
+
+    func testLoginResponseKeepsTheDefaultAvatarFlag() throws {
+        let json = """
+        {"id": 1, "username": "a", "role": "user", "access_token": "t", "expires_at": "2026-05-23T12:00:00Z",
+         "avatar": "/api/v1/avatar/a?v=default-1", "avatar_is_default": true}
+        """.data(using: .utf8)!
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let response = try decoder.decode(LoginResponse.self, from: json)
+        XCTAssertTrue(response.user.avatarIsDefault)
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let roundTrip = try decoder.decode(LoginResponse.self, from: encoder.encode(response))
+        XCTAssertTrue(roundTrip.user.avatarIsDefault)
+    }
+
     func testDecodeLoginResponseWithToken() throws {
         let json = """
         {

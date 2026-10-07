@@ -57,6 +57,21 @@ struct ToastView: View {
     var style: ToastStyle = .error
 
     var body: some View {
+        #if os(iOS)
+        HStack(spacing: Spacing.sm) {
+            Image(systemName: style == .success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(style == .success ? Color.green : Color.red)
+            Text(message)
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .accessibilityIdentifier("toastMessage")
+        }
+        .font(AppFont.control)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.md)
+        .background(.regularMaterial, in: Capsule())
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+        #else
         HStack(spacing: 8) {
             Image(systemName: style == .success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
             Text(message)
@@ -71,6 +86,6 @@ struct ToastView: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill((style == .success ? Color.green : Color.red).opacity(0.9))
         )
+        #endif
     }
 }
-

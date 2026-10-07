@@ -28,6 +28,35 @@ final class CategoriesViewModelTests: XCTestCase {
         XCTAssertFalse(vm.isLoading)
     }
 
+    /// A reload that starts while a page is loading must not leave the load-more spinner stuck.
+    func testReloadDuringLoadMoreClearsLoadingMore() async throws {
+        let api = DoubanAPIFake()
+        api.categories = DoubanCategoriesResponse(categories: [
+            CategoryGroup(
+                key: "movie", name: "Movie", doubanKind: "movie", format: "",
+                subcategories: [SubCategory(name: "All", tag: "", kind: nil, format: nil),
+                                SubCategory(name: "Hot", tag: "hot", kind: nil, format: nil)],
+                regions: [Region(name: "All", value: "")]
+            )
+        ])
+        let page = (0..<20).map { DoubanItem(id: "\($0)", title: "M\($0)", cover: "", rate: "", year: "") }
+        api.recommend = DoubanListResponse(items: page)
+        let vm = CategoriesViewModel(apiClient: api)
+        await vm.loadCategories()
+        XCTAssertTrue(vm.hasMore)
+
+        let held = AsyncStream<Void>.makeStream()
+        api.recommendGate = { for await _ in held.stream { return } }
+        let loading = Task { await vm.loadMore() }
+        while !vm.isLoadingMore { await Task.yield() }
+
+        await vm.fetchItems()
+        XCTAssertFalse(vm.isLoadingMore, "a new reload clears the stale page load")
+        held.continuation.yield()
+        await loading.value
+        XCTAssertFalse(vm.isLoadingMore)
+    }
+
     func testSelectGroupRefetchesWithNewDefaults() async throws {
         let api = DoubanAPIFake()
         api.categories = DoubanCategoriesResponse(categories: [

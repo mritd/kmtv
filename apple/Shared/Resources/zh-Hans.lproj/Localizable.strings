@@ -123,14 +123,7 @@
 "Access Token TTL" = "访问 token 有效期";
 "Media Token TTL" = "媒体 token 有效期";
 "Playback Mode" = "播放模式";
-"Filter Inserted Ads" = "过滤插入广告";
-"7 Days" = "7 天";
-"30 Days" = "30 天";
-"365 Days" = "365 天";
-"15 Minutes" = "15 分钟";
-"30 Minutes" = "30 分钟";
-"60 Minutes" = "60 分钟";
-"120 Minutes" = "120 分钟";
+"Ad Filter" = "广告过滤";
 "Image Proxy" = "图片代理";
 "Server" = "服务器";
 "Backend Proxy" = "后端转发";
@@ -248,6 +241,9 @@
 "%lld/%lld episodes · %@" = "%lld/%lld 集 · %@";
 "Several sources" = "多个源";
 "Will continue when online" = "联网后继续";
+"Only downloaded episodes can be played." = "仅可播放已下载的内容.";
+"Sign in to its account to continue" = "登录所属账号后可继续";
+"Delete every download on this device?" = "删除本机上的全部下载?";
 "%lld failed" = "%lld 集失败";
 "Watched %@" = "已看完 %@";
 "Watched to %@ %@" = "看到 %@ %@";
@@ -261,10 +257,7 @@
 "Allow downloads over cellular" = "允许使用蜂窝数据下载";
 "Storage used" = "已用空间";
 "Delete all downloads" = "删除全部下载";
-"Other accounts' downloads" = "其他账号的下载";
 "Downloads stay on this device and are not synced to other devices." = "下载内容只保存在本机, 不会同步到其他设备.";
-"Delete all downloads of this account?" = "删除本账号的全部下载?";
-"Delete downloads of other accounts?" = "删除其他账号的下载?";
 "Download" = "下载";
 "Download Episodes" = "下载剧集";
 "Select None" = "全不选";
@@ -278,3 +271,26 @@
 "Download %lld episodes" = "下载 %lld 集";
 "Added %lld episodes to downloads" = "已添加 %lld 集到下载";
 "Sign in to download" = "登录后才能下载";
+
+/* Appearance and redesigned controls */
+"Classic Blue" = "经典蓝";
+"Aurora" = "极光青";
+"Indigo" = "靛紫";
+"Terminal" = "终端绿";
+"Graphite" = "石墨";
+"System" = "跟随系统";
+"Light" = "浅色";
+"Dark" = "深色";
+"%lld min left" = "剩 %lld 分钟";
+"%lld episodes" = "共 %lld 集";
+"Source" = "来源";
+"Line" = "线路";
+"Unavailable" = "不可用";
+"Off" = "关闭";
+"%lld s" = "%lld 秒";
+"Region" = "地区";
+"Theme Color" = "主题色";
+"Appearance" = "外观";
+"Queued" = "排队中";
+"Watch Downloads Offline" = "离线观看已下载内容";
+"Back to Top" = "返回顶部";

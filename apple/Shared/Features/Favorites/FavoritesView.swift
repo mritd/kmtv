@@ -1,5 +1,4 @@
 import SwiftUI
-import Kingfisher
 
 struct FavoritesView: View {
     @Environment(AppViewModel.self) private var appVM
@@ -11,6 +10,8 @@ struct FavoritesView: View {
     #endif
 
     #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
     init(path: Binding<NavigationPath> = .constant(NavigationPath())) {
         self._path = path
     }
@@ -25,8 +26,9 @@ struct FavoritesView: View {
             }
         }
         #if os(iOS)
-        .background(Theme.bgPrimary)
+        .background(Surface.canvas)
         .navigationTitle("Favorites")
+        .readableColumn(maxWidth: nil)
         #endif
         .task {
             if viewModel == nil {
@@ -46,7 +48,7 @@ struct FavoritesView: View {
             ContentUnavailableView("No Favorites", systemImage: "star", description: Text("Videos you favorite will appear here"))
         } else {
             #if os(iOS)
-            iosList(vm)
+            iosGrid(vm)
             #else
             tvGrid(vm)
             #endif
@@ -54,47 +56,30 @@ struct FavoritesView: View {
     }
 
     #if os(iOS)
-    private func iosList(_ vm: FavoritesViewModel) -> some View {
-        List {
-            ForEach(vm.favorites) { item in
-                Button {
-                    path.append(SearchQuery(query: item.title, coverHint: item.cover))
-                } label: {
-                    favoriteRow(item)
+    private func iosGrid(_ vm: FavoritesViewModel) -> some View {
+        let metrics = MediaMetrics(sizeClass)
+        return ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.gridMinimum, maximum: metrics.gridMaximum),
+                                         spacing: metrics.posterSpacing)],
+                      spacing: metrics.posterSpacing) {
+                ForEach(vm.favorites) { item in
+                    Button {
+                        path.append(SearchQuery(query: item.title, coverHint: item.cover))
+                    } label: {
+                        VideoCard(title: item.title, cover: item.cover,
+                                  subtitle: DisplayFormatters.metaLine([item.type, item.year], separator: " · "),
+                                  apiClient: appVM.apiClient)
+                    }
+                    .buttonStyle(.pressable)
+                    .contextMenu {
+                        Button("Remove", systemImage: "star.slash", role: .destructive) { vm.remove(item) }
+                    }
+                    .accessibilityIdentifier("favoriteItem")
+                    .accessibilityAction(named: Text("Remove")) { vm.remove(item) }
                 }
-                .listRowBackground(Theme.bgCard)
             }
-            .onDelete { indexSet in
-                // Map the offsets to items first: each removal shifts the rows behind it.
-                //
-                // 先把偏移映射为条目: 每次删除都会让后面的行前移.
-                let items = indexSet.map { vm.favorites[$0] }
-                for item in items { vm.remove(item) }
-            }
-        }
-        .scrollContentBackground(.hidden)
-        .background(Theme.bgPrimary)
-    }
-
-    private func favoriteRow(_ item: FavoritePayload) -> some View {
-        HStack(spacing: 12) {
-            KFImage(coverURL(item.cover))
-                .placeholder {
-                    RoundedRectangle(cornerRadius: 4).fill(Theme.bgCard)
-                }
-                .fade(duration: 0.25)
-                .resizable()
-                .aspectRatio(2/3, contentMode: .fill)
-                .frame(width: 50, height: 75)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(item.title).font(.body)
-                    .foregroundStyle(Theme.textPrimary)
-                Text(DisplayFormatters.metaLine([item.type, item.year]))
-                    .font(.caption)
-                    .foregroundStyle(Theme.textSecondary)
-            }
+            .padding(.horizontal, Spacing.page)
+            .padding(.vertical, Spacing.sm)
         }
     }
     #endif
@@ -122,12 +107,4 @@ struct FavoritesView: View {
         .scrollClipDisabled()
     }
     #endif
-
-    private func coverURL(_ cover: String) -> URL? {
-        guard !cover.isEmpty else { return nil }
-        if cover.hasPrefix("/"), let client = appVM.apiClient {
-            return URL(string: client.baseURL + cover)
-        }
-        return URL(string: cover)
-    }
 }

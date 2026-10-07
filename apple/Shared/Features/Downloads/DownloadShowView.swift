@@ -1,12 +1,13 @@
 #if os(iOS)
 import SwiftUI
 
-/// One show's downloaded episodes grouped by source, with continue, download more, per-episode
-/// actions, and the offline player. The body depends only on structural changes; the header and
+/// One show's downloaded episodes from the device's library (every server and account) grouped by
+/// source, with play, download more, per-episode actions, and the offline player. The body depends only on structural changes; the header and
 /// each row are their own views, so a finished entry or a saved watch position re-renders only
 /// the row that shows it.
 ///
-/// 某部剧按来源分组的已下载剧集, 提供继续观看, 下载更多, 单集操作以及离线播放器. 页面主体只依赖结构
+/// 某部剧在本机下载库中 (涵盖所有服务器与账号) 按来源分组的已下载剧集, 提供播放, 下载更多, 单集操作
+/// 以及离线播放器. 页面主体只依赖结构
 /// 变化; 头部与每一行都是独立视图, 因此完成一个条目或保存观看位置只会重新渲染展示它的那一行.
 struct DownloadShowView: View {
     let showKey: String
@@ -16,6 +17,8 @@ struct DownloadShowView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var playing: PlayingEpisode?
     @State private var moreDestination: PlayDestination?
+    @State private var editMode: EditMode = .inactive
+    @State private var selection = Set<String>()
 
     /// The fullscreen offline player's view model, built once when playback is requested so
     /// re-renders of this screen never rebuild it.
@@ -28,27 +31,59 @@ struct DownloadShowView: View {
 
     var body: some View {
         let _ = downloads.changeCount
-        if let scope = downloads.activeScopeKey, let show = downloads.show(scopeKey: scope, showKey: showKey) {
-            let episodes = downloads.episodes(in: scope, showKey: showKey)
-            List {
+        if let show = downloads.libraryShow(showKey: showKey) {
+            let episodes = downloads.libraryEpisodes(showKey: showKey)
+            List(selection: $selection.onlyWhileEditing(editMode.isEditing)) {
                 Section {
                     DownloadShowHeader(show: show, episodes: episodes, mode: mode,
+                                       watch: appVM.sync?.store.watch(title: show.title),
                                        play: { play($0, show: show) },
                                        downloadMore: { moreDestination = $0 })
                 }
                 ForEach(Dictionary(grouping: episodes, by: \.sourceKey).sorted { $0.key < $1.key }, id: \.key) { _, group in
                     Section(group.first?.sourceName ?? "") {
                         ForEach(group, id: \.episodeKey) { ep in
-                            DownloadEpisodeRow(episode: ep, mode: mode) { play(ep, show: show) }
-                                .swipeActions {
-                                    Button("Delete", role: .destructive) { Task { await downloads.delete(ep) } }
-                                }
+                            DownloadEpisodeRow(episode: ep, editing: editMode.isEditing) { play(ep, show: show) }
+                                .tag(ep.episodeKey)
+                                .swipeActions { DownloadDeleteSwipe { await downloads.deleteFromLibrary(ep) } }
                         }
                     }
                 }
             }
+            .readableColumn(maxWidth: nil)
             .navigationTitle(show.title)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { EditButton() }
+                if editMode.isEditing && !selection.isEmpty {
+                    ToolbarItem(placement: .bottomBar) {
+                        Button("Delete", role: .destructive) {
+                            let doomed = episodes.filter { selection.contains($0.episodeKey) }
+                            selection = []
+                            editMode = .inactive
+                            Task { for ep in doomed { await downloads.deleteFromLibrary(ep) } }
+                        }
+                        // Red like other deletes; the app-wide accent tint would otherwise color it.
+                        //
+                        // 与其他删除操作一样使用红色; 否则会被全局强调色着色.
+                        .tint(.red)
+                    }
+                }
+            }
+            // Outside `.toolbar`, so `EditButton` and the bottom bar read the same binding as the list.
+            //
+            // 放在 `.toolbar` 之外, `EditButton` 与底部栏才能和列表读到同一个绑定.
+            .environment(\.editMode, $editMode)
+            // The floating tab bar would cover the bottom Delete bar, so editing hides it, as Photos does.
+            //
+            // 浮动标签栏会遮住底部的删除栏, 因此编辑时将其隐藏, 与 "照片" 的做法一致.
+            .toolbar(editMode.isEditing ? .hidden : .automatic, for: .tabBar)
+            .onChange(of: episodes.isEmpty) { _, empty in
+                if empty { editMode = .inactive }
+            }
+            .onChange(of: editMode.isEditing) { _, editing in
+                if !editing { selection = [] }
+            }
             .fullScreenCover(item: $playing) { item in
                 OfflinePlayerView(viewModel: item.viewModel)
             }
@@ -77,53 +112,57 @@ private struct DownloadShowHeader: View {
     let show: DownloadShow
     let episodes: [DownloadEpisode]
     let mode: DownloadsMode
+    /// The show's watch record, which names the episode to continue.
+    ///
+    /// 该剧的观看记录, 用于确定继续播放哪一集.
+    let watch: WatchPayload?
     let play: (DownloadEpisode) -> Void
     let downloadMore: (PlayDestination) -> Void
+    @Environment(DownloadManager.self) private var downloads
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .top, spacing: Spacing.lg) {
             DownloadPoster(show: show, width: 84)
-            VStack(alignment: .leading, spacing: 8) {
-                Text(show.title).font(.title3.bold())
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                Text(show.title).font(AppFont.title)
                 Text("\(episodes.filter { $0.state == .completed }.count)/\(episodes.count) episodes · \(DownloadFormatting.bytes(episodes.reduce(0) { $0 + $1.bytes }))")
-                    .font(.caption)
-                    .foregroundStyle(Theme.textSecondary)
+                    .font(AppFont.secondary.monospacedDigit())
+                    .foregroundStyle(.secondary)
                 // Side by side when they fit at full width, stacked otherwise; titles never wrap or
                 // truncate, since a fixed-size label makes a squeezed row not fit.
                 //
                 // 完整宽度放得下时并排, 否则上下排列; 标题不换行也不截断, 因为固定尺寸的标签会让被挤压的
                 // 一行判定为放不下.
                 ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) { actions }
-                    VStack(alignment: .leading, spacing: 8) { actions }
+                    HStack(spacing: Spacing.sm) { actions }
+                    VStack(alignment: .leading, spacing: Spacing.sm) { actions }
                 }
-                .font(.subheadline.weight(.medium))
-                .controlSize(.small)
+                .padding(.top, Spacing.xs)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, Spacing.xs)
     }
 
     @ViewBuilder
     private var actions: some View {
-        let completed = episodes.filter { $0.state == .completed }
-        if let resume = completed.first(where: { !$0.finished }) ?? completed.first {
+        // Just "Play": episode names differ by source and can be long; the picked episode resumes
+        // from its saved position.
+        //
+        // 只显示 "播放": 各来源的剧集名称不一致且可能很长; 选中的剧集会从保存的位置继续播放.
+        if let (resume, _) = DownloadResumePicker.target(episodes: episodes, watch: watch) {
             Button {
                 play(resume)
             } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "play.fill")
-                    Text("Continue \(resume.episodeName)")
-                }
-                .lineLimit(1)
-                .fixedSize()
+                Label("Play", systemImage: "play.fill")
+                    .fixedSize()
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.pill(prominent: true, compact: true))
+            .accessibilityHint(Text(resume.episodeName))
         }
         // The most recently added download names the source to continue with.
         //
         // 以最近添加的下载所在的源作为继续下载的源.
-        if mode == .online, let source = episodes.max(by: { $0.createdAt < $1.createdAt }) {
+        if mode == .online, downloads.canDownload, let source = episodes.max(by: { $0.createdAt < $1.createdAt }) {
             Button {
                 downloadMore(PlayDestination(
                     title: show.title,
@@ -131,10 +170,42 @@ private struct DownloadShowHeader: View {
                                            videoId: source.videoId, durationMs: 0, episodes: [])],
                     sourceKey: source.sourceKey, videoId: source.videoId, coverHint: show.cover))
             } label: {
-                Text("Download More").lineLimit(1).fixedSize()
+                Text("Download More").fixedSize()
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.pill(compact: true))
         }
+    }
+}
+
+/// Picks the episode the show header plays.
+///
+/// 选择剧集头部按钮要播放的剧集.
+enum DownloadResumePicker {
+    /// The completed download to play from the header, and whether that continues a started
+    /// episode. The watch record wins (same source first): its episode, or the next downloaded one
+    /// when it was finished. Without a record, the last started episode that is not finished;
+    /// otherwise the first download, played from the start.
+    ///
+    /// 头部按钮要播放的已完成下载, 以及是否属于继续观看. 观看记录优先 (同来源优先): 播放记录中的那一集,
+    /// 若已看完则播放下一集已下载的剧集. 没有记录时, 选最后一集已开始但未看完的剧集; 否则从头播放第一集
+    /// 下载.
+    static func target(episodes: [DownloadEpisode], watch: WatchPayload?) -> (DownloadEpisode, Bool)? {
+        let completed = episodes.filter { $0.state == .completed }.sorted { $0.episodeIndex < $1.episodeIndex }
+        guard let first = completed.first else { return nil }
+        if let watch {
+            let matches = completed.filter { $0.episodeIndex == watch.episodeIndex }
+            if let current = matches.first(where: { $0.sourceKey == watch.sourceKey }) ?? matches.first {
+                if watch.completed || current.finished,
+                   let next = completed.first(where: { $0.episodeIndex > current.episodeIndex && !$0.finished }) {
+                    return (next, false)
+                }
+                return (current, true)
+            }
+        }
+        if let started = completed.last(where: { $0.positionSec > 0 && !$0.finished }) {
+            return (started, true)
+        }
+        return (completed.first(where: { !$0.finished }) ?? first, false)
     }
 }
 
@@ -143,39 +214,63 @@ private struct DownloadShowHeader: View {
 /// 一集已下载的剧集: 状态, 大小或进度, 观看位置及点按操作.
 private struct DownloadEpisodeRow: View {
     let episode: DownloadEpisode
-    let mode: DownloadsMode
+    /// While editing, a tap selects the row instead of acting on it.
+    ///
+    /// 编辑时点按用于选择该行, 而不是执行操作.
+    let editing: Bool
     let play: () -> Void
     @Environment(DownloadManager.self) private var downloads
 
     var body: some View {
         let ep = episode
         let state = downloads.displayState(of: ep)
-        Button {
-            switch state {
-            case .completed: play()
-            case .paused: downloads.resume(ep)
-            case .failed: downloads.retry(ep)
-            default: Task { await downloads.pause(ep) }
+        let manageable = downloads.canManage(ep)
+        // Only completed episodes play, and only the signed-in account's unfinished ones can be
+        // paused, resumed, or retried; other rows stay plain, so the long-press menu still works.
+        //
+        // 只有已完成的剧集可以播放, 只有当前登录账号未完成的剧集可以暂停, 继续或重试; 其他行保持为普通
+        // 内容, 长按菜单因此依然可用.
+        if editing || (state != .completed && !manageable) {
+            content(ep, state: state, manageable: manageable)
+                .opacity(editing || state == .completed ? 1 : 0.6)
+        } else {
+            Button {
+                switch state {
+                case .completed: play()
+                case .paused: downloads.resume(ep)
+                case .failed: downloads.retry(ep)
+                default: Task { await downloads.pause(ep) }
+                }
+            } label: {
+                content(ep, state: state, manageable: manageable)
             }
-        } label: {
-            HStack(spacing: 12) {
-                stateIcon(state)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(ep.episodeName).foregroundStyle(Theme.textPrimary)
-                    Text(subtitle(ep, state: state)).font(.caption).foregroundStyle(subtitleColor(state))
-                    if state == .completed, ep.durationSec > 0, ep.positionSec > 0, !ep.finished {
-                        ProgressView(value: min(1, ep.positionSec / ep.durationSec)).frame(maxWidth: 160)
-                    }
+            // Plain, so the List does not tint the episode name and subtitle with the accent.
+            //
+            // 使用 plain 样式, 避免 List 用强调色给剧集名与副标题着色.
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func content(_ ep: DownloadEpisode, state: DownloadDisplayState, manageable: Bool) -> some View {
+        HStack(spacing: Spacing.md) {
+            stateIcon(state)
+            VStack(alignment: .leading, spacing: Spacing.xxs + 1) {
+                Text(ep.episodeName).font(AppFont.body).foregroundStyle(.primary)
+                Text(subtitle(ep, state: state))
+                    .font(AppFont.footnote.monospacedDigit())
+                    .foregroundStyle(subtitleColor(state))
+                if state == .completed, ep.durationSec > 0, ep.positionSec > 0, !ep.finished {
+                    ProgressView(value: min(1, ep.positionSec / ep.durationSec)).frame(maxWidth: 160)
                 }
-                Spacer()
-                if case .failed = state {
-                    Text("Retry").font(.caption.weight(.semibold)).foregroundStyle(Theme.accent)
-                } else if state == .completed {
-                    Image(systemName: "play.circle.fill").font(.title3).foregroundStyle(Theme.accent)
-                }
+            }
+            Spacer()
+            if case .failed = state, manageable, !editing {
+                Text("Retry").font(AppFont.control).foregroundStyle(.tint)
+            } else if state == .completed && !editing {
+                Image(systemName: "play.circle.fill").font(.title2).foregroundStyle(.tint)
             }
         }
-        .disabled(mode == .offline && state != .completed)
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder
@@ -188,15 +283,17 @@ private struct DownloadEpisodeRow: View {
         case .failed:
             Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red).font(.title3)
         case .paused:
-            Image(systemName: "pause.circle").foregroundStyle(Theme.textSecondary).font(.title3)
+            Image(systemName: "pause.circle").foregroundStyle(.secondary).font(.title3)
         default:
-            Image(systemName: "circle.dashed").foregroundStyle(Theme.textSecondary).font(.title3)
+            Image(systemName: "circle.dashed").foregroundStyle(.secondary).font(.title3)
         }
     }
 
     private func subtitle(_ ep: DownloadEpisode, state: DownloadDisplayState) -> String {
         guard state == .completed else {
-            if mode == .offline { return String(localized: "Will continue when online") }
+            if !downloads.canManage(ep) {
+                return DownloadFormatting.waitingText(for: ep, state: state, activeScopeKey: downloads.activeScopeKey)
+            }
             return DownloadFormatting.text(for: state)
         }
         let size = DownloadFormatting.bytes(ep.bytes)
@@ -205,11 +302,11 @@ private struct DownloadEpisodeRow: View {
         return size
     }
 
-    private func subtitleColor(_ state: DownloadDisplayState) -> Color {
+    private func subtitleColor(_ state: DownloadDisplayState) -> AnyShapeStyle {
         switch state {
-        case .failed: .red
-        case .downloading, .preparing: Theme.accent
-        default: Theme.textSecondary
+        case .failed: AnyShapeStyle(.red)
+        case .downloading, .preparing: AnyShapeStyle(.tint)
+        default: AnyShapeStyle(.secondary)
         }
     }
 }

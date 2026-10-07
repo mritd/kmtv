@@ -1,3 +1,4 @@
+#if os(tvOS)
 import SwiftUI
 
 /// Reusable playback source button shared by detail and player source pickers.
@@ -22,79 +23,22 @@ struct SourceButton: View {
         Button(action: action) {
             label
         }
-        #if os(tvOS)
         .buttonStyle(.tvPlain)
-        #else
-        .sourceButtonIOSStyle(style: style, isSelected: isSelected)
-        #endif
     }
 
     @ViewBuilder
     private var label: some View {
-        #if os(tvOS)
         TVSourceButtonLabel(
             name: DisplayFormatters.cleanSourceName(source.sourceName),
             durationMs: source.durationMs,
             isSelected: isSelected,
             showsLatency: showsLatency
         )
-        #else
-        switch style {
-        case .bordered:
-            Text(DisplayFormatters.cleanSourceName(source.sourceName))
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-        case .compactGrid:
-            VStack(spacing: 2) {
-                Text(DisplayFormatters.cleanSourceName(source.sourceName))
-                    .font(.caption2)
-                    .lineLimit(1)
-                if showsLatency && source.durationMs > 0 {
-                    Text(DisplayFormatters.latency(source.durationMs))
-                        .font(.caption2)
-                        .foregroundStyle(isSelected ? .white.opacity(0.8) : Theme.accent)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .background(isSelected ? Theme.accent : Theme.bgCard)
-            .foregroundStyle(compactForegroundColor)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-        }
-        #endif
     }
 
-    #if os(iOS)
-    private var compactForegroundColor: Color {
-        if isSelected {
-            return .white
-        }
-        return Theme.textPrimary
-    }
-    #endif
 }
 
-#if os(iOS)
-private extension View {
-    /// Applies the iOS source button chrome without changing the shared label content.
-    ///
-    /// 在不改变共享标签内容的前提下应用 iOS 视频源按钮外观.
-    @ViewBuilder
-    func sourceButtonIOSStyle(style: SourceButton.Style, isSelected: Bool) -> some View {
-        switch style {
-        case .bordered:
-            self
-                .applyIf(isSelected) { $0.buttonStyle(.borderedProminent) }
-                .applyIf(!isSelected) { $0.buttonStyle(.bordered) }
-                .tint(Theme.accent)
-        case .compactGrid:
-            self.buttonStyle(.plain)
-        }
-    }
-}
-#endif
 
-#if os(tvOS)
 /// tvOS label keeps focus, selected state, and latency in one stable view tree.
 ///
 /// tvOS 标签把焦点, 选中态和延迟保持在稳定视图树中.

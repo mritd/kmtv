@@ -16,10 +16,10 @@ struct SearchTextField: UIViewRepresentable {
         textField.autocorrectionType = .no
         textField.returnKeyType = .search
         textField.font = .preferredFont(forTextStyle: .body)
-        textField.textColor = UIColor(Theme.textPrimary)
+        textField.textColor = .label
         textField.attributedPlaceholder = NSAttributedString(
             string: placeholder,
-            attributes: [.foregroundColor: UIColor(Theme.textSecondary)]
+            attributes: [.foregroundColor: UIColor.secondaryLabel]
         )
         textField.delegate = context.coordinator
         textField.setContentHuggingPriority(.defaultLow, for: .horizontal)

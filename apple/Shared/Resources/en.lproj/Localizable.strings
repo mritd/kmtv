@@ -123,14 +123,7 @@
 "Access Token TTL" = "Access Token TTL";
 "Media Token TTL" = "Media Token TTL";
 "Playback Mode" = "Playback Mode";
-"Filter Inserted Ads" = "Filter Inserted Ads";
-"7 Days" = "7 Days";
-"30 Days" = "30 Days";
-"365 Days" = "365 Days";
-"15 Minutes" = "15 Minutes";
-"30 Minutes" = "30 Minutes";
-"60 Minutes" = "60 Minutes";
-"120 Minutes" = "120 Minutes";
+"Ad Filter" = "Ad Filter";
 "Image Proxy" = "Image Proxy";
 "Server" = "Server";
 "Backend Proxy" = "Backend Proxy";
@@ -248,6 +241,9 @@
 "%lld/%lld episodes · %@" = "%lld/%lld episodes · %@";
 "Several sources" = "Several sources";
 "Will continue when online" = "Will continue when online";
+"Only downloaded episodes can be played." = "Only downloaded episodes can be played.";
+"Sign in to its account to continue" = "Sign in to its account to continue";
+"Delete every download on this device?" = "Delete every download on this device?";
 "%lld failed" = "%lld failed";
 "Watched %@" = "Watched %@";
 "Watched to %@ %@" = "Watched to %@ %@";
@@ -261,10 +257,7 @@
 "Allow downloads over cellular" = "Allow downloads over cellular";
 "Storage used" = "Storage used";
 "Delete all downloads" = "Delete all downloads";
-"Other accounts' downloads" = "Other accounts' downloads";
 "Downloads stay on this device and are not synced to other devices." = "Downloads stay on this device and are not synced to other devices.";
-"Delete all downloads of this account?" = "Delete all downloads of this account?";
-"Delete downloads of other accounts?" = "Delete downloads of other accounts?";
 "Download" = "Download";
 "Download Episodes" = "Download Episodes";
 "Select None" = "Select None";
@@ -278,3 +271,26 @@
 "Download %lld episodes" = "Download %lld episodes";
 "Added %lld episodes to downloads" = "Added %lld episodes to downloads";
 "Sign in to download" = "Sign in to download";
+
+/* Appearance and redesigned controls */
+"Classic Blue" = "Classic Blue";
+"Aurora" = "Aurora";
+"Indigo" = "Indigo";
+"Terminal" = "Terminal";
+"Graphite" = "Graphite";
+"System" = "System";
+"Light" = "Light";
+"Dark" = "Dark";
+"%lld min left" = "%lld min left";
+"%lld episodes" = "%lld episodes";
+"Source" = "Source";
+"Line" = "Line";
+"Unavailable" = "Unavailable";
+"Off" = "Off";
+"%lld s" = "%lld s";
+"Region" = "Region";
+"Theme Color" = "Theme Color";
+"Appearance" = "Appearance";
+"Queued" = "Queued";
+"Watch Downloads Offline" = "Watch Downloads Offline";
+"Back to Top" = "Back to Top";

@@ -20,25 +20,32 @@ struct ServerSetupView: View {
         VStack(spacing: 24) {
             Spacer()
 
+            #if os(iOS)
+            AppMark(size: 64)
+            #endif
             Text("KMTV")
                 #if os(tvOS)
                 .font(.system(size: 72, weight: .bold))
                 #else
-                .font(.title.bold())
+                .font(AppFont.display)
                 #endif
                 .foregroundStyle(.primary)
             Text("Add your server to get started")
                 #if os(tvOS)
                 .font(.title3)
                 #else
-                .font(.headline)
+                .font(AppFont.secondary)
                 #endif
                 .foregroundStyle(.secondary)
 
             VStack(spacing: 20) {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("Server", systemImage: "server.rack")
+                        #if os(tvOS)
                         .font(.subheadline.bold())
+                        #else
+                        .font(AppFont.footnote.weight(.semibold))
+                        #endif
                         .foregroundStyle(.secondary)
 
                     TextField("Server URL", text: $url, prompt: Text(verbatim: "https://kmtv.example.com").foregroundColor(.gray))
@@ -46,42 +53,56 @@ struct ServerSetupView: View {
                         #if os(iOS)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
-                        .textFieldStyle(.roundedBorder)
+                        .fieldSurface(invalid: isURLInvalid)
                         #endif
                         .autocorrectionDisabled()
+                        #if os(tvOS)
                         .overlay(
                             RoundedRectangle(cornerRadius: 6)
                                 .stroke(Color.red, lineWidth: isURLInvalid ? 1.5 : 0)
                         )
+                        #endif
 
                     if isURLInvalid {
                         Text(String(localized: "Invalid URL format, must start with http:// or https://"))
+                            #if os(tvOS)
                             .font(.caption2)
+                            #else
+                            .font(AppFont.footnote)
+                            #endif
                             .foregroundStyle(.red)
                     }
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
                     Label("Account", systemImage: "person.circle")
+                        #if os(tvOS)
                         .font(.subheadline.bold())
+                        #else
+                        .font(AppFont.footnote.weight(.semibold))
+                        #endif
                         .foregroundStyle(.secondary)
 
                     TextField("Username", text: $username, prompt: Text("Username (Optional)"))
                         .accessibilityIdentifier("usernameField")
                         #if os(iOS)
                         .textInputAutocapitalization(.never)
-                        .textFieldStyle(.roundedBorder)
+                        .fieldSurface()
                         #endif
                         .autocorrectionDisabled()
 
                     SecureField("Password", text: $password, prompt: Text("Password (Optional)"))
                         .accessibilityIdentifier("passwordField")
                         #if os(iOS)
-                        .textFieldStyle(.roundedBorder)
+                        .fieldSurface()
                         #endif
 
                     Text("Leave empty for anonymous access")
+                        #if os(tvOS)
                         .font(.caption2)
+                        #else
+                        .font(AppFont.footnote)
+                        #endif
                         .foregroundStyle(.secondary)
                 }
             }
@@ -93,7 +114,7 @@ struct ServerSetupView: View {
                     #if os(tvOS)
                     .font(.body)
                     #else
-                    .font(.caption)
+                    .font(AppFont.footnote)
                     #endif
                     .padding(.horizontal, 32)
             }
@@ -116,16 +137,33 @@ struct ServerSetupView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
+            #if os(tvOS)
             .tint(Theme.accent)
+            #else
+            .font(AppFont.bodyEmphasis)
+            .controlSize(.large)
+            .buttonBorderShape(.capsule)
+            #endif
             .accessibilityIdentifier("connectButton")
             .disabled(url.trimmingCharacters(in: .whitespaces).isEmpty || isURLInvalid || isConnecting)
             .padding(.horizontal, 32)
+
+            #if os(iOS)
+            // Downloads of the last account still play without a network or a sign-in.
+            //
+            // 上一个账号的下载无需网络或登录即可播放.
+            OfflineEntryButton(willOpen: { connectTask?.cancel() })
+            #endif
 
             Spacer()
         }
         #if os(tvOS)
         .frame(maxWidth: 700)
         .frame(maxWidth: .infinity)
+        #else
+        .frame(maxWidth: 480)
+        .frame(maxWidth: .infinity)
+        .background(Surface.canvas)
         #endif
         .onAppear {
             if !didPrefill && !appVM.prefillServerURL.isEmpty {

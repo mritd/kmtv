@@ -37,7 +37,7 @@ final class FakeDownloadScope: DownloadScopeControlling {
         events.append("deactivate")
     }
     func deleteScope(_ scopeKey: String) async { deleted.append(scopeKey) }
-    func hasCompleted(in scopeKey: String) -> Bool { completedScopes.contains(scopeKey) }
+    var hasCompletedDownloads: Bool { !completedScopes.isEmpty }
 }
 
 /// Covers how the app view model drives downloads: identity, activation, offline launch.
@@ -165,21 +165,50 @@ final class BootstrapOfflineTests: XCTestCase {
         guard case .offline = portal.state else { return XCTFail("captive portal should go offline") }
     }
 
-    func testOfflineNeedsCompletedDownloadsMatchingServerAndReachability() async throws {
+    func testOfflineNeedsCompletedDownloadsAndReachability() async throws {
         _ = seedIdentity(completed: false)
         let noDownloads = try makeViewModel(me: failing(URLError(.notConnectedToInternet)))
         await noDownloads.bootstrap()
         guard case .serverSetup = noDownloads.state else { return XCTFail("no downloads should go to setup") }
 
+        // Downloads stay watchable whatever server the app is set up with; the configured server's
+        // identity still records watch progress.
         _ = seedIdentity(server: "https://other.example")
         let otherServer = try makeViewModel(me: failing(URLError(.notConnectedToInternet)))
         await otherServer.bootstrap()
-        guard case .serverSetup = otherServer.state else { return XCTFail("other server should go to setup") }
+        guard case .offline(let found) = otherServer.state else { return XCTFail("other server should go offline") }
+        XCTAssertEqual(found, DownloadIdentity(serverURL: serverURL, userID: 5, username: "alice"))
 
         _ = seedIdentity()
         let unauthorized = try makeViewModel(me: status(401, #"{"code":1002,"error":"not logged in"}"#))
         await unauthorized.bootstrap()
         guard case .serverSetup = unauthorized.state else { return XCTFail("401 should go to setup") }
+    }
+
+    func testRejectedSavedTokenSaysTheSessionExpired() async throws {
+        let store = AuthStore(serverURL: serverURL)
+        try store.save(accessToken: "stale", expiresAt: .now.addingTimeInterval(3600))
+        defer { store.clear() }
+        ToastManager.shared.currentMessage = nil
+        let vm = try makeViewModel(me: status(401, #"{"code":1002,"error":"not logged in"}"#))
+        await vm.bootstrap()
+        // `.authExpired` is handled in a main-actor task after the request fails.
+        for _ in 0..<50 where ToastManager.shared.currentMessage == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        guard case .serverSetup = vm.state else { return XCTFail("expected setup, got \(vm.state)") }
+        XCTAssertEqual(ToastManager.shared.currentMessage,
+                       String(localized: "Session expired, please sign in again", bundle: .main))
+    }
+
+    func testUnauthorizedWithoutATokenSaysAnonymousAccessIsOff() async throws {
+        AuthStore(serverURL: serverURL).clear()
+        ToastManager.shared.currentMessage = nil
+        let vm = try makeViewModel(me: status(401, #"{"code":1002,"error":"not logged in"}"#))
+        await vm.bootstrap()
+        guard case .serverSetup = vm.state else { return XCTFail("expected setup, got \(vm.state)") }
+        XCTAssertEqual(ToastManager.shared.currentMessage,
+                       String(localized: "Anonymous access is disabled, please sign in", bundle: .main))
     }
 
     func testReconnectLeavesOfflineWhenServerAnswers() async throws {
@@ -286,5 +315,77 @@ final class BootstrapOfflineTests: XCTestCase {
         vm.bootstrapTimeout = .milliseconds(200)
         await vm.bootstrap()
         guard case .serverSetup = vm.state else { return XCTFail("expected setup, got \(vm.state)") }
+    }
+
+    func testOfflineNeedsACompletedDownload() async throws {
+        _ = seedIdentity(completed: false)
+        let none = try makeViewModel(me: failing(URLError(.notConnectedToInternet)))
+        XCTAssertFalse(none.hasOfflineDownloads)
+        none.openDownloadsOffline()
+        guard case .loading = none.state else { return XCTFail("expected no change, got \(none.state)") }
+
+        _ = seedIdentity()
+        let vm = try makeViewModel(me: failing(URLError(.notConnectedToInternet)))
+        XCTAssertTrue(vm.hasOfflineDownloads)
+    }
+
+    func testDownloadsWithoutAKnownIdentityStillOpenOffline() async throws {
+        scope.completedScopes.insert(syncScopeKey(serverURL: "https://gone.example", userID: 3))
+        let vm = try makeViewModel(me: failing(URLError(.notConnectedToInternet)))
+        await vm.bootstrap()
+        guard case .offline(let found) = vm.state else { return XCTFail("expected offline, got \(vm.state)") }
+        XCTAssertNil(found, "no identity: the library opens without a local watch store")
+        XCTAssertNil(vm.sync)
+        XCTAssertTrue(scope.offline.isEmpty)
+    }
+
+    func testOpeningOfflineDuringBootstrapDropsTheBootstrapResult() async throws {
+        let identity = seedIdentity()
+        let vm = try makeViewModel(me: failing(URLProtocolStub.Hang()))
+        vm.bootstrapTimeout = .milliseconds(300)
+        let running = Task { await vm.bootstrap() }
+        try await Task.sleep(for: .milliseconds(50))
+        vm.openDownloadsOffline()
+        await running.value
+        guard case .offline(let found) = vm.state else { return XCTFail("expected offline, got \(vm.state)") }
+        XCTAssertEqual(found, identity)
+        // The timed-out bootstrap must not open the scope a second time or replace the screen.
+        XCTAssertEqual(scope.offline, [identity.scopeKey])
+    }
+
+    func testLogoutKeepsDownloadsWatchableOffline() async throws {
+        let vm = try makeViewModel { self.ok($0) }
+        await vm.bootstrap()
+        let identity = DownloadIdentity(serverURL: serverURL, userID: 5, username: "alice")
+        scope.completedScopes.insert(identity.scopeKey)
+        await vm.logout()
+        XCTAssertNil(LastIdentityStore(defaults: defaults).load())
+        XCTAssertTrue(vm.hasOfflineDownloads)
+        vm.openDownloadsOffline()
+        guard case .offline(let found) = vm.state else { return XCTFail("expected offline, got \(vm.state)") }
+        XCTAssertNil(found, "a signed-out account must not record offline progress")
+        XCTAssertNil(vm.sync)
+    }
+
+    func testUnreachablePrefersTheIdentityOfTheConfiguredServer() async throws {
+        let here = seedIdentity()
+        let elsewhere = seedIdentity(server: "https://other.example")
+        let vm = try makeViewModel(me: failing(URLError(.notConnectedToInternet)))
+        XCTAssertNil(vm.offlineIdentity(serverURL: "https://third.example"), "another server's account is never used")
+        XCTAssertEqual(vm.offlineIdentity(serverURL: "https://other.example"), elsewhere)
+        await vm.bootstrap()
+        guard case .offline(let found) = vm.state else { return XCTFail("expected offline, got \(vm.state)") }
+        XCTAssertEqual(found, here)
+    }
+
+    func testKnownIdentitiesMigrateFromTheLastIdentity() {
+        let identity = DownloadIdentity(serverURL: serverURL, userID: 9, username: "carol")
+        let data = try! JSONEncoder().encode(identity)
+        defaults.set(data, forKey: LastIdentityStore.key)
+        let store = LastIdentityStore(defaults: defaults)
+        XCTAssertEqual(store.known(), [identity])
+        store.clear()
+        XCTAssertNil(store.load())
+        XCTAssertEqual(store.known(), [identity], "signing out keeps the identity for offline viewing")
     }
 }

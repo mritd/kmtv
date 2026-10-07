@@ -5,6 +5,22 @@ import os
 @MainActor
 final class HomeViewModel {
     var sections: [HomeSection] = []
+    /// Hero items: titles with a synopsis across all sections first, as on Web, so the hero has
+    /// copy to show; the first section's titles fill the rest. Unique by Douban ID, at most `limit`.
+    ///
+    /// Hero 条目: 与 Web 一致, 优先选取所有分区中带简介的作品, 使 hero 有文案可展示; 不足时用第一个
+    /// 分区的作品补齐. 按 Douban ID 去重, 最多 `limit` 个.
+    static func heroCandidates(_ sections: [HomeSection], limit: Int = 5) -> [DoubanItem] {
+        var seen = Set<String>()
+        var picked: [DoubanItem] = []
+        let described = sections.flatMap(\.items).filter { !($0.desc ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        for item in described + (sections.first?.items ?? []) where picked.count < limit {
+            guard !item.title.isEmpty, seen.insert(item.id).inserted else { continue }
+            picked.append(item)
+        }
+        return picked
+    }
+
     var heroItems: [DoubanItem] = []
     var isLoading = false
     var error: String?
@@ -49,9 +65,11 @@ final class HomeViewModel {
                 try await client.doubanHome()
             }.value
             sections = response.sections
-            if let firstSection = sections.first, !firstSection.items.isEmpty {
-                heroItems = Array(firstSection.items.prefix(5))
-            }
+            #if os(iOS)
+            CoverRegistry.remember(sections.flatMap(\.items), baseURL: (client as? APIClient)?.baseURL ?? "")
+            #endif
+            let candidates = Self.heroCandidates(sections)
+            if !candidates.isEmpty { heroItems = candidates }
             error = nil
         } catch {
             logger.error("Home load failed: \(error.localizedDescription)")

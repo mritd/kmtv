@@ -14,6 +14,8 @@ struct PlayerView: View {
     @State private var hideControlsTask: Task<Void, Never>?
     @State private var isFullScreen = false
     @State private var showPicker = false
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @State private var contentWidth: CGFloat = 0
 
     var body: some View {
         Group {
@@ -23,11 +25,15 @@ struct PlayerView: View {
                 ProgressView()
             }
         }
-        .background(Theme.bgPrimary)
-        #if os(iOS)
+        .background(Surface.canvas)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Theme.bgPrimary, for: .navigationBar)
-        #endif
+        // The bar sits above the video, so it stays black like the player and the back button
+        // reads as part of the picture.
+        //
+        // 导航栏位于视频上方, 因此与播放器一样保持黑色, 返回按钮看起来属于画面的一部分.
+        .toolbarBackground(.black, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
         .navigationTitle("")
         .task {
             // Load detail before playback so source fallback can run before AVPlayer starts.
@@ -107,135 +113,309 @@ struct PlayerView: View {
                         freeSpace: downloads.freeBytes, allowsCellular: downloads.allowsCellular
                     ) { indexes in download(vm, indexes: indexes) }
                 }
+                // A half-height sheet on a phone; on iPad a full form sheet, since a medium detent
+                // there cuts the grid off in a floating card.
+                //
+                // 手机上为半高面板; iPad 上为完整的表单面板, 因为半高档位在那里会把网格截断在一张浮动卡片里.
+                .presentationDetents(sizeClass == .regular ? [.large] : [.medium, .large])
             }
         }
     }
 
     // MARK: - Content
 
+    /// Width from which a regular-width screen (landscape iPad) puts episodes and settings in a
+    /// sidebar beside the video instead of below it.
+    ///
+    /// regular 宽度屏幕 (横屏 iPad) 达到该宽度时, 剧集与设置放在视频右侧的侧栏, 而非视频下方.
+    private static let sidebarMinWidth: CGFloat = 1000
+
     @ViewBuilder
     private func content(_ vm: PlayerViewModel) -> some View {
+        Group {
+            if sizeClass == .regular && contentWidth >= Self.sidebarMinWidth {
+                wideContent(vm)
+            } else {
+                stackedContent(vm)
+            }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+    }
+
+    /// Phones and portrait iPad: the video on top, everything else scrolling below it.
+    ///
+    /// 手机与竖屏 iPad: 视频在上, 其余内容在下方滚动.
+    private func stackedContent(_ vm: PlayerViewModel) -> some View {
         VStack(spacing: 0) {
             playerSection(vm)
 
             ScrollView {
-                ZStack(alignment: .topLeading) {
-                    LinearGradient(
-                        colors: [Theme.bgSecondary, Theme.bgPrimary],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: 300)
-
-                    VStack(alignment: .leading, spacing: 16) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("\(vm.detail?.title ?? destination.title) \(vm.currentEpisodeName)")
-                                    .font(.headline)
-                                    .foregroundStyle(Theme.textPrimary)
-                                Text(DisplayFormatters.metaLine([
-                                    vm.currentSourceName,
-                                    DisplayFormatters.metaLine([vm.detail?.type, vm.detail?.year], separator: " "),
-                                ]))
-                                    .font(.caption)
-                                    .foregroundStyle(Theme.textSecondary)
-                                if vm.isPlayingLocalCopy {
-                                    Label("Downloaded", systemImage: "arrow.down.circle.fill")
-                                        .font(.caption)
-                                        .foregroundStyle(.green)
-                                }
-                            }
-                            Spacer()
-                            if vm.episodes.count <= 1 { downloadButton(vm) }
-                            Button { vm.toggleFavorite() } label: {
-                                Image(systemName: vm.isFavorited ? "star.fill" : "star")
-                                    .foregroundStyle(vm.isFavorited ? .yellow : Theme.textSecondary)
-                            }
-                            .accessibilityIdentifier("favoriteButton")
-                        }
-
-                        if let desc = vm.detail?.desc, !desc.isEmpty {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(desc)
-                                    .font(.caption)
-                                    .foregroundStyle(Theme.textSecondary)
-                                    .lineLimit(isDescExpanded ? nil : 2)
-
-                                Button {
-                                    withAnimation { isDescExpanded.toggle() }
-                                } label: {
-                                    Text(isDescExpanded ? "Collapse" : "Expand")
-                                        .font(.caption2)
-                                        .foregroundStyle(Theme.accent)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-
-                        if vm.sources.count > 1 {
-                            sectionTitle("Sources")
-                            SourceSwitcher(sources: vm.sources, currentKey: vm.currentSourceKey) { key in
-                                Task {
-                                    await vm.switchSource(key)
-                                    vm.startPlayback()
-                                }
-                            }
-                        }
-
-                        if vm.allLines.count > 1 {
-                            sectionTitle("CDN Lines")
-                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 5), spacing: 6) {
-                                ForEach(0..<vm.allLines.count, id: \.self) { i in
-                                    let isDead = vm.allLines[i].isEmpty
-                                    Button {
-                                        if !isDead { vm.switchLine(i) }
-                                    } label: {
-                                        Group {
-                                            if isDead {
-                                                Text("Line \(i + 1) ✕")
-                                                    .strikethrough()
-                                            } else {
-                                                Text("Line \(i + 1)")
-                                            }
-                                        }
-                                        .font(.caption2)
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 8)
-                                        .background(i == vm.currentLineIndex ? Theme.accent : Theme.bgCard)
-                                        .foregroundStyle(i == vm.currentLineIndex ? .white : isDead ? Theme.textSecondary.opacity(0.5) : Theme.textPrimary)
-                                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                                    }
-                                    .buttonStyle(.plain)
-                                    .disabled(isDead)
-                                }
-                            }
-                        }
-
-                        // Skip intro/outro settings.
-                        //
-                        // 跳过片头片尾设置.
-                        skipSettingsSection(vm)
-
-                        if vm.episodes.count > 1 {
-                            HStack {
-                                sectionTitle("Episodes")
-                                Spacer()
-                                downloadButton(vm)
-                            }
-                            episodeGrid(vm)
-                        }
-
-                        if let error = vm.error {
-                            Text(error)
-                                .foregroundStyle(.red)
-                                .font(.caption)
-                        }
-                    }
-                    .padding()
+                VStack(alignment: .leading, spacing: Spacing.section) {
+                    header(vm)
+                    episodesSection(vm)
+                    playbackSettings(vm)
+                    errorLabel(vm)
                 }
-                .padding(.bottom, 40)
+                .padding(.horizontal, Spacing.page)
+                .padding(.top, Spacing.lg + 2)
+                .padding(.bottom, Spacing.xxl)
+                .background(alignment: .top) { backdrop(vm) }
             }
         }
+    }
+
+    /// Landscape iPad: the video and its details on the left, episodes and playback settings in a
+    /// sidebar that scrolls on its own, so switching episodes never scrolls the video away.
+    ///
+    /// 横屏 iPad: 左侧为视频及其详情, 剧集与播放设置位于独立滚动的侧栏中, 切换剧集时视频不会被滚走.
+    private func wideContent(_ vm: PlayerViewModel) -> some View {
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                playerSection(vm)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Spacing.lg) {
+                        header(vm)
+                        errorLabel(vm)
+                    }
+                    .padding(.horizontal, Spacing.xl)
+                    .padding(.top, Spacing.lg + 2)
+                    .padding(.bottom, Spacing.xxl)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(alignment: .top) { backdrop(vm) }
+                }
+            }
+            .frame(maxWidth: .infinity)
+
+            Divider().ignoresSafeArea(edges: .bottom)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: Spacing.section) {
+                    episodesSection(vm)
+                    playbackSettings(vm)
+                }
+                .padding(.horizontal, Spacing.lg)
+                .padding(.top, Spacing.lg + 2)
+                .padding(.bottom, Spacing.xxl)
+            }
+            .frame(width: max(340, contentWidth / 3))
+        }
+    }
+
+    @ViewBuilder
+    private func episodesSection(_ vm: PlayerViewModel) -> some View {
+        if vm.episodes.count > 1 {
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                SectionHeader(Text("Episodes")) {
+                    Text("\(vm.episodes.count) episodes")
+                        .foregroundStyle(.secondary)
+                }
+                episodeGrid(vm)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func errorLabel(_ vm: PlayerViewModel) -> some View {
+        if let error = vm.error {
+            Label(error, systemImage: "exclamationmark.triangle.fill")
+                .font(AppFont.footnote)
+                .foregroundStyle(.red)
+        }
+    }
+
+    private func backdrop(_ vm: PlayerViewModel) -> some View {
+        PlayerBackdrop(url: coverURL(vm.detail?.cover ?? destination.coverHint),
+                       title: vm.detail?.title ?? destination.title)
+    }
+
+    private func header(_ vm: PlayerViewModel) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text(vm.detail?.title ?? destination.title)
+                    .font(AppFont.title)
+                    .foregroundStyle(.primary)
+                Text(DisplayFormatters.metaLine([
+                    vm.episodes.count > 1 ? vm.currentEpisodeName : nil,
+                    vm.currentSourceName,
+                    vm.detail?.type,
+                    vm.detail?.year,
+                ], separator: " · "))
+                    .font(AppFont.secondary)
+                    .foregroundStyle(.secondary)
+                if vm.isPlayingLocalCopy {
+                    Label("Downloaded", systemImage: "arrow.down.circle.fill")
+                        .font(AppFont.footnote)
+                        .foregroundStyle(.green)
+                }
+            }
+
+            // Side by side, or stacked when large text does not fit on one line.
+            //
+            // 并排显示; 大字号下一行放不下时上下排列.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: Spacing.sm) { headerActions(vm) }
+                VStack(alignment: .leading, spacing: Spacing.sm) { headerActions(vm) }
+            }
+
+            if let desc = vm.detail?.desc, !desc.isEmpty {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    Text(desc)
+                        .font(AppFont.secondary)
+                        .foregroundStyle(.secondary)
+                        .lineSpacing(3)
+                        .lineLimit(isDescExpanded ? nil : 2)
+                    Button(isDescExpanded ? "Collapse" : "Expand") {
+                        withAnimation(.easeOut(duration: 0.2)) { isDescExpanded.toggle() }
+                    }
+                    .font(AppFont.secondary)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tint)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func headerActions(_ vm: PlayerViewModel) -> some View {
+        Button { vm.toggleFavorite() } label: {
+            Label(vm.isFavorited ? "Favorited" : "Favorite",
+                  systemImage: vm.isFavorited ? "star.fill" : "star")
+        }
+        .buttonStyle(.pill(selected: vm.isFavorited))
+        .sensoryFeedback(.success, trigger: vm.isFavorited) { _, now in now }
+        .accessibilityIdentifier("favoriteButton")
+
+        downloadButton(vm)
+    }
+
+    /// Source, line, and skip settings as one group of standard rows.
+    ///
+    /// 视频源, 线路与跳过设置, 作为一组标准行展示.
+    private func playbackSettings(_ vm: PlayerViewModel) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            SectionHeader(Text("Playback"))
+            VStack(spacing: 0) {
+                sourceRow(vm)
+                rowDivider
+                if vm.allLines.count > 1 {
+                    lineRow(vm)
+                    rowDivider
+                }
+                skipRow(title: "Skip Intro", seconds: vm.skipIntroSeconds) { vm.updateSkipIntro($0) }
+                rowDivider
+                skipRow(title: "Skip Outro", seconds: vm.skipOutroSeconds) { vm.updateSkipOutro($0) }
+            }
+            .raisedSurface()
+        }
+    }
+
+    private var rowDivider: some View {
+        Divider().padding(.leading, Spacing.lg)
+    }
+
+    @ViewBuilder
+    private func sourceRow(_ vm: PlayerViewModel) -> some View {
+        let current = vm.sources.first { $0.sourceKey == vm.currentSourceKey }
+        let value = HStack(spacing: Spacing.xs + 2) {
+            Text(DisplayFormatters.cleanSourceName(vm.currentSourceName))
+                .lineLimit(1)
+            if let current, current.durationMs > 0 {
+                Text(DisplayFormatters.latency(current.durationMs))
+                    .font(AppFont.footnote.monospacedDigit())
+                    .foregroundStyle(.green)
+            }
+        }
+        if vm.sources.count > 1 {
+            Menu {
+                ForEach(vm.sources) { source in
+                    Button {
+                        guard source.sourceKey != vm.currentSourceKey else { return }
+                        Task {
+                            await vm.switchSource(source.sourceKey)
+                            vm.startPlayback()
+                        }
+                    } label: {
+                        if source.sourceKey == vm.currentSourceKey {
+                            Label(DisplayFormatters.cleanSourceName(source.sourceName), systemImage: "checkmark")
+                        } else {
+                            Text(DisplayFormatters.cleanSourceName(source.sourceName))
+                        }
+                        if source.durationMs > 0 {
+                            Text(DisplayFormatters.latency(source.durationMs))
+                        }
+                    }
+                }
+            } label: {
+                settingRow(title: "Source", chevron: true) { value }
+            }
+            .tint(.primary)
+            .accessibilityIdentifier("sourceMenu")
+        } else {
+            settingRow(title: "Source", chevron: false) { value }
+        }
+    }
+
+    private func lineRow(_ vm: PlayerViewModel) -> some View {
+        Menu {
+            ForEach(0..<vm.allLines.count, id: \.self) { index in
+                let isDead = vm.allLines[index].isEmpty
+                Button {
+                    guard index != vm.currentLineIndex else { return }
+                    vm.switchLine(index)
+                } label: {
+                    if index == vm.currentLineIndex {
+                        Label("Line \(index + 1)", systemImage: "checkmark")
+                    } else {
+                        Text("Line \(index + 1)")
+                    }
+                    if isDead { Text("Unavailable") }
+                }
+                .disabled(isDead)
+            }
+        } label: {
+            settingRow(title: "Line", chevron: true) { Text("Line \(vm.currentLineIndex + 1)") }
+        }
+        .tint(.primary)
+        .accessibilityIdentifier("lineMenu")
+    }
+
+    private func skipRow(title: LocalizedStringKey, seconds: Int, onChange: @escaping (Int) -> Void) -> some View {
+        Stepper(value: Binding(get: { seconds }, set: { onChange(max(0, min(300, $0))) }), in: 0...300, step: 5) {
+            HStack {
+                Text(title)
+                    .foregroundStyle(.primary)
+                Spacer()
+                Text(seconds == 0 ? String(localized: "Off") : String(localized: "\(seconds) s"))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(AppFont.body)
+        .padding(.horizontal, Spacing.lg)
+        .frame(minHeight: 48)
+    }
+
+    /// A standard 17 pt settings row: title on the left, value and an optional menu chevron on the right.
+    ///
+    /// 标准 17 pt 设置行: 左侧标题, 右侧数值与可选的菜单箭头.
+    private func settingRow<Value: View>(title: LocalizedStringKey, chevron: Bool,
+                                         @ViewBuilder value: () -> Value) -> some View {
+        HStack(spacing: Spacing.sm) {
+            Text(title)
+                .foregroundStyle(.primary)
+            Spacer(minLength: Spacing.md)
+            value()
+                .foregroundStyle(.secondary)
+            if chevron {
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .font(AppFont.body)
+        .padding(.horizontal, Spacing.lg)
+        .frame(minHeight: 48)
+        .contentShape(Rectangle())
     }
 
     // MARK: - Downloads
@@ -418,7 +598,7 @@ struct PlayerView: View {
                 }
             } label: {
                 Text("\(vm.playbackRate, specifier: "%.2g")x")
-                    .font(.caption2.bold())
+                    .font(AppFont.meta.weight(.bold).monospacedDigit())
                     .foregroundStyle(.white)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -438,56 +618,6 @@ struct PlayerView: View {
         .padding(.bottom, 8)
     }
 
-    // MARK: - Skip Settings
-
-    @ViewBuilder
-    private func skipSettingsSection(_ vm: PlayerViewModel) -> some View {
-        HStack(spacing: 12) {
-            skipChip(label: String(localized: "Skip Intro"), seconds: vm.skipIntroSeconds) { delta in
-                vm.updateSkipIntro(max(0, min(300, vm.skipIntroSeconds + delta)))
-            }
-            skipChip(label: String(localized: "Skip Outro"), seconds: vm.skipOutroSeconds) { delta in
-                vm.updateSkipOutro(max(0, min(300, vm.skipOutroSeconds + delta)))
-            }
-            Spacer()
-        }
-    }
-
-    private func skipChip(label: String, seconds: Int, onChange: @escaping (Int) -> Void) -> some View {
-        HStack(spacing: 0) {
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(Theme.textSecondary)
-                .padding(.leading, 8)
-
-            Text("\(seconds)s")
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(Theme.textSecondary)
-                .frame(width: 36, alignment: .trailing)
-
-            Button { onChange(-5) } label: {
-                Image(systemName: "minus")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(seconds > 0 ? Theme.textPrimary : Theme.textSecondary.opacity(0.3))
-                    .frame(width: 36, height: 36)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(seconds <= 0)
-
-            Button { onChange(5) } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.textPrimary)
-                    .frame(width: 36, height: 36)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        }
-        .background(Theme.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-    }
-
     // MARK: - Helpers
 
     private func toggleControls() {
@@ -500,12 +630,6 @@ struct PlayerView: View {
                 withAnimation { showControls = false }
             }
         }
-    }
-
-    private func sectionTitle(_ title: LocalizedStringKey) -> some View {
-        Text(title)
-            .font(.subheadline.bold())
-            .foregroundStyle(Theme.textSecondary)
     }
 }
 
@@ -521,7 +645,7 @@ private struct PlayerTimeBar: View {
         //
         // 播放时间显示.
         Text("\(Self.formatTime(vm.currentTime)) / \(Self.formatTime(vm.duration))")
-            .font(.caption2.monospacedDigit())
+            .font(AppFont.meta.monospacedDigit())
             .foregroundStyle(.white.opacity(0.8))
             .fixedSize()
 
@@ -533,7 +657,11 @@ private struct PlayerTimeBar: View {
                 get: { vm.duration > 0 ? vm.currentTime / vm.duration : 0 },
                 set: { vm.currentTime = $0 * max(vm.duration, 1) }
             ),
-            buffered: vm.bufferedFraction,
+            // A downloaded episode is all on the device, so its track shows fully loaded rather
+            // than the player's read-ahead through the loopback server.
+            //
+            // 已下载的剧集全部在本机, 因此进度条显示为全部已加载, 而不是播放器经由回环服务器的预读进度.
+            buffered: vm.isPlayingLocalCopy ? 1 : vm.bufferedFraction,
             onDragStart: { vm.isSeeking = true },
             onDragEnd: { ratio in
                 vm.seek(to: ratio * max(vm.duration, 1))
@@ -573,7 +701,12 @@ private struct PlayerBufferBadge: View {
     let vm: PlayerViewModel
 
     var body: some View {
-        BufferBadge(secondsAhead: vm.bufferedAheadSeconds, isWaiting: vm.isBuffering)
+        // Nothing to report for a downloaded episode.
+        //
+        // 已下载的剧集无需显示缓冲信息.
+        if !vm.isPlayingLocalCopy {
+            BufferBadge(secondsAhead: vm.bufferedAheadSeconds, isWaiting: vm.isBuffering)
+        }
     }
 }
 
@@ -589,21 +722,34 @@ private struct PlayerDownloadButton: View {
     var body: some View {
         if downloads.canDownload {
             Button(action: action) {
-                // `labelStyle` takes a concrete style type, so the two styles cannot share a ternary.
-                //
-                // `labelStyle` 需要具体的样式类型, 两种样式无法写进同一个三元表达式.
-                Group {
-                    if multiple {
-                        Label("Download", systemImage: "arrow.down.circle").labelStyle(.titleAndIcon)
-                    } else {
-                        Label("Download", systemImage: "arrow.down.circle").labelStyle(.iconOnly)
-                    }
-                }
-                .font(.subheadline)
-                .foregroundStyle(Theme.accent)
-                .frame(minWidth: 44, minHeight: 44)
+                Label(multiple ? "Download Episodes" : "Download", systemImage: "arrow.down.circle")
             }
+            .buttonStyle(.pill)
             .accessibilityIdentifier("downloadButton")
+        }
+    }
+}
+
+/// The cover, heavily blurred, fading from the top of the page into the canvas; it tints the
+/// header with the show's colors.
+///
+/// 高度模糊的封面, 自页面顶部渐隐到背景色; 用剧集自身的色彩为头部着色.
+private struct PlayerBackdrop: View {
+    let url: URL?
+    let title: String
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        if url != nil || CoverRegistry.cover(for: title) != nil {
+            ArtworkImage(url: url, title: title, showsPlaceholder: false)
+                .frame(height: 280)
+                .frame(maxWidth: .infinity)
+                .blur(radius: 50, opaque: true)
+                .opacity(colorScheme == .dark ? 0.45 : 0.35)
+                .clipped()
+                .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
     }
 }

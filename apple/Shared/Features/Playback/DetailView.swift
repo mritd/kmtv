@@ -1,3 +1,4 @@
+#if os(tvOS)
 import SwiftUI
 import Kingfisher
 import AVKit
@@ -25,9 +26,7 @@ struct DetailView: View {
                 ProgressView()
             }
         }
-        #if os(tvOS)
         .background(Color.black)
-        #endif
         .task {
             // Create the player model lazily so navigation only loads detail once per view instance.
             //
@@ -73,7 +72,6 @@ struct DetailView: View {
                 viewModel?.cleanup()
             }
         }
-        #if os(tvOS)
         .onExitCommand { dismiss() }
         .fullScreenCover(isPresented: $showPlayer) {
             if let player = viewModel?.player {
@@ -86,7 +84,6 @@ struct DetailView: View {
                 ProgressView()
             }
         }
-        #endif
     }
 
     @ViewBuilder
@@ -100,12 +97,8 @@ struct DetailView: View {
                     Text(error).foregroundStyle(.red).padding()
                 }
             }
-            #if os(tvOS)
             .padding(.top, 80)
             .padding(.bottom, 32)
-            #else
-            .padding(.vertical, 32)
-            #endif
         }
         .background {
             if let cover = vm.detail?.cover {
@@ -120,9 +113,7 @@ struct DetailView: View {
                             endPoint: .bottom
                         )
                     )
-                    #if os(tvOS)
                     .ignoresSafeArea()
-                    #endif
             }
         }
     }
@@ -146,11 +137,7 @@ struct DetailView: View {
             .resizable()
             .aspectRatio(2/3, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 12))
-            #if os(tvOS)
             .frame(width: 350)
-            #else
-            .frame(width: 250)
-            #endif
     }
 
     @ViewBuilder
@@ -160,22 +147,12 @@ struct DetailView: View {
             Text(DisplayFormatters.metaLine([vm.detail?.type, vm.detail?.year, vm.detail?.area]))
                 .foregroundStyle(.secondary)
             if let director = vm.detail?.director, !director.isEmpty {
-                #if os(tvOS)
                 (Text("Director: ").bold() + Text(director))
                     .font(.callout).foregroundStyle(.secondary)
-                #else
-                (Text("Director: ") + Text(director))
-                    .font(.callout).foregroundStyle(.secondary)
-                #endif
             }
             if let actor = vm.detail?.actor, !actor.isEmpty {
-                #if os(tvOS)
                 (Text("Cast: ").bold() + Text(actor))
                     .font(.callout).foregroundStyle(.secondary).lineLimit(2)
-                #else
-                (Text("Cast: ") + Text(actor))
-                    .font(.callout).foregroundStyle(.secondary).lineLimit(2)
-                #endif
             }
             if let desc = vm.detail?.desc, !desc.isEmpty {
                 let cleaned = Self.cleanDescription(desc)
@@ -192,38 +169,23 @@ struct DetailView: View {
                 vm.startPlayback()
                 showPlayer = true
             } label: {
-                #if os(tvOS)
                 DetailActionButtonLabel(
                     text: "Play",
                     systemImage: "play.fill",
                     isPrimary: true
                 )
-                #else
-                Label("Play", systemImage: "play.fill")
-                #endif
             }
-            #if os(tvOS)
             .buttonStyle(.tvPlain)
-            #else
-            .buttonStyle(.borderedProminent)
-            #endif
 
             Button { vm.toggleFavorite() } label: {
-                #if os(tvOS)
                 DetailActionButtonLabel(
                     text: vm.isFavorited ? "Favorited" : "Favorite",
                     systemImage: vm.isFavorited ? "star.fill" : "star",
                     isPrimary: false,
                     isActive: vm.isFavorited
                 )
-                #else
-                Label(vm.isFavorited ? "Favorited" : "Favorite",
-                      systemImage: vm.isFavorited ? "star.fill" : "star")
-                #endif
             }
-            #if os(tvOS)
             .buttonStyle(.tvPlain)
-            #endif
         }
     }
 
@@ -240,7 +202,6 @@ struct DetailView: View {
 
     @ViewBuilder
     private func sourceButtons(_ vm: PlayerViewModel) -> some View {
-        #if os(tvOS)
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 8), spacing: 6) {
             ForEach(vm.sources) { source in
                 SourceButton(source: source, isSelected: source.sourceKey == vm.currentSourceKey) {
@@ -249,21 +210,6 @@ struct DetailView: View {
             }
         }
         .padding(.horizontal, 48)
-        #else
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(vm.sources) { source in
-                    SourceButton(source: source, isSelected: source.sourceKey == vm.currentSourceKey, showsLatency: false) {
-                        Task {
-                            await vm.switchSource(source.sourceKey)
-                            vm.startPlayback()
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 48)
-        }
-        #endif
     }
 
     @ViewBuilder
@@ -327,22 +273,12 @@ private struct DetailEpisodeButton: View {
 
     var body: some View {
         Button(action: action) {
-            #if os(tvOS)
             DetailEpisodeButtonLabel(name: name, isSelected: isSelected)
-            #else
-            Text(name)
-            #endif
         }
-        #if os(tvOS)
         .buttonStyle(.tvPlain)
-        #else
-        .applyIf(isSelected) { $0.buttonStyle(.borderedProminent) }
-        .applyIf(!isSelected) { $0.buttonStyle(.bordered) }
-        #endif
     }
 }
 
-#if os(tvOS)
 private struct DetailActionButtonLabel: View {
     let text: LocalizedStringKey
     let systemImage: String
@@ -386,9 +322,7 @@ private struct DetailActionButtonLabel: View {
         return Color(white: 0.25)
     }
 }
-#endif
 
-#if os(tvOS)
 private struct DetailEpisodeButtonLabel: View {
     let name: String
     let isSelected: Bool

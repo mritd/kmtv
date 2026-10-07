@@ -48,3 +48,5 @@ Non-sensitive project facts that are looked up often. Never store passwords, tok
 - Apple unit tests: `xcodebuild test -project apple/KMTV.xcodeproj -scheme KMTV -destination '<iOS simulator>' -only-testing:KMTVTests`.
 - Simulator tasks `task ios26`, `task ipad26`, and `task tv26` target the 26.5 runtimes (2026-10-06); `task ios`, `task ipad`, and `task tv` need the 18.x runtimes installed.
 - Repository-wide bilingual comments: `task bilingual-check`.
+- iOS screenshot tour (2026-10-06): `TEST_RUNNER_KMTV_SHOT_DIR=<dir> TEST_RUNNER_KMTV_SHOT_PREFIX=light xcodebuild test ... -only-testing:KMTVUITests/ScreenshotTourUITests` walks the main screens against the app's current session and writes one PNG per screen; it skips without the directory.
+- iOS appearance preferences live in `UserDefaults` keys `appearance.theme` and `appearance.mode`; known-good covers by title in `covers.byTitle` (600 entries max).

@@ -45,12 +45,12 @@ final class PlayerViewModelTests: XCTestCase {
         var asked: [(String, String, String, Int)] = []
         var failures: [Int] = []
 
-        func localPlaybackURL(scopeKey: String, sourceKey: String, videoId: String, episodeIndex: Int) async -> URL? {
-            asked.append((scopeKey, sourceKey, videoId, episodeIndex))
+        func localPlaybackURL(showKey: String, sourceKey: String, videoId: String, episodeIndex: Int) async -> URL? {
+            asked.append(("", sourceKey, videoId, episodeIndex))
             return url
         }
 
-        func reportPlaybackFailure(scopeKey: String, sourceKey: String, videoId: String, episodeIndex: Int) {
+        func reportPlaybackFailure(showKey: String, sourceKey: String, videoId: String, episodeIndex: Int) {
             failures.append(episodeIndex)
         }
     }

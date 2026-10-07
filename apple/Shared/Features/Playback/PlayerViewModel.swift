@@ -263,6 +263,11 @@ final class PlayerViewModel {
         }
     }
 
+    /// The show key downloads are filed under: the detail title, as when enqueueing.
+    ///
+    /// 下载归档所用的剧集键: 详情标题, 与加入下载时一致.
+    private var localShowKey: String { normalizeSyncKey(detail?.title ?? videoTitle) }
+
     func startPlaybackAsync() async {
         do {
             logger.info(
@@ -270,8 +275,8 @@ final class PlayerViewModel {
             )
             playbackRequest += 1
             let id = playbackRequest
-            if !skipLocalCopy, let localEpisodes, let scopeKey = syncStore?.scopeKey,
-               let local = await localEpisodes.localPlaybackURL(scopeKey: scopeKey, sourceKey: currentSourceKey,
+            if !skipLocalCopy, let localEpisodes,
+               let local = await localEpisodes.localPlaybackURL(showKey: localShowKey, sourceKey: currentSourceKey,
                                                                 videoId: currentVideoID,
                                                                 episodeIndex: currentEpisodeIndex) {
                 guard id == playbackRequest else { return }
@@ -389,12 +394,12 @@ final class PlayerViewModel {
     /// 播放器 item 报告失败. 选择正在变化时忽略, 因为旧 item 的失败与即将挂载的 item 无关.
     func handleItemError(_ message: String?) async {
         guard !detachedFromItem else { return }
-        if isPlayingLocalCopy, let localEpisodes, let scopeKey = syncStore?.scopeKey {
+        if isPlayingLocalCopy, let localEpisodes {
             // A failed local copy falls back to streaming the same selection, not to the next line.
             // The manager deletes the copy only when its files are missing.
             //
             // 本地副本失败时回退为在线播放同一选择, 而不是切换到下一条线路. 只有文件缺失时管理器才会删除该副本.
-            localEpisodes.reportPlaybackFailure(scopeKey: scopeKey, sourceKey: currentSourceKey,
+            localEpisodes.reportPlaybackFailure(showKey: localShowKey, sourceKey: currentSourceKey,
                                                 videoId: currentVideoID, episodeIndex: currentEpisodeIndex)
             isPlayingLocalCopy = false
             skipLocalCopy = true

@@ -6,7 +6,11 @@ enum AppState {
     case loading
     case serverSetup
     case authenticated
-    case offline(DownloadIdentity)
+    /// The device's downloads without a server. The identity, when known, records watch progress
+    /// in its local store.
+    ///
+    /// 不连接服务器时的本机下载. 已知身份时, 观看进度记录在其本地存储中.
+    case offline(DownloadIdentity?)
     case incompatibleServer(serverVersion: String, requiredVersion: String)
 }
 
@@ -96,15 +100,29 @@ final class AppViewModel {
         Server.current(in: modelContext)?.url ?? ""
     }
 
+    /// Bumped when the user leaves a bootstrap in flight for offline mode; that bootstrap then
+    /// drops its result instead of replacing the offline screen.
+    ///
+    /// 用户在启动请求进行中改为进入离线模式时递增; 该次启动随后丢弃其结果, 不再替换离线页面.
+    private var bootstrapGeneration = 0
+
     func bootstrap() async {
+        let generation = bootstrapGeneration
         guard let server = Server.current(in: modelContext) else {
+            // Leaving offline mode opened from setup: close its store and scope too.
+            //
+            // 离开从设置页打开的离线模式: 同时关闭其存储与作用域.
+            sync?.stop()
+            sync = nil
+            await releaseDownloads()
             state = .serverSetup
             return
         }
 
         let store = AuthStore(serverURL: server.url)
         authStore = store
-        accessTokenBox.set(store.load()?.accessToken)
+        let savedToken = store.load()?.accessToken
+        accessTokenBox.set(savedToken)
         let client = makeClient(for: server.url)
         apiClient = client
         client.configureKingfisher()
@@ -138,6 +156,7 @@ final class AppViewModel {
                 throw error
             }
 
+            guard generation == bootstrapGeneration else { return }
             currentUser = user
             // Open the store before the screens appear, so they never render without it.
             //
@@ -155,21 +174,27 @@ final class AppViewModel {
                 await releaseDownloads()
             }
         } catch let error as URLError where error.code == .timedOut {
+            guard generation == bootstrapGeneration else { return }
             if enterOfflineIfPossible(serverURL: server.url, error: error) { return }
             await releaseDownloads()
             prefillServerURL = server.url
             state = .serverSetup
             ToastManager.shared.show(String(localized: "Connection timed out"))
         } catch let error as APIError {
+            guard generation == bootstrapGeneration else { return }
             if enterOfflineIfPossible(serverURL: server.url, error: error) { return }
             await releaseDownloads()
             prefillServerURL = server.url
             state = .serverSetup
-            if case .unauthorized = error {
-                // 401: just go to setup, no toast needed
+            if error.isUnauthorized, savedToken != nil {
+                // The saved token was rejected (for example the server's database was reset);
+                // `.authExpired` already reset to setup and said the session expired.
                 //
-                // 401 表示本地 token 失效, 直接回到设置页, 不额外弹 toast.
+                // 保存的 token 被拒绝 (例如服务端数据库被重置); `.authExpired` 已回到设置页并提示登录过期.
             } else {
+                // Without a token, a 401 means the server turned anonymous access off.
+                //
+                // 没有 token 时, 401 表示服务端关闭了匿名访问.
                 ToastManager.shared.show(error.localizedMessage)
             }
         } catch is CancellationError {
@@ -177,6 +202,7 @@ final class AppViewModel {
             //
             // 父任务被取消, 通常是视图已经消失, 这里不再更新 UI 状态.
         } catch {
+            guard generation == bootstrapGeneration else { return }
             if enterOfflineIfPossible(serverURL: server.url, error: error) { return }
             await releaseDownloads()
             prefillServerURL = server.url
@@ -185,20 +211,53 @@ final class AppViewModel {
         }
     }
 
-    /// Opens the last identity's downloads when the server is unreachable and that identity on this
-    /// server has completed downloads. Returns whether the app went offline.
+    /// Opens the device's downloads when the server is unreachable and any completed download
+    /// exists. Returns whether the app went offline.
     ///
-    /// 服务器无法连接, 且该服务器上最后登录的身份有已完成的下载时, 打开这些下载. 返回 App 是否进入离线状态.
+    /// 服务器无法连接且本机存在已完成的下载时, 打开本机下载. 返回 App 是否进入离线状态.
     private func enterOfflineIfPossible(serverURL: String, error: Error) -> Bool {
-        guard BootstrapFailure.isUnreachable(error), let identity = identityStore.load(),
-              identity.matches(serverURL: serverURL), let downloads,
-              downloads.hasCompleted(in: identity.scopeKey) else { return false }
-        let user = User(id: Int(identity.userID), username: identity.username, role: "user")
-        sync?.stop()
-        sync = SyncSession(context: modelContext, serverURL: serverURL, user: user, api: nil)
-        downloads.openOffline(scopeKey: identity.scopeKey)
-        state = .offline(identity)
+        guard BootstrapFailure.isUnreachable(error), hasOfflineDownloads else { return false }
+        enterOffline(offlineIdentity(serverURL: serverURL))
         return true
+    }
+
+    /// Whether the device has a completed download to watch offline, whatever server or account it
+    /// was made under and whether anyone is signed in.
+    ///
+    /// 本机是否有可离线观看的已完成下载, 无论它属于哪个服务器或账号, 也无论是否有人登录.
+    var hasOfflineDownloads: Bool { downloads?.hasCompletedDownloads ?? false }
+
+    /// The identity whose local store records progress offline: the configured server's most recent
+    /// one, or none, so progress never lands in an account of another server or one that signed out.
+    ///
+    /// 离线时用于记录进度的本地存储所属身份: 当前配置服务器上最近使用的身份, 没有则为空, 因此进度不会
+    /// 记入其他服务器的账号或已登出的账号.
+    func offlineIdentity(serverURL: String) -> DownloadIdentity? {
+        identityStore.known().first { $0.matches(serverURL: serverURL) }
+    }
+
+    /// Opens the device's downloads offline now, without waiting for the server; a bootstrap still in
+    /// flight drops its result.
+    ///
+    /// 不等服务器响应, 立即离线打开本机下载; 仍在进行的启动请求会丢弃其结果.
+    func openDownloadsOffline() {
+        guard hasOfflineDownloads else { return }
+        bootstrapGeneration += 1
+        enterOffline(offlineIdentity(serverURL: serverURL))
+    }
+
+    private func enterOffline(_ identity: DownloadIdentity?) {
+        guard let downloads else { return }
+        sync?.stop()
+        sync = nil
+        if let identity {
+            let user = User(id: Int(identity.userID), username: identity.username, role: "user")
+            sync = SyncSession(context: modelContext, serverURL: identity.serverURL, user: user, api: nil)
+            downloads.openOffline(scopeKey: identity.scopeKey)
+        } else {
+            Task { await downloads.deactivate() }
+        }
+        state = .offline(identity)
     }
 
     /// Retries the connection from offline mode.
@@ -381,13 +440,22 @@ final class AppViewModel {
     ///
     /// 处理 bearer token 过期: 清理本地认证状态并返回服务器设置页.
     func handleAuthExpired(_ error: APIError) {
-        resetToServerSetup(toast: error)
+        // A late 401 from a bootstrap the user left for offline mode must not end offline mode.
+        //
+        // 用户已改为离线模式后, 被放弃的启动请求迟到的 401 不能结束离线模式.
+        if case .offline = state { return }
+        // Posted only for requests that carried a token, so the session expired; the backend's
+        // generic "not logged in" code would otherwise read as "anonymous access is disabled".
+        //
+        // 只有携带 token 的请求才会发送该通知, 因此是登录过期; 否则后端通用的 "未登录" 错误码会被显示为
+        // "禁止匿名登录".
+        resetToServerSetup(message: String(localized: "Session expired, please sign in again"))
     }
 
     /// Common cleanup: clear stored credentials and redirect to server setup.
     ///
     /// 通用清理: 清除已保存凭据并跳转到服务器设置页.
-    private func resetToServerSetup(toast error: APIError? = nil) {
+    private func resetToServerSetup(message: String? = nil) {
         prefillServerURL = serverURL
         authStore?.clear()
         authStore = nil
@@ -401,8 +469,8 @@ final class AppViewModel {
         Task { await downloads?.deactivate() }
         Server.deleteAll(in: modelContext)
         state = .serverSetup
-        if let error {
-            ToastManager.shared.show(error.localizedMessage)
+        if let message {
+            ToastManager.shared.show(message)
         }
     }
 

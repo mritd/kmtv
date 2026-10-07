@@ -291,7 +291,7 @@ final class ProfileUITests: XCTestCase {
 
         // Confirmation dialog should appear with "Change Avatar" option
         let changeAvatarBtn = app.buttons.matching(NSPredicate(format:
-            "label CONTAINS[c] 'avatar' OR label CONTAINS[c] '头像' OR label CONTAINS[c] 'Change Avatar' OR label CONTAINS[c] '更换头像'")).firstMatch
+            "(label CONTAINS[c] 'avatar' OR label CONTAINS[c] '头像' OR label CONTAINS[c] 'Change Avatar' OR label CONTAINS[c] '更换头像') AND identifier != 'avatarButton'")).firstMatch
         guard changeAvatarBtn.waitForExistence(timeout: 5) else {
             saveScreenshot(named: "FAIL_no_avatar_options")
             XCTFail("Change Avatar option not found in confirmation dialog")
@@ -375,7 +375,7 @@ final class ProfileUITests: XCTestCase {
 
         // Look for "Remove Avatar" option in confirmation dialog
         let removeBtn = app.buttons.matching(NSPredicate(format:
-            "label CONTAINS[c] 'Remove' OR label CONTAINS[c] '移除' OR label CONTAINS[c] 'avatar' OR label CONTAINS[c] '头像'")).firstMatch
+            "(label CONTAINS[c] 'Remove' OR label CONTAINS[c] '移除' OR label CONTAINS[c] 'avatar' OR label CONTAINS[c] '头像') AND identifier != 'avatarButton'")).firstMatch
         guard removeBtn.waitForExistence(timeout: 5) else {
             saveScreenshot(named: "FAIL_no_remove_option")
             // Avatar might not exist yet - upload one first

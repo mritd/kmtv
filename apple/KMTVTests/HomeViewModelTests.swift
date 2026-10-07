@@ -29,6 +29,25 @@ final class HomeViewModelTests: XCTestCase {
         XCTAssertNotNil(store.state.pendingClears[.watch])
     }
 
+    func testHeroCandidatesPreferDescribedItemsThenFillFromFirstSection() {
+        let sections = [
+            HomeSection(name: "Hot", tag: "hot", type: "movie", items: [
+                DoubanItem(id: "1", title: "A", cover: "", rate: "", year: ""),
+                DoubanItem(id: "2", title: "B", cover: "", rate: "", year: "", desc: "  "),
+                DoubanItem(id: "3", title: "C", cover: "", rate: "", year: ""),
+            ]),
+            HomeSection(name: "TV", tag: "tv", type: "tv", items: [
+                DoubanItem(id: "4", title: "D", cover: "", rate: "", year: "", desc: "Synopsis D"),
+                DoubanItem(id: "1", title: "A", cover: "", rate: "", year: "", desc: "Synopsis A"),
+            ]),
+        ]
+
+        let ids = HomeViewModel.heroCandidates(sections, limit: 4).map(\.id)
+
+        // Described items first in section order, then the first section fills the rest without repeats.
+        XCTAssertEqual(ids, ["4", "1", "2", "3"])
+    }
+
     func testLoadFailureDoesNotShowGlobalToast() async throws {
         let api = DoubanAPIFake()
         api.homeError = APIError.serverError(500, 1300, "douban unavailable")

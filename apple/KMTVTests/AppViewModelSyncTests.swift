@@ -42,7 +42,10 @@ final class AppViewModelSyncTests: XCTestCase {
         }
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [URLProtocolStub.self]
-        return AppViewModel(modelContext: container.mainContext, session: URLSession(configuration: config))
+        // A private identity store: the default one is the host app's real `UserDefaults`.
+        let identities = LastIdentityStore(defaults: UserDefaults(suiteName: "AppViewModelSyncTests-\(UUID().uuidString)")!)
+        return AppViewModel(modelContext: container.mainContext, session: URLSession(configuration: config),
+                            identityStore: identities)
     }
 
     private func isAuthenticated(_ vm: AppViewModel) -> Bool {

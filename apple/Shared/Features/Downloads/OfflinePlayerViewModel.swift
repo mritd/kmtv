@@ -140,7 +140,10 @@ final class OfflinePlayerViewModel {
     }
 
     private func findNextEpisode() -> DownloadEpisode? {
-        manager.episodes(in: episode.scopeKey, showKey: episode.showKey)
+        // From the whole library: the next episode may have been downloaded under another account.
+        //
+        // 从整个下载库中查找: 下一集可能是在另一个账号下下载的.
+        manager.libraryEpisodes(showKey: episode.showKey)
             .filter { $0.sourceKey == episode.sourceKey && $0.videoId == episode.videoId
                 && $0.state == .completed && $0.episodeIndex > episode.episodeIndex }
             .min { $0.episodeIndex < $1.episodeIndex }
