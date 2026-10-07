@@ -4,7 +4,7 @@ import UIKit
 
 @MainActor
 final class ProfileViewModelTests: XCTestCase {
-    func testWatchHistoryCountAndClearUseTheSyncStore() throws {
+    func testClearWatchHistoryUsesTheSyncStore() throws {
         let container = try ModelContainerFactory.makeInMemory()
         let store = makeSyncStore(container)
         store.upsert(.watch(WatchPayload(title: "Video 1")))
@@ -13,9 +13,9 @@ final class ProfileViewModelTests: XCTestCase {
         let api = AuthAPIFake()
         let vm = ProfileViewModel(apiClient: api, syncStore: store, user: api.user)
 
-        XCTAssertEqual(vm.watchHistoryCount, 1)
-        vm.clearWatchHistory()
-        XCTAssertEqual(vm.watchHistoryCount, 0)
+        XCTAssertEqual(store.watchItems.filter { !$0.completed }.count, 1)
+        XCTAssertTrue(vm.clearWatchHistory())
+        XCTAssertEqual(store.watchItems.filter { !$0.completed }.count, 0)
         XCTAssertEqual(makeSyncStore(container, serverURL: "https://other.example").watchItems.count, 1)
         XCTAssertNotNil(vm.successMessage)
     }
@@ -104,5 +104,23 @@ final class ProfileViewModelTests: XCTestCase {
         XCTAssertEqual(api.uploadedAvatar?.mimeType, "image/jpeg")
         XCTAssertGreaterThan(api.uploadedAvatar?.bytes ?? 0, 0)
         XCTAssertEqual(vm.user?.avatar, "/api/v1/auth/avatar")
+    }
+
+    func testClearWatchHistoryWithoutStoreReportsNoSuccess() {
+        let api = AuthAPIFake()
+        let vm = ProfileViewModel(apiClient: api, syncStore: nil, user: api.user)
+
+        XCTAssertFalse(vm.clearWatchHistory())
+        XCTAssertNil(vm.successMessage)
+        XCTAssertFalse(ProfileViewModel.clearWatchHistory(in: nil))
+    }
+
+    func testPickAvatarUploadsLoadedPhotoAndSkipsOnLoadFailure() async {
+        let api = AuthAPIFake()
+        let vm = ProfileViewModel(apiClient: api, syncStore: nil, user: api.user)
+
+        await vm.pickAvatar { nil }
+        await vm.pickAvatar { throw URLError(.badURL) }
+        XCTAssertNil(api.uploadedAvatar)
     }
 }

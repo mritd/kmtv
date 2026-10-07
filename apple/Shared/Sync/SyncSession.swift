@@ -1,8 +1,23 @@
+import Network
+import os
 import SwiftData
 import SwiftUI
 #if canImport(UIKit)
 import UIKit
 #endif
+
+/// Reports when the network path turns satisfied after being unsatisfied. It takes the callback and
+/// returns a closure that stops reporting; tests inject a fake.
+///
+/// 在网络路径由不可用变为可用时通知. 接收回调, 返回停止通知的闭包; 测试会注入替身.
+typealias SyncReachability = @MainActor (_ onOnline: @escaping @MainActor @Sendable () -> Void) -> () -> Void
+
+/// Begins a background task and returns a closure that ends it. `onExpire` runs on the main actor
+/// when the system's time runs out; tests inject a fake.
+///
+/// 开始一个后台任务, 返回结束它的闭包. 系统给的时间用完时 `onExpire` 在主 actor 上运行;
+/// 测试会注入替身.
+typealias SyncBackgroundTaskStarter = @MainActor (_ onExpire: @escaping @MainActor @Sendable () -> Void) -> () -> Void
 
 /// The sync store of the signed-in identity, plus an engine when the user is not anonymous.
 ///
@@ -12,6 +27,9 @@ final class SyncSession {
     let store: SyncStore
     let engine: SyncEngine?
     private var wasInBackground = false
+    private let reachability: SyncReachability
+    private let beginBackgroundTask: SyncBackgroundTaskStarter
+    private var stopReachability: (() -> Void)?
 
     /// Opens the scope of `user` on `serverURL`. Anonymous user 0 keeps data local only. The engine
     /// stays idle until `start()`, so the app can open the store before it checks the server version.
@@ -31,7 +49,11 @@ final class SyncSession {
     /// `onScopeDropped` 在同步重置因用户 ID 被复用而丢弃作用域数据时调用.
     init(context: ModelContext, serverURL: String, user: User, api: (any SyncAPIProtocol)?,
          activeUserID: (@MainActor @Sendable () -> Int64?)? = nil,
-         onScopeDropped: (() -> Void)? = nil) {
+         onScopeDropped: (() -> Void)? = nil,
+         reachability: @escaping SyncReachability = SyncSession.systemReachability,
+         beginBackgroundTask: @escaping SyncBackgroundTaskStarter = SyncSession.systemBackgroundTask) {
+        self.reachability = reachability
+        self.beginBackgroundTask = beginBackgroundTask
         let userID = Int64(max(0, user.id))
         store = SyncStore(context: context, serverURL: serverURL, userID: userID,
                           username: userID > 0 ? user.username : "")
@@ -52,6 +74,11 @@ final class SyncSession {
     func start() {
         guard let engine else { return }
         engine.start()
+        stopReachability?()
+        stopReachability = reachability { [weak engine] in
+            guard let engine else { return }
+            Task { await engine.requestSync(.online) }
+        }
         Task { await engine.requestSync(.launch) }
     }
 
@@ -59,6 +86,8 @@ final class SyncSession {
     ///
     /// 停止引擎.
     func stop() {
+        stopReachability?()
+        stopReachability = nil
         engine?.stop()
     }
 
@@ -86,16 +115,56 @@ final class SyncSession {
     //
     // 进入后台的应用几秒内就会被系统挂起; 后台任务让应用持续运行, 直到补写完成或系统给的时间用完.
     private func flushInBackground(_ engine: SyncEngine) {
-        #if canImport(UIKit)
-        let backgroundTask = SyncBackgroundTask()
-        backgroundTask.begin()
+        let backgroundTask = SyncBackgroundFlush()
+        backgroundTask.end = beginBackgroundTask { backgroundTask.finish() }
         Task {
             await engine.flushNow()
-            backgroundTask.end()
+            backgroundTask.finish()
         }
+    }
+
+    /// Reachability backed by `NWPathMonitor`; it reports only a change to satisfied, not the
+    /// first path, because the launch sync covers that.
+    ///
+    /// 基于 `NWPathMonitor` 的可达性; 只在变为可用时通知, 不通知初始路径, 因为启动同步已覆盖它.
+    static let systemReachability: SyncReachability = { onOnline in
+        let monitor = NWPathMonitor()
+        let lastSatisfied = OSAllocatedUnfairLock<Bool?>(initialState: nil)
+        monitor.pathUpdateHandler = { path in
+            let satisfied = path.status == .satisfied
+            let previous = lastSatisfied.withLock { value -> Bool? in
+                defer { value = satisfied }
+                return value
+            }
+            if satisfied, previous == false { Task { @MainActor in onOnline() } }
+        }
+        monitor.start(queue: DispatchQueue(label: "com.mritd.kmtv.sync.reachability"))
+        return { monitor.cancel() }
+    }
+
+    /// UIKit background task; tvOS has none, so the flush runs without one there.
+    ///
+    /// UIKit 后台任务; tvOS 没有这一机制, 补写在那里不使用后台任务.
+    static let systemBackgroundTask: SyncBackgroundTaskStarter = { onExpire in
+        #if canImport(UIKit)
+        let id = UIApplication.shared.beginBackgroundTask(withName: "kmtv.sync.flush") { onExpire() }
+        return { UIApplication.shared.endBackgroundTask(id) }
         #else
-        Task { await engine.flushNow() }
+        return {}
         #endif
+    }
+}
+
+/// One background flush's task; ending it more than once does nothing.
+///
+/// 一次后台补写的任务; 多次结束不会产生影响.
+@MainActor
+private final class SyncBackgroundFlush {
+    var end: (() -> Void)?
+
+    func finish() {
+        end?()
+        end = nil
     }
 }
 
@@ -127,25 +196,3 @@ private struct UserBoundSyncAPI: SyncAPIProtocol {
         guard active == userID else { throw APIError.unauthorized }
     }
 }
-
-#if canImport(UIKit)
-/// One UIKit background task; ending it more than once does nothing.
-///
-/// 一个 UIKit 后台任务; 多次结束不会产生影响.
-@MainActor
-private final class SyncBackgroundTask {
-    private var id = UIBackgroundTaskIdentifier.invalid
-
-    func begin() {
-        id = UIApplication.shared.beginBackgroundTask(withName: "kmtv.sync.flush") { [weak self] in
-            MainActor.assumeIsolated { self?.end() }
-        }
-    }
-
-    func end() {
-        guard id != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(id)
-        id = .invalid
-    }
-}
-#endif

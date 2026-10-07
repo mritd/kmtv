@@ -13,6 +13,36 @@ actor SearchProgressRecorder {
     }
 }
 
+actor SSEEventRecorder {
+    private(set) var events: [String] = []
+
+    func append(_ event: String, _ data: Data) {
+        events.append("\(event)=\(String(decoding: data, as: UTF8.self))")
+    }
+}
+
+/// Collects the rejected tokens posted with `.authExpired` while it is alive.
+///
+/// 在存活期间收集随 `.authExpired` 发送的被拒 token.
+final class RejectedTokenRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [String?] = []
+    private var observer: (any NSObjectProtocol)?
+
+    init() {
+        observer = NotificationCenter.default.addObserver(forName: .authExpired, object: nil, queue: nil) { [weak self] note in
+            let token = note.userInfo?[Notification.rejectedTokenKey] as? String
+            self?.lock.withLock { self?.stored.append(token) }
+        }
+    }
+
+    deinit {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+    }
+
+    var tokens: [String?] { lock.withLock { stored } }
+}
+
 final class APIClientTests: XCTestCase {
     override func tearDown() {
         URLProtocolStub.requestHandler = nil
@@ -304,5 +334,86 @@ final class APIClientTests: XCTestCase {
         encoder.outputFormatting = .withoutEscapingSlashes
         XCTAssertEqual(sent, try encoder.encode(request).count)
         XCTAssertFalse(escaped)
+    }
+
+    private func stubbedClient(token: String? = nil) -> APIClient {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [URLProtocolStub.self]
+        return APIClient(baseURL: "https://kmtv.example.com", session: URLSession(configuration: config),
+                         tokenProvider: { token })
+    }
+
+    @MainActor
+    func testUnauthorizedPostsTheRejectedToken() async {
+        let client = stubbedClient(token: "OldToken")
+        URLProtocolStub.requestHandler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!,
+             Data(#"{"code":1002,"error":"not logged in"}"#.utf8))
+        }
+        let recorder = RejectedTokenRecorder()
+        _ = try? await client.me()
+        XCTAssertEqual(recorder.tokens, ["OldToken"])
+    }
+
+    func testSSEJoinsMultiLineDataAndAcceptsFieldsWithoutASpace() async throws {
+        let client = stubbedClient()
+        URLProtocolStub.requestHandler = { request in
+            let body = """
+            : comment
+            event:progress
+            data:{"a":1,
+            data: "b":2}
+            event: result
+            data: {"c":3}
+            """
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
+        }
+        let recorder = SSEEventRecorder()
+        try await client.sseStream(path: "/api/v1/search/stream") { event, data in
+            await recorder.append(event, data)
+        }
+        let events = await recorder.events
+        XCTAssertEqual(events, ["progress={\"a\":1,\n\"b\":2}", "result={\"c\":3}"])
+    }
+
+    @MainActor
+    func testSSEErrorsMapLikeOtherRequests() async {
+        let client = stubbedClient(token: "SSEToken")
+        URLProtocolStub.requestHandler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!,
+             Data(#"{"code":1302,"error":"blocked"}"#.utf8))
+        }
+        do {
+            try await client.sseStream(path: "/api/v1/search/stream") { _, _ in }
+            XCTFail("expected an error")
+        } catch APIError.serverError(let status, let code, let message) {
+            XCTAssertEqual(status, 403)
+            XCTAssertEqual(code, 1302)
+            XCTAssertEqual(message, "blocked")
+        } catch {
+            XCTFail("unexpected \(error)")
+        }
+
+        URLProtocolStub.requestHandler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!,
+             Data(#"{"code":1002,"error":"token expired"}"#.utf8))
+        }
+        let recorder = RejectedTokenRecorder()
+        do {
+            try await client.sseStream(path: "/api/v1/search/stream") { _, _ in }
+            XCTFail("expected an error")
+        } catch APIError.serverError(let status, _, let message) {
+            XCTAssertEqual(status, 401)
+            XCTAssertEqual(message, "token expired")
+        } catch {
+            XCTFail("unexpected \(error)")
+        }
+        XCTAssertEqual(recorder.tokens, ["SSEToken"])
+    }
+
+    func testAvatarFilenameFollowsTheMimeType() {
+        XCTAssertEqual(APIClient.avatarFilename(mimeType: "image/png"), "avatar.png")
+        XCTAssertEqual(APIClient.avatarFilename(mimeType: "image/gif"), "avatar.gif")
+        XCTAssertTrue(APIClient.avatarFilename(mimeType: "image/jpeg").hasPrefix("avatar.jp"))
     }
 }

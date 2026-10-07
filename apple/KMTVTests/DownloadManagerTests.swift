@@ -185,7 +185,7 @@ final class DownloadManagerTests: XCTestCase {
         let playlist = try String(contentsOf: layout.playlistURL(episodeDir: dir), encoding: .utf8)
         XCTAssertTrue(playlist.contains("seg-00002.ts"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appending(path: "seg-00000.ts").path))
-        XCTAssertTrue(manager.hasCompleted(in: scope))
+        XCTAssertTrue(manager.hasCompletedDownloads)
         let url = try await manager.localPlaybackURL(for: ep)
         XCTAssertTrue(url.absoluteString.hasSuffix("/\(ep.showDir)/\(ep.episodeDir)/index.m3u8"))
         XCTAssertEqual(url.host, "127.0.0.1")
@@ -498,15 +498,14 @@ final class DownloadManagerTests: XCTestCase {
                        "the finished elsewhere copy is gone; the other one is still queued")
     }
 
-    func testDeleteScopeAndOtherScopeBytes() async throws {
+    func testDeleteScopeRemovesRowsFilesAndBytes() async throws {
         try await enqueueAndSettle()
         for id in liveIDs(0) { await transport.finish(id, layout: layout) }
-        let other = syncScopeKey(serverURL: "https://other.example", userID: 2)
-        XCTAssertEqual(manager.otherScopesBytes(excluding: other), 12)
-        XCTAssertEqual(manager.usedBytes(in: scope), 12)
+        XCTAssertEqual(manager.usedBytes, 12)
         await manager.deleteScope(scope)
         XCTAssertTrue(manager.shows(in: scope).isEmpty)
         XCTAssertNil(episode(0))
+        XCTAssertEqual(manager.usedBytes, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: layout.scopeDir(DownloadPaths.scopeHash(scope)).path))
     }
 
@@ -685,7 +684,7 @@ final class DownloadManagerTests: XCTestCase {
         try await enqueueAndSettle()
         XCTAssertNil(manager.progressTask)
         let start = manager.progressTick
-        let used = manager.storage.activeBytes
+        let used = manager.usedBytes
         for id in liveIDs(0).prefix(10) { await transport.finish(id, layout: layout) }
         XCTAssertEqual(manager.progressTick, start)
         XCTAssertNotNil(manager.progressTask)
@@ -694,7 +693,7 @@ final class DownloadManagerTests: XCTestCase {
         //
         // 一个间隔内完成的十个条目只产生一次通知.
         XCTAssertEqual(manager.progressTick, start + 1)
-        XCTAssertEqual(manager.storage.activeBytes, used + 40)
+        XCTAssertEqual(manager.usedBytes, used + 40)
         // No timer keeps running once entries stop finishing.
         //
         // 条目不再完成后, 不会有计时器继续运行.
@@ -852,22 +851,20 @@ final class DownloadManagerTests: XCTestCase {
         //
         // 进度通知与结构变化都不会访问磁盘卷.
         XCTAssertEqual(space.reads, reads)
-        XCTAssertEqual(manager.storage.activeBytes, manager.usedBytes(in: scope))
-        XCTAssertEqual(manager.storage.activeBytes, 16)
+        XCTAssertEqual(manager.usedBytes, manager.libraryEpisodes().reduce(0) { $0 + $1.bytes })
+        XCTAssertEqual(manager.usedBytes, 16)
         manager.markDamaged(try XCTUnwrap(episode(0)))
-        XCTAssertEqual(manager.storage.activeBytes, 4)
+        XCTAssertEqual(manager.usedBytes, 4)
         await manager.delete(try XCTUnwrap(episode(1)))
-        XCTAssertEqual(manager.storage.activeBytes, 0)
-        // Another scope's bytes move to "other" when the scope changes.
+        XCTAssertEqual(manager.usedBytes, 0)
+        // The total covers every scope's downloads, so a scope change leaves it alone.
         //
-        // 作用域切换后, 原作用域的字节数计入 "其他".
+        // 总量涵盖所有作用域的下载, 因此作用域切换不会改变它.
         try await enqueueAndSettle([2])
         for id in liveIDs(2) { await transport.finish(id, layout: layout) }
         let other = syncScopeKey(serverURL: "https://kmtv.example", userID: 2)
         await manager.activate(scopeKey: other, preparer: preparer)
-        XCTAssertEqual(manager.storage.activeBytes, 0)
-        XCTAssertEqual(manager.storage.otherBytes, manager.otherScopesBytes(excluding: other))
-        XCTAssertEqual(manager.storage.otherBytes, 12)
+        XCTAssertEqual(manager.usedBytes, 12)
         // Free space is read off the main actor, on demand.
         //
         // 剩余空间按需在主 actor 之外读取.
@@ -1069,6 +1066,102 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertEqual(manager.shows(in: scope).count, 1)
         await manager.delete(try XCTUnwrap(episode(1)))
         XCTAssertTrue(manager.shows(in: scope).isEmpty)
+    }
+
+    // MARK: - Scope transitions
+
+    func testActivateDuringASuspendedDeactivateEndsActive() async throws {
+        try await enqueueAndSettle()
+        XCTAssertEqual(liveIDs(0).count, 3)
+        // A quick re-login: `activate` for the same scope arrives while `deactivate` waits on the
+        // transport's cancel. The deactivate's tail must not sign the scope out after it.
+        //
+        // 快速重新登录: `deactivate` 等待传输层取消期间, 同一作用域的 `activate` 到达. `deactivate`
+        // 的收尾不能在它之后让该作用域登出.
+        let gate = PrepareGate()
+        transport.cancelGate = gate
+        let deactivating = Task { await manager.deactivate() }
+        for _ in 0..<1000 where !transport.cancelEntered { await Task.yield() }
+        XCTAssertTrue(transport.cancelEntered)
+        let activating = Task { await manager.activate(scopeKey: scope, preparer: preparer) }
+        for _ in 0..<50 { await Task.yield() }
+        gate.open()
+        await deactivating.value
+        await activating.value
+        await manager.waitForIdle()
+        XCTAssertEqual(manager.activeScopeKey, scope)
+        XCTAssertTrue(manager.canDownload)
+        XCTAssertEqual(episode(0)?.state, .downloading)
+        XCTAssertNil(episode(0)?.pauseReason)
+        XCTAssertEqual(liveIDs(0).count, 3, "the pump re-created the cancelled tasks")
+        XCTAssertTrue(liveIDs(0).allSatisfy { $0.generation == 2 })
+    }
+
+    func testOpenOfflineDuringASuspendedDeactivateRunsAfterIt() async throws {
+        try await enqueueAndSettle()
+        let gate = PrepareGate()
+        transport.cancelGate = gate
+        let deactivating = Task { await manager.deactivate() }
+        for _ in 0..<1000 where !transport.cancelEntered { await Task.yield() }
+        XCTAssertTrue(transport.cancelEntered)
+        // Offline mode opens while the sign-out still waits; it applies after the sign-out.
+        //
+        // 登出仍在等待时打开离线模式; 它在登出之后生效.
+        manager.openOffline(scopeKey: scope)
+        gate.open()
+        await deactivating.value
+        // A later transition returns only after the queued offline open ran.
+        //
+        // 之后的切换只会在排队的离线打开执行之后返回.
+        await manager.deleteScope(syncScopeKey(serverURL: "https://none.example", userID: 9))
+        XCTAssertEqual(manager.activeScopeKey, scope)
+        XCTAssertFalse(manager.canDownload)
+    }
+
+    // MARK: - Trash
+
+    func testDeletesMoveFilesToTheTrashAndEmptyItInTheBackground() async throws {
+        try await enqueueAndSettle()
+        for id in liveIDs(0) { await transport.finish(id, layout: layout) }
+        let ep = try XCTUnwrap(episode(0))
+        XCTAssertEqual(ep.state, .completed)
+        let showDir = layout.showDir(scopeHash: ep.scopeHash, showDir: ep.showDir)
+        await manager.delete(ep)
+        // The path is free at once; the files go away off the main actor.
+        //
+        // 路径立即空出; 文件在主 actor 之外删除.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: showDir.path))
+        await manager.trash.flush()
+        let left = (try? FileManager.default.contentsOfDirectory(atPath: layout.trashDir.path)) ?? []
+        XCTAssertEqual(left, [])
+        XCTAssertTrue(manager.libraryShows().isEmpty, "the trash is never a show")
+    }
+
+    func testLaunchSweepsTrashLeftBehind() async throws {
+        let leftover = layout.trashDir.appending(path: "old/show/episode")
+        try FileManager.default.createDirectory(at: leftover, withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: leftover.appending(path: "seg-00000.ts"))
+        let relaunched = makeManager()
+        await relaunched.trash.flush()
+        let left = (try? FileManager.default.contentsOfDirectory(atPath: layout.trashDir.path)) ?? []
+        XCTAssertEqual(left, [])
+    }
+
+    func testRelaunchDecodesSavedManifestsBeforeThePump() async throws {
+        try await enqueueAndSettle()
+        await transport.finish(liveIDs(0)[0], layout: layout)
+        await manager.persistAll()
+        // A relaunch finds the episode downloading with its manifest only on disk; the pump picks
+        // up where it left off without preparing again.
+        //
+        // 重启后该集处于下载中, 其 manifest 只在磁盘上; 队列推进从中断处继续, 不会重新准备.
+        for id in liveIDs(0) { transport.live[id] = nil }
+        let relaunched = makeManager()
+        await relaunched.activate(scopeKey: scope, preparer: preparer)
+        await relaunched.waitForIdle()
+        XCTAssertEqual(preparer.calls.count, 1)
+        XCTAssertEqual(liveIDs(0).map(\.entryIndex), [1, 2])
+        XCTAssertTrue(liveIDs(0).allSatisfy { $0.generation == 1 })
     }
 }
 

@@ -87,6 +87,52 @@ final class LocalMediaServerTests: XCTestCase {
         XCTAssertEqual(first, second)
     }
 
+    func testConcurrentStartsShareOneListener() async throws {
+        let server = LocalMediaServer(root: root)
+        defer { server.stop() }
+        // Two scene-phase handlers start the server at once; neither may cancel the other's listener.
+        //
+        // 两个场景状态回调同时启动服务; 任何一方都不能取消另一方的 listener.
+        async let first = server.start()
+        async let second = server.start()
+        let (one, two) = try await (first, second)
+        XCTAssertNotEqual(one, 0)
+        XCTAssertEqual(one, two)
+        XCTAssertEqual(server.port, one)
+        let url = try XCTUnwrap(server.url(forRelativePath: "ts/index.m3u8"))
+        let (_, response) = try await URLSession(configuration: .ephemeral).data(from: url)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+    }
+
+    func testStopCancelsAStartInFlight() async throws {
+        let server = LocalMediaServer(root: root)
+        defer { server.stop() }
+        let starting = Task { try await server.start() }
+        // Both run on the main actor: one yield lets `start()` reach its await, before the bind runs.
+        //
+        // 两者都在主 actor 上运行: 让出一次即可让 `start()` 执行到其 await, 而绑定尚未开始.
+        await Task.yield()
+        server.stop()
+
+        let result = await starting.result
+        guard case .failure(let error) = result else { return XCTFail("the stopped start must not bind") }
+        XCTAssertTrue(error is CancellationError, "got \(error)")
+        XCTAssertEqual(server.port, 0, "nothing bound outlives the stop")
+        XCTAssertNil(server.url(forRelativePath: "ts/index.m3u8"))
+
+        let port = try await server.start()
+        XCTAssertNotEqual(port, 0)
+    }
+
+    func testTrashIsNeverServed() throws {
+        let handler = LocalMediaRequestHandler(root: root, secret: "s3cret")
+        let trashed = root.appending(path: ".trash/x/ts")
+        try FileManager.default.createDirectory(at: trashed, withIntermediateDirectories: true)
+        try Data("#EXTM3U\n".utf8).write(to: trashed.appending(path: "index.m3u8"))
+        XCTAssertEqual(handler.response(forRequestHead: "GET /s3cret/.trash/x/ts/index.m3u8 HTTP/1.1\r\n\r\n").status, 404)
+        XCTAssertEqual(handler.response(forRequestHead: "GET /s3cret/%2Etrash/x/ts/index.m3u8 HTTP/1.1\r\n\r\n").status, 404)
+    }
+
     private static func playsPastOneSecond(_ url: URL) async throws -> Bool {
         let item = AVPlayerItem(url: url)
         let player = AVPlayer(playerItem: item)

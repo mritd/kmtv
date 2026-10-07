@@ -20,6 +20,7 @@ final class CategoriesViewModel {
     private let apiClient: any DoubanAPIProtocol
     private var currentStart = 0
     private let pageSize = 20
+    private let baseURL: String
     private var fetchTask: Task<Void, Never>?
     /// Monotonic request generation used to ignore stale category responses.
     ///
@@ -31,16 +32,30 @@ final class CategoriesViewModel {
         return categoryGroups[selectedGroupIndex]
     }
 
-    init(apiClient: any DoubanAPIProtocol) {
+    init(apiClient: any DoubanAPIProtocol, baseURL: String = "") {
         self.apiClient = apiClient
+        self.baseURL = baseURL
+    }
+
+    /// The single refresh entry point for pull-to-refresh and the empty-state Retry button: loads
+    /// the category groups when a previous load failed to bring them, otherwise reloads the items.
+    ///
+    /// 下拉刷新与空状态 "重试" 按钮共用的刷新入口: 此前分类分组加载失败时重新加载分组, 否则重新加载条目.
+    func refresh() async {
+        if categoryGroups.isEmpty {
+            await loadCategories()
+        } else {
+            await fetchItems()
+        }
     }
 
     func loadCategories() async {
-        let client = self.apiClient
+        // Show the loading state while groups load, so the empty state does not flash first.
+        //
+        // 分组加载期间显示加载状态, 避免先闪现空状态.
+        isLoading = true
         do {
-            let response: DoubanCategoriesResponse = try await Task.detached {
-                try await client.doubanCategories()
-            }.value
+            let response = try await apiClient.doubanCategories()
             categoryGroups = response.categories
             if let firstGroup = categoryGroups.first {
                 selectedSubCategory = firstGroup.subcategories.first
@@ -48,6 +63,8 @@ final class CategoriesViewModel {
             }
             await fetchItems()
         } catch {
+            isLoading = false
+            if isCancellation(error) { return }
             logger.error("Failed to load categories: \(error.localizedDescription)")
             handleError(error)
         }
@@ -95,29 +112,24 @@ final class CategoriesViewModel {
         hasMore = true
         defer { if gen == fetchGeneration { isLoading = false } }
 
-        let client = self.apiClient
-        let sub = selectedSubCategory
-        let kind = sub?.kind ?? group.doubanKind
-        let tag = sub?.tag ?? ""
-        let format = sub?.kind != nil ? (sub?.format ?? "") : group.format
-        let regionValue = selectedRegion?.value ?? ""
+        let query = currentQuery(group)
 
         do {
-            let response: DoubanListResponse = try await Task.detached {
-                try await client.doubanRecommend(kind: kind, tag: tag, format: format, region: regionValue, start: 0, count: 20)
-            }.value
-            // Ignore cancelled or stale responses after the user changed category filters.
+            let response = try await apiClient.doubanRecommend(
+                kind: query.kind, tag: query.tag, format: query.format, region: query.region,
+                start: 0, count: pageSize)
+            // Ignore stale responses after the user changed category filters.
             //
-            // 用户切换分类筛选后, 忽略已取消或过期的响应.
-            guard !Task.isCancelled, gen == fetchGeneration else { return }
+            // 用户切换分类筛选后, 忽略过期的响应.
+            guard gen == fetchGeneration else { return }
             items = response.items
             #if os(iOS)
-            CoverRegistry.remember(response.items, baseURL: (apiClient as? APIClient)?.baseURL ?? "")
+            CoverRegistry.remember(response.items, baseURL: baseURL)
             #endif
             currentStart = response.items.count
             hasMore = response.items.count >= pageSize
         } catch {
-            guard gen == fetchGeneration else { return }
+            guard gen == fetchGeneration, !isCancellation(error) else { return }
             logger.error("Failed to fetch items: \(error.localizedDescription)")
             handleError(error)
             items = []
@@ -130,18 +142,13 @@ final class CategoriesViewModel {
         let gen = fetchGeneration
         defer { if gen == fetchGeneration { isLoadingMore = false } }
 
-        let client = self.apiClient
-        let sub = selectedSubCategory
-        let kind = sub?.kind ?? group.doubanKind
-        let tag = sub?.tag ?? ""
-        let format = sub?.kind != nil ? (sub?.format ?? "") : group.format
-        let regionValue = selectedRegion?.value ?? ""
+        let query = currentQuery(group)
         let start = currentStart
 
         do {
-            let response: DoubanListResponse = try await Task.detached {
-                try await client.doubanRecommend(kind: kind, tag: tag, format: format, region: regionValue, start: start, count: 20)
-            }.value
+            let response = try await apiClient.doubanRecommend(
+                kind: query.kind, tag: query.tag, format: query.format, region: query.region,
+                start: start, count: pageSize)
             guard gen == fetchGeneration else { return }
             // Deduplicate append results because upstream pages can overlap.
             //
@@ -150,20 +157,32 @@ final class CategoriesViewModel {
             let newItems = response.items.filter { !existingIds.contains($0.id) }
             items.append(contentsOf: newItems)
             #if os(iOS)
-            CoverRegistry.remember(newItems, baseURL: (apiClient as? APIClient)?.baseURL ?? "")
+            CoverRegistry.remember(newItems, baseURL: baseURL)
             #endif
             currentStart += response.items.count
             hasMore = response.items.count >= pageSize
         } catch {
-            guard gen == fetchGeneration else { return }
+            guard gen == fetchGeneration, !isCancellation(error) else { return }
             logger.error("Failed to load more: \(error.localizedDescription)")
             handleError(error)
         }
     }
 
-    func cancelFetch() {
-        fetchTask?.cancel()
-        fetchTask = nil
+    /// The Douban query for the selected group, subcategory, and region.
+    ///
+    /// 当前所选分组, 子分类与地区对应的豆瓣查询.
+    private func currentQuery(_ group: CategoryGroup) -> (kind: String, tag: String, format: String, region: String) {
+        let sub = selectedSubCategory
+        return (
+            kind: sub?.kind ?? group.doubanKind,
+            tag: sub?.tag ?? "",
+            format: sub?.kind != nil ? (sub?.format ?? "") : group.format,
+            region: selectedRegion?.value ?? ""
+        )
+    }
+
+    private func isCancellation(_ error: Error) -> Bool {
+        Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled
     }
 
     private func handleError(_ error: Error) {

@@ -34,6 +34,19 @@ final class AuthStoreTests: XCTestCase {
         XCTAssertNil(store.load(now: Date(timeIntervalSince1970: 2)))
     }
 
+    func testReadReportsAnExpiredTokenUntilCleared() throws {
+        let store = AuthStore(serverURL: serverURL)
+        XCTAssertEqual(store.read(), .missing)
+
+        try store.save(accessToken: "ExpiredToken", expiresAt: Date(timeIntervalSince1970: 1))
+        XCTAssertEqual(store.read(now: Date(timeIntervalSince1970: 2)), .expired)
+        XCTAssertEqual(store.read(now: Date(timeIntervalSince1970: 2)), .expired, "reading keeps an expired token")
+        XCTAssertNil(store.read(now: Date(timeIntervalSince1970: 2)).credential)
+
+        store.clear()
+        XCTAssertEqual(store.read(), .missing)
+    }
+
     func testServerURLNormalizationScopesTokens() throws {
         let first = AuthStore(serverURL: "https://kmtv.example.com/")
         let second = AuthStore(serverURL: "https://other.example.com")

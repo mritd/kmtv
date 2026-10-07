@@ -90,6 +90,14 @@ struct DownloadLayout: Sendable {
         return DownloadLayout(root: root)
     }
 
+    /// `.trash` under the root, where deleted downloads wait for removal off the main actor. Scope
+    /// directories are hex hashes, so it never collides with one; the loopback server refuses
+    /// names that start with a dot.
+    ///
+    /// 根目录下的 `.trash`, 已删除的下载在此等待于主 actor 之外移除. 作用域目录名是十六进制哈希,
+    /// 因此不会与它冲突; loopback 服务会拒绝以点开头的名称.
+    var trashDir: URL { root.appending(path: ".trash", directoryHint: .isDirectory) }
+
     /// Directory of a scope.
     ///
     /// 作用域目录.

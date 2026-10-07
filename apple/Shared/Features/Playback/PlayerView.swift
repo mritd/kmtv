@@ -36,33 +36,29 @@ struct PlayerView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         .navigationTitle("")
         .task {
-            // Load detail before playback so source fallback can run before AVPlayer starts.
+            // The model loads detail before playback so source fallback can run before AVPlayer
+            // starts. An open interrupted by leaving the page runs again when it comes back.
             //
-            // 播放前先加载详情, 让视频源 fallback 在 AVPlayer 启动前完成.
+            // 模型先加载详情再播放, 让视频源 fallback 在 AVPlayer 启动前完成. 离开页面而中断的打开流程,
+            // 会在页面回来时重新执行.
             if viewModel == nil, let client = appVM.apiClient {
-                let vm = PlayerViewModel(
-					apiClient: client, modelContext: modelContext, serverURL: appVM.serverURL,
-					syncStore: appVM.sync?.store, syncEngine: appVM.sync?.engine,
+                viewModel = PlayerViewModel(
+                    apiClient: client, modelContext: modelContext, serverURL: appVM.serverURL,
+                    syncStore: appVM.sync?.store, syncEngine: appVM.sync?.engine,
                     sources: destination.sources, sourceKey: destination.sourceKey,
                     videoId: destination.videoId, title: destination.title,
                     coverHint: destination.coverHint,
                     initialEpisodeIndex: destination.resumeIntent?.episodeIndex,
                     localEpisodes: appVM.downloadManager
-				)
-				viewModel = vm
-				await vm.prepareResume()
-				let resumeVideoID = vm.currentVideoID.isEmpty ? destination.videoId : vm.currentVideoID
-				let ok = await vm.loadDetail(sourceKey: vm.currentSourceKey, videoId: resumeVideoID)
-                guard !Task.isCancelled else { return }
-                if !ok {
-                    await vm.handlePlaybackError()
-                }
-                guard !Task.isCancelled else { return }
-                vm.startPlayback()
+                )
             }
+            await viewModel?.open(autoplay: true)
         }
         .onAppear {
-            viewModel?.resume()
+            // Resumes only what was playing when the page left.
+            //
+            // 只恢复页面离开时正在播放的内容.
+            viewModel?.appear()
         }
         .onChange(of: scenePhase) { _, phase in
             // Checkpoint before the app is suspended; the session flush may run before this one. A
@@ -79,10 +75,13 @@ struct PlayerView: View {
         }
         .onDisappear {
             hideControlsTask?.cancel()
-            viewModel?.pause()
+            // Going fullscreen keeps playing; only leaving the page pauses.
+            //
+            // 进入全屏时继续播放; 只有离开页面才暂停.
+            guard !isFullScreen else { return }
+            viewModel?.disappear()
         }
-        #if os(iOS)
-        .fullScreenCover(isPresented: $isFullScreen) {
+        .fullScreenCover(isPresented: $isFullScreen, onDismiss: { viewModel?.syncRateFromPlayer() }) {
             if let vm = viewModel, let player = vm.player {
                 ZStack(alignment: .top) {
                     FullScreenPlayerRepresentable(player: player)
@@ -99,7 +98,6 @@ struct PlayerView: View {
                 }
             }
         }
-        #endif
         .sheet(isPresented: $showPicker) {
             if let vm = viewModel, let downloads = appVM.downloadManager, downloads.activeScopeKey != nil,
                let detail = vm.detail {
@@ -330,10 +328,7 @@ struct PlayerView: View {
                 ForEach(vm.sources) { source in
                     Button {
                         guard source.sourceKey != vm.currentSourceKey else { return }
-                        Task {
-                            await vm.switchSource(source.sourceKey)
-                            vm.startPlayback()
-                        }
+                        vm.selectSource(source.sourceKey, autoplay: true)
                     } label: {
                         if source.sourceKey == vm.currentSourceKey {
                             Label(DisplayFormatters.cleanSourceName(source.sourceName), systemImage: "checkmark")
@@ -563,7 +558,10 @@ struct PlayerView: View {
     ///
     /// 所有播放按钮都使用统一的 48x48 点击区域并居中图标.
     private func playerButton(systemName: String, iconSize: CGFloat, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button {
+            action()
+            scheduleHideControls()
+        } label: {
             Image(systemName: systemName)
                 .font(.system(size: iconSize, weight: .semibold))
                 .foregroundStyle(.white)
@@ -583,7 +581,16 @@ struct PlayerView: View {
             // page body from re-evaluating with them.
             //
             // 每秒变化的播放时间与进度条; 放在独立视图中, 页面 body 不会随之重新求值.
-            PlayerTimeBar(vm: vm)
+            PlayerTimeBar(vm: vm) { scrubbing in
+                // A drag holds the controls on screen; removing the slider mid-drag would strand it.
+                //
+                // 拖动期间控制层保持显示; 拖动中移除进度条会让拖动无法结束.
+                if scrubbing {
+                    hideControlsTask?.cancel()
+                } else {
+                    scheduleHideControls()
+                }
+            }
 
             // Rate menu.
             //
@@ -592,6 +599,7 @@ struct PlayerView: View {
                 ForEach([1.0, 1.5, 2.0], id: \.self) { rate in
                     Button {
                         vm.setRate(Float(rate))
+                        scheduleHideControls()
                     } label: {
                         Text(rate == 1.0 ? "1x" : "\(rate, specifier: "%.2g")x")
                     }
@@ -607,12 +615,10 @@ struct PlayerView: View {
             }
             .accessibilityIdentifier("rateMenu")
 
-            #if os(iOS)
             playerButton(systemName: "arrow.up.left.and.arrow.down.right", iconSize: 16) {
                 isFullScreen = true
             }
             .accessibilityIdentifier("fullscreenButton")
-            #endif
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
@@ -622,13 +628,24 @@ struct PlayerView: View {
 
     private func toggleControls() {
         showControls.toggle()
-        hideControlsTask?.cancel()
         if showControls {
-            hideControlsTask = Task {
-                try? await Task.sleep(for: .seconds(5))
-                guard !Task.isCancelled else { return }
-                withAnimation { showControls = false }
-            }
+            scheduleHideControls()
+        } else {
+            hideControlsTask?.cancel()
+        }
+    }
+
+    /// Hides the controls 5 seconds from now, restarting the countdown; any control interaction
+    /// calls it, so the controls stay while they are being used.
+    ///
+    /// 从现在起 5 秒后隐藏控制层, 并重新开始倒计时; 每次操作控件都会调用它, 因此使用期间控制层保持显示.
+    private func scheduleHideControls() {
+        hideControlsTask?.cancel()
+        guard showControls else { return }
+        hideControlsTask = Task {
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            withAnimation { showControls = false }
         }
     }
 }
@@ -639,6 +656,10 @@ struct PlayerView: View {
 /// 内嵌控制栏的播放时间与进度条. 每秒变化的播放属性在此读取, 因此每秒只重新渲染本视图, 而不是整个播放页.
 private struct PlayerTimeBar: View {
     let vm: PlayerViewModel
+    /// Called with true when a drag on the progress bar starts and false when it ends or is cancelled.
+    ///
+    /// 进度条拖动开始时以 true 调用, 结束或取消时以 false 调用.
+    var onScrubbingChanged: (Bool) -> Void = { _ in }
 
     var body: some View {
         // Time display.
@@ -655,16 +676,24 @@ private struct PlayerTimeBar: View {
         CustomSlider(
             value: Binding(
                 get: { vm.duration > 0 ? vm.currentTime / vm.duration : 0 },
-                set: { vm.currentTime = $0 * max(vm.duration, 1) }
+                set: { vm.updateScrub(toFraction: $0) }
             ),
             // A downloaded episode is all on the device, so its track shows fully loaded rather
             // than the player's read-ahead through the loopback server.
             //
             // 已下载的剧集全部在本机, 因此进度条显示为全部已加载, 而不是播放器经由回环服务器的预读进度.
             buffered: vm.isPlayingLocalCopy ? 1 : vm.bufferedFraction,
-            onDragStart: { vm.isSeeking = true },
+            onDragStart: {
+                vm.beginScrub()
+                onScrubbingChanged(true)
+            },
             onDragEnd: { ratio in
-                vm.seek(to: ratio * max(vm.duration, 1))
+                vm.endScrub(atFraction: ratio)
+                onScrubbingChanged(false)
+            },
+            onDragCancel: {
+                vm.cancelScrub()
+                onScrubbingChanged(false)
             }
         )
         .frame(height: 32)
@@ -754,13 +783,8 @@ private struct PlayerBackdrop: View {
     }
 }
 
-// MARK: - Custom Thin Slider
+// MARK: - Buffer Badge
 
-/// A thin progress slider with small round thumb, matching typical video player style.
-/// Drag updates the visual position immediately; actual seek happens on drag end.
-///
-/// 带小圆形滑块的细进度条, 拖动时立即更新视觉位置, 松手后执行真实 seek.
-///
 /// Fullscreen readout of how many seconds are buffered ahead of the playhead.
 ///
 /// 全屏下显示播放头之前已缓冲秒数的文字提示.
@@ -811,19 +835,34 @@ struct BufferBadge: View {
     }
 }
 
-// Internal rather than private so a test can render it: the buffered track is three
-// overlapping capsules, and layer order and width are only observable in pixels.
-//
-// 使用 internal 而非 private 以便测试渲染它: 已缓冲轨道由三条重叠的胶囊构成,
-// 其层叠顺序与宽度只能在像素层面观察到.
+// MARK: - Custom Thin Slider
+
+/// A thin progress slider with small round thumb, matching typical video player style.
+/// Drag updates the visual position immediately; actual seek happens on drag end. A drag that
+/// never ends normally (the system cancels it, or the slider goes away) reports `onDragCancel`.
+///
+/// 带小圆形滑块的细进度条, 拖动时立即更新视觉位置, 松手后执行真实 seek.
+/// 没有正常结束的拖动 (被系统取消, 或进度条消失) 会通过 `onDragCancel` 报告.
+///
+/// Internal rather than private so a test can render it: the buffered track is three
+/// overlapping capsules, and layer order and width are only observable in pixels.
+///
+/// 使用 internal 而非 private 以便测试渲染它: 已缓冲轨道由三条重叠的胶囊构成,
+/// 其层叠顺序与宽度只能在像素层面观察到.
 struct CustomSlider: View {
     @Binding var value: Double // 0...1
     var buffered: Double = 0 // 0...1
     var onDragStart: () -> Void = {}
     var onDragEnd: (Double) -> Void = { _ in }
+    var onDragCancel: () -> Void = {}
 
     @State private var isDragging = false
     @State private var dragValue: Double = 0
+    // True while the gesture is active; SwiftUI resets it when the gesture ends or is cancelled,
+    // and a cancel is the reset that arrives without `onEnded`.
+    //
+    // 手势进行中为 true; 手势结束或取消时 SwiftUI 会将其复位, 而取消就是没有 `onEnded` 的那次复位.
+    @GestureState private var isGestureActive = false
 
     private var displayValue: Double {
         isDragging ? dragValue : value
@@ -871,6 +910,7 @@ struct CustomSlider: View {
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
+                    .updating($isGestureActive) { _, active, _ in active = true }
                     .onChanged { drag in
                         if !isDragging {
                             isDragging = true
@@ -889,6 +929,25 @@ struct CustomSlider: View {
                     }
             )
         }
+        .onChange(of: isGestureActive) { _, active in
+            // Checked a turn later, so a normal end has run `onEnded` first whatever order SwiftUI
+            // delivers the reset in; only a cancelled drag is still marked as dragging then.
+            //
+            // 推迟一个轮次再检查, 无论 SwiftUI 以何种顺序投递复位, 正常结束时 `onEnded` 都已先执行;
+            // 届时仍标记为拖动中的只有被取消的拖动.
+            guard !active else { return }
+            Task { @MainActor in cancelDrag() }
+        }
+        .onDisappear { cancelDrag() }
+    }
+
+    /// Ends a drag that did not finish through `onEnded`; does nothing after a normal end.
+    ///
+    /// 结束未经 `onEnded` 完成的拖动; 正常结束后调用不做任何事.
+    private func cancelDrag() {
+        guard isDragging else { return }
+        isDragging = false
+        onDragCancel()
     }
 }
 #endif

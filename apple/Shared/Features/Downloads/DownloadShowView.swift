@@ -2,13 +2,15 @@
 import SwiftUI
 
 /// One show's downloaded episodes from the device's library (every server and account) grouped by
-/// source, with play, download more, per-episode actions, and the offline player. The body depends only on structural changes; the header and
-/// each row are their own views, so a finished entry or a saved watch position re-renders only
-/// the row that shows it.
+/// source, with play, download more, per-episode actions, and the offline player. The body depends
+/// only on structural changes and never reads the sync store; the header and each row are their
+/// own views, so a finished entry re-renders only the row that shows it, and a saved watch
+/// position only the header.
 ///
 /// 某部剧在本机下载库中 (涵盖所有服务器与账号) 按来源分组的已下载剧集, 提供播放, 下载更多, 单集操作
 /// 以及离线播放器. 页面主体只依赖结构
-/// 变化; 头部与每一行都是独立视图, 因此完成一个条目或保存观看位置只会重新渲染展示它的那一行.
+/// 变化, 且从不读取同步存储; 头部与每一行都是独立视图, 因此完成一个条目只会重新渲染展示它的那一行,
+/// 保存观看位置只会重新渲染头部.
 struct DownloadShowView: View {
     let showKey: String
     let mode: DownloadsMode
@@ -36,7 +38,6 @@ struct DownloadShowView: View {
             List(selection: $selection.onlyWhileEditing(editMode.isEditing)) {
                 Section {
                     DownloadShowHeader(show: show, episodes: episodes, mode: mode,
-                                       watch: appVM.sync?.store.watch(title: show.title),
                                        play: { play($0, show: show) },
                                        downloadMore: { moreDestination = $0 })
                 }
@@ -53,36 +54,8 @@ struct DownloadShowView: View {
             .readableColumn(maxWidth: nil)
             .navigationTitle(show.title)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { EditButton() }
-                if editMode.isEditing && !selection.isEmpty {
-                    ToolbarItem(placement: .bottomBar) {
-                        Button("Delete", role: .destructive) {
-                            let doomed = episodes.filter { selection.contains($0.episodeKey) }
-                            selection = []
-                            editMode = .inactive
-                            Task { for ep in doomed { await downloads.deleteFromLibrary(ep) } }
-                        }
-                        // Red like other deletes; the app-wide accent tint would otherwise color it.
-                        //
-                        // 与其他删除操作一样使用红色; 否则会被全局强调色着色.
-                        .tint(.red)
-                    }
-                }
-            }
-            // Outside `.toolbar`, so `EditButton` and the bottom bar read the same binding as the list.
-            //
-            // 放在 `.toolbar` 之外, `EditButton` 与底部栏才能和列表读到同一个绑定.
-            .environment(\.editMode, $editMode)
-            // The floating tab bar would cover the bottom Delete bar, so editing hides it, as Photos does.
-            //
-            // 浮动标签栏会遮住底部的删除栏, 因此编辑时将其隐藏, 与 "照片" 的做法一致.
-            .toolbar(editMode.isEditing ? .hidden : .automatic, for: .tabBar)
-            .onChange(of: episodes.isEmpty) { _, empty in
-                if empty { editMode = .inactive }
-            }
-            .onChange(of: editMode.isEditing) { _, editing in
-                if !editing { selection = [] }
+            .downloadsEditing(editMode: $editMode, selection: $selection, isEmpty: episodes.isEmpty) { keys in
+                for ep in episodes where keys.contains(ep.episodeKey) { await downloads.deleteFromLibrary(ep) }
             }
             .fullScreenCover(item: $playing) { item in
                 OfflinePlayerView(viewModel: item.viewModel)
@@ -112,13 +85,10 @@ private struct DownloadShowHeader: View {
     let show: DownloadShow
     let episodes: [DownloadEpisode]
     let mode: DownloadsMode
-    /// The show's watch record, which names the episode to continue.
-    ///
-    /// 该剧的观看记录, 用于确定继续播放哪一集.
-    let watch: WatchPayload?
     let play: (DownloadEpisode) -> Void
     let downloadMore: (PlayDestination) -> Void
     @Environment(DownloadManager.self) private var downloads
+    @Environment(AppViewModel.self) private var appVM
 
     var body: some View {
         HStack(alignment: .top, spacing: Spacing.lg) {
@@ -145,6 +115,12 @@ private struct DownloadShowHeader: View {
 
     @ViewBuilder
     private var actions: some View {
+        // The show's watch record names the episode to continue. It is read here, in the header's own
+        // body, so only the header observes the sync store; the screen's body does not.
+        //
+        // 该剧的观看记录用于确定继续播放哪一集. 它在头部自己的 body 中读取, 因此只有头部观察同步存储,
+        // 页面主体不会.
+        let watch = appVM.sync?.store.watch(title: show.title)
         // Just "Play": episode names differ by source and can be long; the picked episode resumes
         // from its saved position.
         //

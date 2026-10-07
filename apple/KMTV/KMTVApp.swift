@@ -84,8 +84,14 @@ struct RootView: View {
             Self.applyWindowTint(AppTheme(stored: stored))
         }
         .task {
-            let vm = AppViewModel(modelContext: modelContext, downloads: downloads)
+            // One view model for the app's lifetime: the task re-runs when the view reappears. A rerun
+            // bootstraps again only when a cancelled run left the app still loading.
+            //
+            // 整个 App 生命周期只有一个视图模型: 视图重新出现时该任务会再次运行. 只有当被取消的那次运行
+            // 让 App 仍停留在加载中时, 重新运行才会再次启动.
+            let vm = appVM ?? AppViewModel(modelContext: modelContext, downloads: downloads)
             appVM = vm
+            guard case .loading = vm.state else { return }
             await vm.bootstrap()
         }
         .onChange(of: scenePhase) { _, phase in

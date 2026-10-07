@@ -16,10 +16,36 @@ enum AuthStoreError: Error {
     case keychainStatus(OSStatus)
 }
 
+/// What `AuthStore.read(now:)` found for a server.
+///
+/// `AuthStore.read(now:)` 为某个服务器找到的凭据状态.
+enum StoredCredential: Equatable, Sendable {
+    /// No credential, or a corrupt one (which is removed).
+    ///
+    /// 没有凭据, 或凭据已损坏 (会被删除).
+    case missing
+    /// A credential that has not expired yet.
+    ///
+    /// 尚未过期的凭据.
+    case valid(AuthCredential)
+    /// A credential that expired: the user was signed in and the session ended.
+    ///
+    /// 已过期的凭据: 用户曾经登录, 会话已经结束.
+    case expired
+
+    /// The usable credential, if any.
+    ///
+    /// 可用的凭据, 没有则为 nil.
+    var credential: AuthCredential? {
+        if case .valid(let credential) = self { return credential }
+        return nil
+    }
+}
+
 /// Stores bearer tokens outside SwiftData so model backups do not expose credentials.
 ///
 /// 将 bearer token 存储在 SwiftData 之外, 避免模型备份暴露凭据.
-struct AuthStore: Sendable {
+struct AuthStore: Sendable, Equatable {
     private let service = "com.mritd.kmtv.auth"
     private let account: String
 
@@ -54,6 +80,17 @@ struct AuthStore: Sendable {
     ///
     /// 损坏或过期的凭据会被立即删除, 避免调用方继续复用.
     func load(now: Date = Date()) -> AuthCredential? {
+        let found = read(now: now)
+        if found == .expired { clear() }
+        return found.credential
+    }
+
+    /// Reads the stored credential and tells an expired one apart from none, so the caller can say
+    /// the session expired. An expired credential stays until `clear()`; a corrupt one is removed.
+    ///
+    /// 读取已保存的凭据, 并区分已过期与不存在, 调用方因此可以提示登录已过期. 过期凭据会保留到
+    /// `clear()`; 损坏的凭据会被删除.
+    func read(now: Date = Date()) -> StoredCredential {
         var query = baseQuery()
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -61,17 +98,13 @@ struct AuthStore: Sendable {
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess, let data = result as? Data else {
-            return nil
+            return .missing
         }
         guard let credential = try? JSONDecoder().decode(AuthCredential.self, from: data) else {
             clear()
-            return nil
+            return .missing
         }
-        guard credential.expiresAt > now else {
-            clear()
-            return nil
-        }
-        return credential
+        return credential.expiresAt > now ? .valid(credential) : .expired
     }
 
     /// Removes the stored credential for this server.

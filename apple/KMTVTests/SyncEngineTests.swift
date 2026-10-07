@@ -372,7 +372,7 @@ final class SyncEngineTests: XCTestCase {
         let (store, engine, api, scheduler) = try setup(start: false)
         store.upsert(.search(SearchPayload(query: "before start")))
         XCTAssertEqual(scheduler.armedDelays, [])
-        await engine.requestSync(.launch)
+        await engine.requestSync(.launch, waitingAtMost: .milliseconds(20))
         await engine.flushNow()
         XCTAssertEqual(api.pushes.count, 0)
         XCTAssertEqual(api.pullCount, 0)
@@ -630,6 +630,89 @@ final class SyncEngineTests: XCTestCase {
         let start = ContinuousClock.now
         await engine.requestSync(.player, waitingAtMost: .milliseconds(50))
         XCTAssertLessThan(ContinuousClock.now - start, .seconds(2))
+        engine.stop()
+    }
+
+    func testSyncRequestedBeforeStartWaitsForTheFirstCycle() async throws {
+        let (_, engine, api, _) = try setup(start: false)
+        var settled = false
+        let waiting = Task { @MainActor in
+            await engine.requestSync(.player)
+            settled = true
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertFalse(settled, "a sync requested before start() waits")
+        XCTAssertEqual(api.pullCount, 0)
+
+        api.pullGate = SyncTestGate()
+        engine.start()
+        let launch = Task { @MainActor in await engine.requestSync(.launch) }
+        await waitUntil { api.pullGate?.waiting == 1 }
+        XCTAssertFalse(settled, "the first cycle after start() has not finished yet")
+        api.pullGate?.open()
+        await launch.value
+        await waiting.value
+        XCTAssertTrue(settled)
+        XCTAssertEqual(api.pullCount, 1)
+        engine.stop()
+    }
+
+    func testStopSettlesSyncsWaitingForStart() async throws {
+        let (_, engine, api, _) = try setup(start: false)
+        let waiting = Task { @MainActor in await engine.requestSync(.player) }
+        try await Task.sleep(for: .milliseconds(20))
+        engine.stop()
+        await waiting.value
+        XCTAssertEqual(api.pullCount, 0)
+
+        // The waiting phase is over: a later request returns at once instead of queueing.
+        //
+        // 等待阶段已结束: 之后的请求直接返回, 不再排队.
+        await engine.requestSync(.player)
+    }
+
+    func testWaitingAtMostBoundsASyncRequestedBeforeStart() async throws {
+        let (_, engine, _, _) = try setup(start: false)
+        let begun = ContinuousClock.now
+        await engine.requestSync(.player, waitingAtMost: .milliseconds(50))
+        XCTAssertLessThan(ContinuousClock.now - begun, .seconds(2))
+    }
+
+    func testCancellingTheCallerEndsTheTimedWaitEarly() async throws {
+        let (_, engine, api, _) = try setup()
+        api.hangPull = true
+        let begun = ContinuousClock.now
+        let task = Task { @MainActor in await engine.requestSync(.player, waitingAtMost: .seconds(30)) }
+        await waitUntil { api.pullCount == 1 }
+        task.cancel()
+        await task.value
+        XCTAssertLessThan(ContinuousClock.now - begun, .seconds(5))
+        engine.stop()
+    }
+
+    func testTimedWaitReturnsAsSoonAsTheSyncFinishes() async throws {
+        let (_, engine, api, _) = try setup()
+        let begun = ContinuousClock.now
+        await engine.requestSync(.player, waitingAtMost: .seconds(30))
+        XCTAssertEqual(api.pullCount, 1)
+        XCTAssertLessThan(ContinuousClock.now - begun, .seconds(5))
+        engine.stop()
+    }
+
+    func testOnlineResetsTheBackoffAndSyncs() async throws {
+        let (_, engine, api, scheduler) = try setup([.failure(offline), .failure(offline), .failure(offline)])
+        await engine.requestSync(.launch)
+        scheduler.fireNext()
+        await waitUntil { scheduler.armedDelays == [4_000] }
+        XCTAssertEqual(scheduler.armedDelays, [4_000])
+        XCTAssertEqual(api.pullCount, 2)
+
+        // The next failure would wait 8 s; coming online starts the backoff over and syncs now.
+        //
+        // 下一次失败本应等待 8 秒; 网络恢复会让退避重新开始并立即同步.
+        await engine.requestSync(.online)
+        XCTAssertEqual(api.pullCount, 3)
+        XCTAssertEqual(scheduler.armedDelays, [2_000])
         engine.stop()
     }
 }

@@ -11,13 +11,6 @@ extension APIClient {
         try await get("/api/v1/admin/sources")
     }
 
-    /// Creates a new video source.
-    ///
-    /// 创建新视频源.
-    func createSource(_ req: CreateSourceRequest) async throws -> Source {
-        try await post("/api/v1/admin/sources", body: req)
-    }
-
     /// Updates mutable fields for one video source.
     ///
     /// 更新单个视频源的可变字段.
@@ -32,25 +25,11 @@ extension APIClient {
         let _ = try await delete("/api/v1/admin/sources/\(id)")
     }
 
-    /// Triggers a health check for one video source.
-    ///
-    /// 触发单个视频源健康检查.
-    func checkSource(id: Int) async throws -> HealthCheckResponse {
-        try await post("/api/v1/admin/sources/\(id)/check")
-    }
-
     /// Triggers health checks for all video sources.
     ///
     /// 触发全部视频源健康检查.
     func checkAllSources() async throws {
         let _: MessageResponse = try await post("/api/v1/admin/sources/check-all")
-    }
-
-    /// Imports video sources from raw source-config JSON.
-    ///
-    /// 从原始视频源配置 JSON 导入视频源.
-    func importSources(configJSON: String) async throws -> ImportResponse {
-        try await postRaw("/api/v1/admin/sources/import", body: Data(configJSON.utf8))
     }
 
     // MARK: - Subscriptions
@@ -67,13 +46,6 @@ extension APIClient {
     /// 创建视频源订阅.
     func createSubscription(_ req: CreateSubscriptionRequest) async throws -> Subscription {
         try await post("/api/v1/admin/subscriptions", body: req)
-    }
-
-    /// Updates a source subscription.
-    ///
-    /// 更新视频源订阅.
-    func updateSubscription(id: Int, _ req: CreateSubscriptionRequest) async throws {
-        let _: MessageResponse = try await put("/api/v1/admin/subscriptions/\(id)", body: req)
     }
 
     /// Deletes a source subscription.
@@ -104,13 +76,6 @@ extension APIClient {
     /// 创建用户.
     func createUser(_ req: CreateUserRequest) async throws -> User {
         try await post("/api/v1/admin/users", body: req)
-    }
-
-    /// Updates user profile, role, or password fields supported by the backend.
-    ///
-    /// 更新后端支持的用户资料, 角色或密码字段.
-    func updateUser(id: Int, _ req: UpdateUserRequest) async throws {
-        let _: MessageResponse = try await put("/api/v1/admin/users/\(id)", body: req)
     }
 
     /// Deletes a user.

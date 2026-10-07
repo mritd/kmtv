@@ -45,11 +45,14 @@ final class SyncRecord {
         synced = record.synced
     }
 
-    /// The row as a local record, or nil when the kind is unknown.
+    /// The row as a local record. Like web's `readRecords`, a damaged row yields nil: an unknown
+    /// kind, an empty key, a record ID that is not `kind|key`, or a non-positive event time.
     ///
-    /// 将该行转换为本地记录; 数据类型未知时返回 nil.
+    /// 将该行转换为本地记录. 与 web 的 `readRecords` 一致, 损坏的行返回 nil: 数据类型未知, key 为空,
+    /// 记录 ID 不是 `kind|key`, 或事件时间不为正数.
     var localRecord: LocalRecord? {
-        guard let recordKind = SyncKind(rawValue: self.kind) else { return nil }
+        guard let recordKind = SyncKind(rawValue: self.kind), !key.isEmpty, eventTimeMs > 0,
+              recordID == syncRecordID(recordKind, key) else { return nil }
         return LocalRecord(payload: SyncPayload.decode(recordKind, from: payload), key: key,
                            eventTimeMs: eventTimeMs, deleted: tombstone, dirty: dirty, synced: synced)
     }
@@ -74,14 +77,14 @@ final class SyncScopeState {
         self.username = username
     }
 
-    /// Pending clears decoded from JSON; unknown kinds are dropped.
+    /// Pending clears decoded from JSON; unknown kinds and non-positive times are dropped.
     ///
-    /// 从 JSON 解码的待推送清空; 未知数据类型会被丢弃.
+    /// 从 JSON 解码的待推送清空; 未知数据类型和不为正数的时间会被丢弃.
     var decodedPendingClears: [SyncKind: Int64] {
         guard let raw = try? JSONDecoder().decode([String: Int64].self, from: pendingClears) else { return [:] }
         var result: [SyncKind: Int64] = [:]
         for (name, value) in raw {
-            if let kind = SyncKind(rawValue: name) { result[kind] = value }
+            if let kind = SyncKind(rawValue: name), value > 0 { result[kind] = value }
         }
         return result
     }

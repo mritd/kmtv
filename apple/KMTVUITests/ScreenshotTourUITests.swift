@@ -16,6 +16,12 @@ final class ScreenshotTourUITests: XCTestCase {
         }
         let prefix = env["KMTV_SHOT_PREFIX"] ?? "shot"
         app.launch()
+        // Optional: from the setup screen, connect anonymously to the prefilled server.
+        let connect = app.buttons.matching(identifier: "connectButton").firstMatch
+        if env["KMTV_SHOT_CONNECT"] == "1", connect.waitForExistence(timeout: 5) {
+            shot("00-setup", dir: dir, prefix: prefix)
+            connect.tap()
+        }
         guard tab(0).waitForExistence(timeout: 20) else {
             shot("00-launch", dir: dir, prefix: prefix)
             return

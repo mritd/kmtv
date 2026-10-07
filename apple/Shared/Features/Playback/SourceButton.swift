@@ -1,22 +1,12 @@
 #if os(tvOS)
 import SwiftUI
 
-/// Reusable playback source button shared by detail and player source pickers.
+/// Source button of the tvOS detail page's source grid, with the source's latency.
 ///
-/// 详情页和播放器源选择器复用的视频源按钮.
+/// tvOS 详情页视频源网格中的视频源按钮, 附带该视频源的延迟.
 struct SourceButton: View {
-    /// Button layout variants tuned for horizontal chips and compact grids.
-    ///
-    /// 按钮布局变体, 分别适配横向 chip 和紧凑网格.
-    enum Style {
-        case bordered
-        case compactGrid
-    }
-
     let source: SourceResult
     let isSelected: Bool
-    var showsLatency = true
-    var style: Style = .bordered
     let action: () -> Void
 
     var body: some View {
@@ -31,8 +21,7 @@ struct SourceButton: View {
         TVSourceButtonLabel(
             name: DisplayFormatters.cleanSourceName(source.sourceName),
             durationMs: source.durationMs,
-            isSelected: isSelected,
-            showsLatency: showsLatency
+            isSelected: isSelected
         )
     }
 
@@ -46,7 +35,6 @@ private struct TVSourceButtonLabel: View {
     let name: String
     let durationMs: Double
     let isSelected: Bool
-    let showsLatency: Bool
     @Environment(\.isFocused) private var isFocused
 
     var body: some View {
@@ -54,7 +42,7 @@ private struct TVSourceButtonLabel: View {
             Text(name)
                 .font(.caption)
                 .lineLimit(1)
-            if showsLatency && durationMs > 0 {
+            if durationMs > 0 {
                 Text(DisplayFormatters.latency(durationMs))
                     .font(.caption2)
                     .foregroundStyle(latencyColor)

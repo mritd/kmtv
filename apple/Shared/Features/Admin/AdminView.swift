@@ -1,11 +1,27 @@
 #if os(iOS)
 import SwiftUI
 
+/// The sections of the admin screen.
+///
+/// 管理页面的各个分区.
+enum AdminTab: CaseIterable, Hashable {
+    case sources, subscriptions, users, settings
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .sources: "Sources"
+        case .subscriptions: "Subs"
+        case .users: "Users"
+        case .settings: "Settings"
+        }
+    }
+}
+
 struct AdminView: View {
     @Environment(AppViewModel.self) private var appVM
     @Environment(\.appTheme) private var theme
     @State private var viewModel: AdminViewModel?
-    @State private var selectedTab = 0
+    @State private var selectedTab = AdminTab.sources
 
     var body: some View {
         Group {
@@ -18,23 +34,19 @@ struct AdminView: View {
         .readableColumn()
         .navigationTitle("Admin")
         .navigationBarTitleDisplayMode(.inline)
-        .task {
+        // Also loads the first tab; a quick tab switch cancels the previous tab's load.
+        //
+        // 同时负责首个标签页的加载; 快速切换标签页会取消上一个标签页的加载.
+        .task(id: selectedTab) {
             if viewModel == nil, let client = appVM.apiClient {
-                let vm = AdminViewModel(apiClient: client, currentUserId: appVM.currentUser?.id ?? 0)
-                viewModel = vm
-                await vm.loadSources()
+                viewModel = AdminViewModel(apiClient: client, currentUserId: appVM.currentUser?.id ?? 0)
             }
-        }
-        .onChange(of: selectedTab) { _, newValue in
             guard let vm = viewModel else { return }
-            Task {
-                switch newValue {
-                case 0: await vm.loadSources()
-                case 1: await vm.loadSubscriptions()
-                case 2: await vm.loadUsers()
-                case 3: await vm.loadSettings()
-                default: break
-                }
+            switch selectedTab {
+            case .sources: await vm.loadSources()
+            case .subscriptions: await vm.loadSubscriptions()
+            case .users: await vm.loadUsers()
+            case .settings: await vm.loadSettings()
             }
         }
     }
@@ -46,10 +58,9 @@ struct AdminView: View {
             //
             // 使用分段选择器替代嵌套 TabView, 避免平台导航层级互相干扰.
             Picker("", selection: $selectedTab) {
-                Text("Sources").tag(0)
-                Text("Subs").tag(1)
-                Text("Users").tag(2)
-                Text("Settings").tag(3)
+                ForEach(AdminTab.allCases, id: \.self) { tab in
+                    Text(tab.title).tag(tab)
+                }
             }
             .pickerStyle(.segmented)
             // As wide as the lists' readable column on iPad.
@@ -61,11 +72,10 @@ struct AdminView: View {
 
             Group {
                 switch selectedTab {
-                case 0: sourcesTab(vm)
-                case 1: subscriptionsTab(vm)
-                case 2: usersTab(vm)
-                case 3: settingsTab(vm)
-                default: EmptyView()
+                case .sources: sourcesTab(vm)
+                case .subscriptions: subscriptionsTab(vm)
+                case .users: usersTab(vm)
+                case .settings: settingsTab(vm)
                 }
             }
         }
@@ -159,24 +169,23 @@ struct AdminView: View {
     @State private var showAddSub = false
     @State private var newSubURL = ""
     @State private var newSubInterval = "86400"
+    @State private var isSubmitting = false
 
     @ViewBuilder
     private func subscriptionsTab(_ vm: AdminViewModel) -> some View {
         List {
             Section {
-                Button("Add Subscription") { showAddSub = true }
-                                }
+                Button("Add Subscription") {
+                    vm.createError = nil
+                    showAddSub = true
+                }
+            }
             ForEach(vm.subscriptions, id: \.id) { sub in
                 subscriptionRow(sub, vm: vm)
             }
             .onDelete { indexSet in
                 let toDelete = indexSet.map { vm.subscriptions[$0] }
-                Task {
-                    for item in toDelete {
-                        await vm.deleteSubscription(item)
-                    }
-                    await vm.loadSubscriptions()
-                }
+                Task { await vm.deleteSubscriptions(toDelete) }
             }
         }
         .sheet(isPresented: $showAddSub) {
@@ -204,9 +213,7 @@ struct AdminView: View {
             } label: {
                 if vm.syncingSubId == sub.id {
                     ProgressView()
-                        #if os(iOS)
                         .controlSize(.small)
-                        #endif
                 } else {
                     Text("Sync")
                 }
@@ -228,25 +235,21 @@ struct AdminView: View {
             Form {
                 Section(String(localized: "Subscription URL")) {
                     TextField("https://example.com/sub.json", text: $newSubURL)
-                        #if os(iOS)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
-                        #endif
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.red, lineWidth: isSubURLInvalid ? 1.5 : 0)
-                        )
+                        .fieldSurface(invalid: isSubURLInvalid)
                     if isSubURLInvalid {
                         Text(String(localized: "Invalid URL format, must start with http:// or https://"))
                             .font(AppFont.meta)
                             .foregroundStyle(.red)
                     }
                 }
+                if let createError = vm.createError {
+                    Section { Text(createError).font(AppFont.footnote).foregroundStyle(.red) }
+                }
                 Section(String(localized: "Interval (seconds)")) {
                     TextField("86400", text: $newSubInterval)
-                        #if os(iOS)
                         .keyboardType(.numberPad)
-                        #endif
                 }
             }
             .navigationTitle("Add Subscription")
@@ -254,13 +257,19 @@ struct AdminView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showAddSub = false } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
+                        isSubmitting = true
                         Task {
-                            await vm.createSubscription(url: newSubURL, interval: Int(newSubInterval) ?? 86400, autoUpdate: true)
-                            newSubURL = ""
-                            showAddSub = false
+                            // Keep the sheet and its input when the request fails; the error shows inside it.
+                            //
+                            // 请求失败时保留表单及其输入, 错误显示在表单内.
+                            if await vm.createSubscription(url: newSubURL, interval: Int(newSubInterval) ?? 86400, autoUpdate: true) {
+                                newSubURL = ""
+                                showAddSub = false
+                            }
+                            isSubmitting = false
                         }
                     }
-                    .disabled(newSubURL.trimmingCharacters(in: .whitespaces).isEmpty || isSubURLInvalid)
+                    .disabled(isSubmitting || newSubURL.trimmingCharacters(in: .whitespaces).isEmpty || isSubURLInvalid)
                 }
             }
         }
@@ -279,23 +288,17 @@ struct AdminView: View {
     private func usersTab(_ vm: AdminViewModel) -> some View {
         List {
             Section {
-                Button("Add User") { showAddUser = true }
-                                }
+                Button("Add User") {
+                    vm.createError = nil
+                    showAddUser = true
+                }
+            }
             ForEach(vm.users, id: \.id) { user in
                 userRow(user, vm: vm)
             }
             .onDelete { indexSet in
                 let toDelete = indexSet.map { vm.users[$0] }
-                if toDelete.contains(where: { $0.id == vm.currentUserId }) {
-                    vm.error = String(localized: "Cannot delete yourself")
-                    return
-                }
-                Task {
-                    for user in toDelete {
-                        await vm.deleteUser(user)
-                    }
-                    await vm.loadUsers()
-                }
+                Task { await vm.deleteUsers(toDelete) }
             }
         }
         .sheet(isPresented: $showAddUser) {
@@ -317,12 +320,12 @@ struct AdminView: View {
                     .background(Color.red.opacity(0.2))
                     .clipShape(Capsule())
             }
-            Text(user.role == "admin" ? String(localized: "Admin") : String(localized: "Regular User"))
+            Text(user.roleDisplayName)
                 .font(AppFont.footnote)
-                .foregroundStyle(user.role == "admin" ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                .foregroundStyle(user.isAdmin ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 2)
-                .background(user.role == "admin" ? theme.accentTint : Surface.fill)
+                .background(user.isAdmin ? theme.accentTint : Surface.fill)
                 .clipShape(Capsule())
         }
         .deleteDisabled(user.id == vm.currentUserId)
@@ -349,27 +352,36 @@ struct AdminView: View {
                     Text("Admin").tag("admin")
                 }
                 Toggle("Allow NSFW Content", isOn: $newUserAllowAdultContent)
+                if let createError = vm.createError {
+                    Text(createError).font(AppFont.footnote).foregroundStyle(.red)
+                }
             }
             .navigationTitle("Add User")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showAddUser = false } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
+                        isSubmitting = true
                         Task {
-                            await vm.createUser(
+                            // Keep the sheet and its input when the request fails; the error shows inside it.
+                            //
+                            // 请求失败时保留表单及其输入, 错误显示在表单内.
+                            if await vm.createUser(
                                 username: newUserName,
                                 password: newUserPassword,
                                 role: newUserRole,
                                 allowAdultContent: newUserAllowAdultContent
-                            )
-                            newUserName = ""
-                            newUserPassword = ""
-                            newUserConfirmPassword = ""
-                            newUserAllowAdultContent = false
-                            showAddUser = false
+                            ) {
+                                newUserName = ""
+                                newUserPassword = ""
+                                newUserConfirmPassword = ""
+                                newUserAllowAdultContent = false
+                                showAddUser = false
+                            }
+                            isSubmitting = false
                         }
                     }
-                    .disabled(newUserName.trimmingCharacters(in: .whitespaces).isEmpty || newUserPassword.trimmingCharacters(in: .whitespaces).isEmpty || !passwordsMatch)
+                    .disabled(isSubmitting || newUserName.trimmingCharacters(in: .whitespaces).isEmpty || newUserPassword.trimmingCharacters(in: .whitespaces).isEmpty || !passwordsMatch)
                 }
             }
         }
@@ -381,20 +393,18 @@ struct AdminView: View {
     private func settingsTab(_ vm: AdminViewModel) -> some View {
         List {
             Section {
-                Toggle("Anonymous Access", isOn: settingBinding(vm, key: "anonymous_access"))
-                Toggle("NSFW Filter", isOn: settingBinding(vm, key: "nsfw_filter_enabled"))
-                Toggle("Ad Filter", isOn: settingBinding(vm, key: "ad_filter_enabled"))
+                Toggle("Anonymous Access", isOn: boolSetting(vm, .anonymousAccess))
+                Toggle("NSFW Filter", isOn: boolSetting(vm, .nsfwFilter))
+                Toggle("Ad Filter", isOn: boolSetting(vm, .adFilter))
             }
             Section {
-                ttlPicker("Access Token TTL", vm, key: "access_token_ttl", defaultSeconds: 604_800,
-                          presets: [604_800, 2_592_000, 31_536_000])
-                ttlPicker("Media Token TTL", vm, key: "media_token_ttl", defaultSeconds: 21_600,
-                          presets: [1_800, 3_600, 21_600, 43_200, 86_400])
-                Picker("Playback Mode", selection: playbackModeBinding(vm)) {
+                ttlPicker("Access Token TTL", vm, key: .accessTokenTTL, presets: [604_800, 2_592_000, 31_536_000])
+                ttlPicker("Media Token TTL", vm, key: .mediaTokenTTL, presets: [1_800, 3_600, 21_600, 43_200, 86_400])
+                Picker("Playback Mode", selection: stringSetting(vm, .playbackMode)) {
                     Text("Backend Proxy").tag("proxy")
                     Text("Client Direct").tag("direct")
                 }
-                Picker("Image Proxy", selection: imageProxyBinding(vm)) {
+                Picker("Image Proxy", selection: stringSetting(vm, .imageProxy)) {
                     Text("Backend Proxy").tag("server")
                     Text("Client Direct").tag("direct")
                     Text("Tencent CDN").tag("tencent")
@@ -402,34 +412,23 @@ struct AdminView: View {
                 }
             }
             Section(header: Text(String(localized: "Performance"))) {
-                NumericSettingField(
-                    label: String(localized: "Search Concurrency"),
-                    value: vm.settings["search_concurrency"] ?? "",
-                    placeholder: "20",
-                    range: 1...50
-                ) { await vm.updateSetting(key: "search_concurrency", value: $0) }
-                NumericSettingField(
-                    label: String(localized: "Search Timeout"),
-                    value: vm.settings["search_timeout"] ?? "",
-                    placeholder: "10",
-                    range: 1...30,
-                    suffix: "s"
-                ) { await vm.updateSetting(key: "search_timeout", value: $0) }
-                NumericSettingField(
-                    label: String(localized: "Probe Concurrency"),
-                    value: vm.settings["probe_concurrency"] ?? "",
-                    placeholder: "20",
-                    range: 1...50
-                ) { await vm.updateSetting(key: "probe_concurrency", value: $0) }
-                NumericSettingField(
-                    label: String(localized: "Probe Timeout"),
-                    value: vm.settings["probe_timeout"] ?? "",
-                    placeholder: "3",
-                    range: 1...20,
-                    suffix: "s"
-                ) { await vm.updateSetting(key: "probe_timeout", value: $0) }
+                numericField(vm, .searchConcurrency, String(localized: "Search Concurrency"), range: 1...50)
+                numericField(vm, .searchTimeout, String(localized: "Search Timeout"), range: 1...30, suffix: "s")
+                numericField(vm, .probeConcurrency, String(localized: "Probe Concurrency"), range: 1...50)
+                numericField(vm, .probeTimeout, String(localized: "Probe Timeout"), range: 1...20, suffix: "s")
             }
         }
+    }
+
+    private func numericField(_ vm: AdminViewModel, _ key: AdminViewModel.SettingKey, _ label: String,
+                              range: ClosedRange<Int>, suffix: String? = nil) -> some View {
+        NumericSettingField(
+            label: label,
+            value: vm.settings[key.rawValue] ?? "",
+            placeholder: key.defaultValue,
+            range: range,
+            suffix: suffix
+        ) { await vm.updateSetting(key: key.rawValue, value: $0) }
     }
 
     // MARK: - Helpers
@@ -442,36 +441,21 @@ struct AdminView: View {
         }
     }
 
-    private func settingBinding(_ vm: AdminViewModel, key: String) -> Binding<Bool> {
+    private func boolSetting(_ vm: AdminViewModel, _ key: AdminViewModel.SettingKey) -> Binding<Bool> {
         Binding(
-            get: { vm.settings[key] == "true" },
-            set: { newValue in
-                let newStr = newValue ? "true" : "false"
-                guard vm.settings[key] != newStr else { return }
-                Task { await vm.updateSetting(key: key, value: newStr) }
-            }
+            get: { vm.value(of: key) == "true" },
+            set: { newValue in Task { await vm.setValue(newValue ? "true" : "false", for: key) } }
         )
     }
 
-    private func settingTextBinding(_ vm: AdminViewModel, key: String) -> Binding<String> {
+    /// A binding to a string setting; it reads the key's default while the server has no value and
+    /// saves only a changed value.
+    ///
+    /// 字符串设置的绑定; 服务端没有值时读取该键的默认值, 并且只保存发生变化的值.
+    private func stringSetting(_ vm: AdminViewModel, _ key: AdminViewModel.SettingKey) -> Binding<String> {
         Binding(
-            get: { vm.settings[key] ?? "" },
-            set: { vm.settings[key] = $0 }
-        )
-    }
-
-    private func imageProxyBinding(_ vm: AdminViewModel) -> Binding<String> {
-        Binding(
-            get: {
-                let val = vm.settings["douban_image_proxy"] ?? ""
-                return val.isEmpty ? "server" : val
-            },
-            set: { newValue in
-                let current = vm.settings["douban_image_proxy"] ?? ""
-                let effective = current.isEmpty ? "server" : current
-                guard newValue != effective else { return }
-                Task { await vm.updateSetting(key: "douban_image_proxy", value: newValue) }
-            }
+            get: { vm.value(of: key) },
+            set: { newValue in Task { await vm.setValue(newValue, for: key) } }
         )
     }
 
@@ -480,9 +464,9 @@ struct AdminView: View {
     ///
     /// 以秒为单位, 在 `presets` 中选择有效期的选择器. 不在预设中的已存值 (Web 管理端允许任意秒数)
     /// 也会列出, 因此选择器不会显示空白.
-    private func ttlPicker(_ title: LocalizedStringKey, _ vm: AdminViewModel, key: String,
-                           defaultSeconds: Int, presets: [Int]) -> some View {
-        let selection = ttlBinding(vm, key: key, defaultValue: String(defaultSeconds))
+    private func ttlPicker(_ title: LocalizedStringKey, _ vm: AdminViewModel, key: AdminViewModel.SettingKey,
+                           presets: [Int]) -> some View {
+        let selection = stringSetting(vm, key)
         let current = Int(selection.wrappedValue)
         let options = presets + (current.map { presets.contains($0) || $0 <= 0 ? [] : [$0] } ?? [])
         return Picker(title, selection: selection) {
@@ -491,42 +475,6 @@ struct AdminView: View {
                     .tag(String(seconds))
             }
         }
-    }
-
-    /// Builds a picker binding for TTL settings stored as seconds.
-    ///
-    /// 为以秒为单位保存的 TTL 设置构建 Picker binding.
-    private func ttlBinding(_ vm: AdminViewModel, key: String, defaultValue: String) -> Binding<String> {
-        Binding(
-            get: {
-                let val = vm.settings[key] ?? ""
-                return val.isEmpty ? defaultValue : val
-            },
-            set: { newValue in
-                let current = vm.settings[key] ?? ""
-                let effective = current.isEmpty ? defaultValue : current
-                guard newValue != effective else { return }
-                Task { await vm.updateSetting(key: key, value: newValue) }
-            }
-        )
-    }
-
-    /// Keeps playback mode aligned with backend values: proxy or direct.
-    ///
-    /// 让播放模式与后端取值保持一致: proxy 或 direct.
-    private func playbackModeBinding(_ vm: AdminViewModel) -> Binding<String> {
-        Binding(
-            get: {
-                let val = vm.settings["playback_mode"] ?? ""
-                return val.isEmpty ? "proxy" : val
-            },
-            set: { newValue in
-                let current = vm.settings["playback_mode"] ?? ""
-                let effective = current.isEmpty ? "proxy" : current
-                guard newValue != effective else { return }
-                Task { await vm.updateSetting(key: "playback_mode", value: newValue) }
-            }
-        )
     }
 }
 

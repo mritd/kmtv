@@ -5,7 +5,6 @@ import UIKit
 @Observable
 @MainActor
 final class ProfileViewModel {
-    var user: User?
     var isEditingUsername = false
     var editUsername = ""
     var passwordOld = ""
@@ -25,15 +24,23 @@ final class ProfileViewModel {
     /// 弱引用应用状态桥接, 用于同步全局 current user 快照.
     private weak var appVM: AppViewModel?
 
-    /// Number of unfinished watch records of the current identity.
+    /// The signed-in user. With an app state bridge it is that state's `currentUser`, so there is one
+    /// source of truth; without one (unit tests) the view model holds its own.
     ///
-    /// 当前身份未看完的观看记录数量.
-    var watchHistoryCount: Int { syncStore?.watchItems.filter { !$0.completed }.count ?? 0 }
+    /// 当前登录用户. 有应用状态桥接时直接读写其 `currentUser`, 保证只有一个数据源; 没有桥接
+    /// (单元测试) 时由视图模型自己持有.
+    var user: User? {
+        get { appVM.map(\.currentUser) ?? standaloneUser }
+        set {
+            if let appVM { appVM.currentUser = newValue } else { standaloneUser = newValue }
+        }
+    }
+    private var standaloneUser: User?
 
     init(apiClient: any ProfileAPIProtocol, syncStore: SyncStore?, user: User?, appVM: AppViewModel? = nil) {
         self.apiClient = apiClient
         self.syncStore = syncStore
-        self.user = user
+        self.standaloneUser = user
         self.appVM = appVM
     }
 
@@ -53,10 +60,6 @@ final class ProfileViewModel {
         guard !trimmed.isEmpty else { return }
         do {
             user = try await apiClient.updateProfile(username: trimmed)
-            // Keep local profile state and app-wide user state aligned after mutation.
-            //
-            // 修改用户名后同时同步个人资料状态和全局用户状态.
-            appVM?.currentUser = user
             isEditingUsername = false
             successMessage = String(localized: "Username updated")
         } catch {
@@ -73,10 +76,6 @@ final class ProfileViewModel {
               let jpegData = uiImage.jpegData(compressionQuality: 0.8) else { return }
         do {
             user = try await apiClient.uploadAvatar(imageData: jpegData, mimeType: "image/jpeg")
-            // Avatar changes must also refresh appVM.currentUser for other screens.
-            //
-            // 头像变更也需要刷新 appVM.currentUser, 让其他页面立即看到新头像.
-            appVM?.currentUser = user
             successMessage = String(localized: "Avatar updated")
         } catch {
             logger.error("Upload avatar failed: \(error.localizedDescription)")
@@ -87,7 +86,6 @@ final class ProfileViewModel {
     func deleteAvatar() async {
         do {
             user = try await apiClient.deleteAvatar()
-            appVM?.currentUser = user
             successMessage = String(localized: "Avatar removed")
         } catch {
             logger.error("Delete avatar failed: \(error.localizedDescription)")
@@ -117,11 +115,36 @@ final class ProfileViewModel {
         }
     }
 
-    /// Clears watch history on every device of this account.
+    /// Loads the photo picked as the new avatar and uploads it; a photo that cannot be read is
+    /// reported instead of failing silently.
     ///
-    /// 在该账号的所有设备上清空观看历史.
-    func clearWatchHistory() {
-        syncStore?.clear(.watch)
+    /// 读取选中的照片并上传为新头像; 无法读取的照片会提示, 而不是静默失败.
+    func pickAvatar(loading load: () async throws -> Data?) async {
+        guard let data = try? await load() else {
+            ToastManager.shared.show(String(localized: "Could not load the selected photo"))
+            return
+        }
+        await uploadAvatar(imageData: data)
+    }
+
+    /// Clears watch history on every device of this account. Returns whether anything was cleared:
+    /// without a store there is nothing to clear and no success is reported.
+    ///
+    /// 在该账号的所有设备上清空观看历史. 返回是否执行了清空: 没有同步存储时无事可做, 也不报告成功.
+    @discardableResult
+    static func clearWatchHistory(in store: SyncStore?) -> Bool {
+        guard let store else { return false }
+        store.clear(.watch)
+        return true
+    }
+
+    /// Clears watch history through `clearWatchHistory(in:)` and reports success when it ran.
+    ///
+    /// 通过 `clearWatchHistory(in:)` 清空观看历史, 并在执行后报告成功.
+    @discardableResult
+    func clearWatchHistory() -> Bool {
+        guard Self.clearWatchHistory(in: syncStore) else { return false }
         successMessage = String(localized: "Watch history cleared")
+        return true
     }
 }

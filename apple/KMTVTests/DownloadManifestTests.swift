@@ -40,13 +40,13 @@ final class DownloadManifestTests: XCTestCase {
         XCTAssertNil(manifest.lines[2].key)
         XCTAssertTrue(manifest.lines[2].discontinuity)
         XCTAssertEqual(manifest.totalDuration, 9.5, accuracy: 0.001)
-        XCTAssertEqual(manifest.missing.count, 4)
+        XCTAssertEqual(manifest.missingCount, 4)
         XCTAssertFalse(manifest.isComplete)
     }
 
     func testEncryptedEntriesAreKeyedSegmentsAndMaps() throws {
         let ts = DownloadManifest.build(from: try media(encrypted), generation: 1)
-        XCTAssertEqual(ts.entries.indices.map { ts.isEncrypted(entry: $0) }, [false, true, true, false])
+        XCTAssertEqual(ts.entries.indices.map { ts.encryptedEntries.contains($0) }, [false, true, true, false])
         let fmp4 = DownloadManifest.build(from: try media("""
         #EXTM3U
         #EXT-X-VERSION:7
@@ -58,7 +58,7 @@ final class DownloadManifestTests: XCTestCase {
         #EXT-X-ENDLIST
         """), generation: 1)
         XCTAssertEqual(fmp4.entries.map(\.kind), [.key, .map, .segment])
-        XCTAssertEqual(fmp4.entries.indices.map { fmp4.isEncrypted(entry: $0) }, [false, true, true])
+        XCTAssertEqual(fmp4.entries.indices.map { fmp4.encryptedEntries.contains($0) }, [false, true, true])
     }
 
     private let clearInit = """
@@ -77,7 +77,7 @@ final class DownloadManifestTests: XCTestCase {
     func testMapDeclaredBeforeTheKeyIsClear() throws {
         let manifest = DownloadManifest.build(from: try media(clearInit), generation: 1)
         XCTAssertEqual(manifest.entries.map(\.kind), [.key, .map, .segment, .segment])
-        XCTAssertEqual(manifest.entries.indices.map { manifest.isEncrypted(entry: $0) }, [false, false, true, true])
+        XCTAssertEqual(manifest.entries.indices.map { manifest.encryptedEntries.contains($0) }, [false, false, true, true])
     }
 
     func testWriterKeepsTheInitSectionEncryptionOfTheSource() throws {
@@ -126,7 +126,7 @@ final class DownloadManifestTests: XCTestCase {
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(manifest)) as? [String: Any])
         json["lines"] = (json["lines"] as? [[String: Any]])?.map { line in line.filter { $0.key != "mapEncrypted" } }
         manifest = try JSONDecoder().decode(DownloadManifest.self, from: JSONSerialization.data(withJSONObject: json))
-        XCTAssertEqual(manifest.entries.indices.map { manifest.isEncrypted(entry: $0) }, [false, true, true, true])
+        XCTAssertEqual(manifest.entries.indices.map { manifest.encryptedEntries.contains($0) }, [false, true, true, true])
     }
 
     func testFMP4UsesMapAndM4SNames() throws {
@@ -304,11 +304,11 @@ final class DownloadManifestTests: XCTestCase {
         json["lines"] = (json["lines"] as? [[String: Any]])?.map { line in line.filter { $0.key != "mapEncrypted" } }
         old = try JSONDecoder().decode(DownloadManifest.self, from: JSONSerialization.data(withJSONObject: json))
         let map = try XCTUnwrap(old.entries.firstIndex { $0.kind == .map })
-        XCTAssertTrue(old.isEncrypted(entry: map))
+        XCTAssertTrue(old.encryptedEntries.contains(map))
         let fresh = DownloadManifest.build(from: try media(fmp4(adAfter: 1)), generation: 2)
         let remapped = try XCTUnwrap(old.remapping(onto: fresh))
         XCTAssertEqual(remapped.entries.map(\.fileName), old.entries.map(\.fileName))
-        XCTAssertFalse(remapped.isEncrypted(entry: map))
+        XCTAssertFalse(remapped.encryptedEntries.contains(map))
         XCTAssertEqual(remapped.lines.map(\.mapEncrypted), [false, false, false])
     }
 
@@ -317,6 +317,18 @@ final class DownloadManifestTests: XCTestCase {
         XCTAssertFalse(direct.hasUpstreamIdentities)
         let proxied = DownloadManifest.build(from: try media(adPlaylist(adAfter: 0, token: "a")), generation: 1)
         XCTAssertTrue(proxied.hasUpstreamIdentities)
+        // A CDN path that merely contains `/proxy/` is a direct URL, so the index-and-duration
+        // fallback still applies to it.
+        //
+        // 路径中只是含有 `/proxy/` 的 CDN 地址属于直连 URL, 因此仍适用按序号与时长的兜底匹配.
+        let lookalike = DownloadManifest.build(from: try media("""
+        #EXTM3U
+        #EXT-X-TARGETDURATION:2
+        #EXTINF:2,
+        https://cdn.example/cdn/proxy/x.ts?url=https%3A%2F%2Forigin%2Fx.ts
+        #EXT-X-ENDLIST
+        """), generation: 1)
+        XCTAssertFalse(lookalike.hasUpstreamIdentities)
     }
 
     func testWriterSkipsAMissingEpisodeDirectory() throws {
@@ -341,13 +353,13 @@ final class DownloadManifestTests: XCTestCase {
         old.entries[2].done = true
         old.entries[2].bytes = 100
         old.entries[3].attempts = 2
-        XCTAssertTrue(old.isEncrypted(entry: 1))
+        XCTAssertTrue(old.encryptedEntries.contains(1))
         let fresh = DownloadManifest.build(from: try media(clearInit.replacingOccurrences(of: "s0.m4s", with: "s0.m4s?mt=new")),
                                            generation: 2)
         XCTAssertTrue(old.matches(fresh))
         let merged = old.adopting(urlsFrom: fresh)
         XCTAssertEqual(merged.lines, fresh.lines)
-        XCTAssertFalse(merged.isEncrypted(entry: 1))
+        XCTAssertFalse(merged.encryptedEntries.contains(1))
         XCTAssertEqual(merged.generation, 2)
         XCTAssertEqual(merged.entries.map(\.done), [false, false, true, false])
         XCTAssertEqual(merged.entries[2].bytes, 100)
@@ -425,7 +437,7 @@ final class DownloadManifestTests: XCTestCase {
         let manifest = DownloadManifest.build(from: try media(encrypted), generation: 4)
         let url = FileManager.default.temporaryDirectory.appending(path: "manifest-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: url) }
-        try manifest.save(to: url)
+        XCTAssertTrue(try manifest.saveIntoExistingDirectory(at: url))
         XCTAssertEqual(DownloadManifest.load(from: url), manifest)
         XCTAssertNil(DownloadManifest.load(from: url.appending(path: "missing")))
     }

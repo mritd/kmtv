@@ -77,7 +77,23 @@ final class DownloadEntryValidatorTests: XCTestCase {
         XCTAssertNil(DownloadEntryValidator.classify(transportError: URLError(.cancelled)))
         XCTAssertEqual(DownloadEntryValidator.classify(transportError: URLError(.timedOut)), .retry(.network))
         XCTAssertEqual(DownloadEntryValidator.classify(transportError: URLError(.notConnectedToInternet)), .retry(.network))
-        XCTAssertTrue(DownloadEntryValidator.isProxyURL(proxy))
-        XCTAssertFalse(DownloadEntryValidator.isProxyURL(direct))
+    }
+
+    func testOneProxyDefinitionForTokenExpiryAndIdentity() {
+        // A direct upstream URL whose path contains `/proxy/` and a `url` parameter is neither a
+        // token-expiry source nor an upstream identity.
+        //
+        // 路径含有 `/proxy/` 且带 `url` 参数的上游直连 URL, 既不会触发 token 过期, 也不是上游身份.
+        let lookalike = URL(string: "https://cdn.example/cdn/proxy/x.ts?url=https%3A%2F%2Forigin%2Fx.ts")!
+        let body = Data(#"{"code":1002,"error":"invalid or expired media token"}"#.utf8)
+        XCTAssertTrue(KMTVProxyURL.isProxy(proxy))
+        XCTAssertFalse(KMTVProxyURL.isProxy(direct))
+        XCTAssertFalse(KMTVProxyURL.isProxy(lookalike))
+        XCTAssertEqual(KMTVProxyURL.upstream(of: proxy), "x")
+        XCTAssertNil(KMTVProxyURL.upstream(of: lookalike))
+        XCTAssertEqual(classify(lookalike, 401, type: "application/json", head: body, size: Int64(body.count)),
+                       .reject(.sourceStatus(401)))
+        XCTAssertEqual(DownloadManifest.dedupeKey(lookalike), lookalike.absoluteString)
+        XCTAssertEqual(DownloadManifest.dedupeKey(proxy), "x")
     }
 }

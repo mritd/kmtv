@@ -31,14 +31,21 @@ struct CategoriesView: View {
         #endif
         .task {
             if viewModel == nil, let client = appVM.apiClient {
-                let vm = CategoriesViewModel(apiClient: client)
+                let vm = CategoriesViewModel(apiClient: client, baseURL: client.baseURL)
                 viewModel = vm
-                await vm.loadCategories()
+                // The first load runs in its own task: leaving the tab cancels this view task, and a
+                // cancelled first load would leave the page empty, with no refresh on tvOS.
+                //
+                // 首次加载在独立任务中执行: 切换标签页会取消视图的 task, 而被取消的首次加载会让页面一直为空,
+                // tvOS 上也没有刷新手段.
+                await Task { await vm.loadCategories() }.value
             }
         }
-        .onDisappear {
-            viewModel?.cancelFetch()
-        }
+        // No cancel on disappear: the view model's generation already drops stale responses, and
+        // cancelling a filter change on a tab switch left the old items under the new chip.
+        //
+        // 消失时不取消请求: 视图模型的代次已会丢弃过期响应, 而切换标签页时取消筛选请求会让旧条目留在
+        // 新选中的筛选下.
     }
 
     @ViewBuilder
@@ -184,8 +191,13 @@ struct CategoriesView: View {
     }
 
     private var emptyState: some View {
-        ContentUnavailableView("No results found", systemImage: "film")
-            .accessibilityIdentifier("categoriesEmptyState")
+        ContentUnavailableView {
+            Label("No results found", systemImage: "film")
+        } actions: {
+            Button("Retry") { Task { await viewModel?.refresh() } }
+                .accessibilityIdentifier("categoriesRetry")
+        }
+        .accessibilityIdentifier("categoriesEmptyState")
     }
 
     private var skeletonGrid: some View {

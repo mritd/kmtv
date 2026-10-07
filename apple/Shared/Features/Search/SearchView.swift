@@ -5,8 +5,6 @@ import SkeletonUI
 struct SearchView: View {
     @Environment(AppViewModel.self) private var appVM
     @State private var viewModel: SearchViewModel?
-    @State private var coverHint = ""
-    @State private var resumeIntent: EpisodeResumeIntent?
     #if os(tvOS)
     @Binding var pendingSearch: SearchQuery?
     @State private var selectedPlay: PlayDestination?
@@ -27,13 +25,9 @@ struct SearchView: View {
             if let viewModel {
                 #if os(tvOS)
                 TVSearchContentView(viewModel: viewModel, appVM: appVM,
-                                    coverHint: $coverHint,
-                                    resumeIntent: $resumeIntent,
                                     onPlay: { selectedPlay = $0 })
                 #else
-                SearchContentView(viewModel: viewModel, path: $path, appVM: appVM,
-                                  coverHint: $coverHint,
-                                  resumeIntent: $resumeIntent)
+                SearchContentView(viewModel: viewModel, path: $path, appVM: appVM)
                 #endif
             } else {
                 ProgressView()
@@ -83,10 +77,7 @@ struct SearchView: View {
     }
 
     private func runSearch(_ search: SearchQuery, with viewModel: SearchViewModel) async {
-        coverHint = search.coverHint
-        resumeIntent = search.resumeIntent
-        viewModel.query = search.query
-        await viewModel.search(query: search.query)
+        await viewModel.search(search)
     }
 
     /// The cover a result opens the player with. The card the user tapped (`coverHint`) wins when
@@ -107,15 +98,13 @@ struct SearchView: View {
 struct TVSearchContentView: View {
     @Bindable var viewModel: SearchViewModel
     let appVM: AppViewModel
-    @Binding var coverHint: String
-    @Binding var resumeIntent: EpisodeResumeIntent?
     var onPlay: ((PlayDestination) -> Void)?
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
                 if viewModel.isSearching {
-                    if !viewModel.searchPhase.isEmpty {
+                    if viewModel.searchPhase != .idle {
                         tvSearchProgress
                     }
                     tvSearchSkeleton
@@ -130,8 +119,6 @@ struct TVSearchContentView: View {
         .scrollClipDisabled()
         .searchable(text: $viewModel.query, prompt: "Search videos...")
         .onSubmit(of: .search) {
-            coverHint = ""
-            resumeIntent = nil
             Task { await viewModel.submitSearch() }
         }
     }
@@ -139,22 +126,9 @@ struct TVSearchContentView: View {
     private var tvSearchProgress: some View {
         HStack(spacing: 12) {
             ProgressView()
-            Text(progressText)
+            Text(viewModel.progressText)
                 .font(.callout)
                 .foregroundStyle(.secondary)
-        }
-    }
-
-    private var progressText: String {
-        let completed = viewModel.searchCompleted
-        let total = viewModel.searchTotal
-        switch viewModel.searchPhase {
-        case "searching":
-            return String(localized: "Searching available sources \(completed) / \(total) ...")
-        case "probing":
-            return String(localized: "Probing CDN availability \(completed) / \(total) ...")
-        default:
-            return String(localized: "Searching...")
         }
     }
 
@@ -168,17 +142,7 @@ struct TVSearchContentView: View {
             ForEach(searchRows) { row in
                 let result = row.result
                 Button {
-                    let source = result.sources.first
-                    let dest = PlayDestination(
-                        title: result.title,
-                        sources: result.sources,
-                        sourceKey: source?.sourceKey ?? "",
-                        videoId: source?.videoId ?? "",
-                        coverHint: SearchView.bestCover(resultCover: result.cover, resultTitle: result.title,
-                                                        query: viewModel.query, coverHint: coverHint),
-                        resumeIntent: resumeIntent
-                    )
-                    onPlay?(dest)
+                    onPlay?(viewModel.destination(for: result))
                 } label: {
                     VideoCard(
                         title: result.title,
@@ -209,11 +173,7 @@ struct TVSearchContentView: View {
         }
     }
 
-    private var searchRows: [SearchResultRow] {
-        viewModel.results.enumerated().map { offset, result in
-            SearchResultRow(id: .result(offset), result: result)
-        }
-    }
+    private var searchRows: [SearchResultRow] { SearchResultRow.rows(viewModel.results) }
 }
 #endif
 
@@ -222,8 +182,6 @@ struct SearchContentView: View {
     @Bindable var viewModel: SearchViewModel
     @Binding var path: NavigationPath
     let appVM: AppViewModel
-    @Binding var coverHint: String
-    @Binding var resumeIntent: EpisodeResumeIntent?
     @Environment(\.appTheme) private var theme
     @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -236,7 +194,7 @@ struct SearchContentView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if viewModel.isSearching {
-                        if !viewModel.searchPhase.isEmpty {
+                        if viewModel.searchPhase != .idle {
                             searchProgressView
                         }
                         resultColumns { searchSkeleton }
@@ -262,16 +220,12 @@ struct SearchContentView: View {
                 text: $viewModel.query,
                 placeholder: String(localized: "Search videos..."),
                 onSubmit: {
-                    coverHint = ""
-                    resumeIntent = nil
                     Task { await viewModel.submitSearch() }
                 }
             )
             .frame(height: 22)
             if !viewModel.query.isEmpty {
                 Button {
-                    coverHint = ""
-                    resumeIntent = nil
                     viewModel.query = ""
                     viewModel.clearResults()
                 } label: {
@@ -310,16 +264,7 @@ struct SearchContentView: View {
         ForEach(searchRows) { row in
             let result = row.result
             Button {
-                let source = result.sources.first
-                path.append(PlayDestination(
-                    title: result.title,
-                    sources: result.sources,
-                    sourceKey: source?.sourceKey ?? "",
-                    videoId: source?.videoId ?? "",
-                    coverHint: SearchView.bestCover(resultCover: result.cover, resultTitle: result.title,
-                                                    query: viewModel.query, coverHint: coverHint),
-                    resumeIntent: resumeIntent
-                ))
+                path.append(viewModel.destination(for: result))
             } label: {
                 searchResultRow(result)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -413,17 +358,13 @@ struct SearchContentView: View {
         }
     }
 
-    private var searchRows: [SearchResultRow] {
-        viewModel.results.enumerated().map { offset, result in
-            SearchResultRow(id: .result(offset), result: result)
-        }
-    }
+    private var searchRows: [SearchResultRow] { SearchResultRow.rows(viewModel.results) }
 
     private var searchProgressView: some View {
         HStack(spacing: Spacing.sm) {
             ProgressView()
                 .controlSize(.small)
-            Text(progressText)
+            Text(viewModel.progressText)
                 .font(AppFont.footnote)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
@@ -432,19 +373,6 @@ struct SearchContentView: View {
         .frame(maxWidth: .infinity)
         .padding(.horizontal, Spacing.page)
         .padding(.vertical, Spacing.sm)
-    }
-
-    private var progressText: String {
-        let completed = viewModel.searchCompleted
-        let total = viewModel.searchTotal
-        switch viewModel.searchPhase {
-        case "searching":
-            return String(localized: "Searching available sources \(completed) / \(total) ...")
-        case "probing":
-            return String(localized: "Probing CDN availability \(completed) / \(total) ...")
-        default:
-            return String(localized: "Searching...")
-        }
     }
 
     private var emptyState: some View {
@@ -465,8 +393,6 @@ struct SearchContentView: View {
                 FlowLayout(spacing: Spacing.sm) {
                     ForEach(viewModel.searchHistory, id: \.query) { item in
                         Button(item.query) {
-                            coverHint = ""
-                            resumeIntent = nil
                             Task { await viewModel.submitSearch(query: item.query) }
                         }
                         .buttonStyle(.chip(selected: false, minHeight: 34, capsule: true))
@@ -486,4 +412,23 @@ private struct SearchResultRow: Identifiable {
     /// 带命名空间的标识避免 SwiftUI 将骨架屏行复用为真实结果行.
     let id: SearchRowIdentity
     let result: SearchResult
+
+    static func rows(_ results: [SearchResult]) -> [SearchResultRow] {
+        results.enumerated().map { offset, result in SearchResultRow(id: .result(offset), result: result) }
+    }
+}
+
+/// Row identity namespaces, so skeleton rows and result rows never share a SwiftUI identity.
+///
+/// 行标识命名空间, 使骨架行与结果行不会共用同一个 SwiftUI 标识.
+enum SearchRowIdentity: Hashable {
+    /// Placeholder row identity namespace.
+    ///
+    /// 占位行标识命名空间.
+    case skeleton(Int)
+
+    /// Search result row identity namespace.
+    ///
+    /// 搜索结果行标识命名空间.
+    case result(Int)
 }

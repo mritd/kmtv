@@ -57,8 +57,9 @@ final class AdminViewModelTests: XCTestCase {
         let api = AdminAPIFake()
         let vm = AdminViewModel(apiClient: api, currentUserId: 1)
 
-        await vm.createUser(username: "viewer", password: "pass", role: "user", allowAdultContent: true)
+        let created = await vm.createUser(username: "viewer", password: "pass", role: "user", allowAdultContent: true)
 
+        XCTAssertTrue(created)
         XCTAssertEqual(api.createdUsers.count, 1)
         XCTAssertEqual(api.createdUsers[0].username, "viewer")
         XCTAssertEqual(api.createdUsers[0].role, "user")

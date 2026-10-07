@@ -20,45 +20,38 @@ struct DetailView: View {
 
     var body: some View {
         Group {
-            if let viewModel, viewModel.detail != nil {
-                content(viewModel)
-            } else {
+            switch viewModel?.loadState {
+            case .loaded:
+                if let viewModel { content(viewModel) }
+            case .failed(let message):
+                failure(message)
+            case .loading, nil:
                 ProgressView()
             }
         }
         .background(Color.black)
         .task {
             // Create the player model lazily so navigation only loads detail once per view instance.
+            // The detail page never autoplays; playback starts from the Play and episode buttons.
             //
-            // 懒加载播放器模型, 确保同一个详情页实例只请求一次详情.
+            // 懒加载播放器模型, 确保同一个详情页实例只请求一次详情. 详情页不会自动播放;
+            // 播放由播放按钮与剧集按钮开始.
             if viewModel == nil, let client = appVM.apiClient {
-                let vm = PlayerViewModel(
-					apiClient: client, modelContext: modelContext, serverURL: appVM.serverURL,
-					syncStore: appVM.sync?.store, syncEngine: appVM.sync?.engine,
+                viewModel = PlayerViewModel(
+                    apiClient: client, modelContext: modelContext, serverURL: appVM.serverURL,
+                    syncStore: appVM.sync?.store, syncEngine: appVM.sync?.engine,
                     sources: sources, sourceKey: sourceKey, videoId: videoId, title: title,
                     coverHint: coverHint,
                     initialEpisodeIndex: resumeIntent?.episodeIndex
-				)
-				viewModel = vm
-				await vm.prepareResume()
-				let resumeVideoID = vm.currentVideoID.isEmpty ? videoId : vm.currentVideoID
-				let ok = await vm.loadDetail(sourceKey: vm.currentSourceKey, videoId: resumeVideoID)
-                guard !Task.isCancelled else {
-                    vm.cleanup()
-                    return
-                }
-                if !ok {
-                    await vm.handlePlaybackError()
-                    guard !Task.isCancelled else {
-                        vm.cleanup()
-                        return
-                    }
-                }
+                )
             }
+            await viewModel?.open(autoplay: false)
         }
-        .onAppear {
-            viewModel?.resume()
-        }
+        // No resume on appear: the detail page shows again when the player cover is dismissed, and
+        // playback must stay paused behind it. Only the Play and episode buttons start playback.
+        //
+        // 出现时不恢复播放: 关闭播放器全屏层后详情页会再次出现, 此时播放必须在其后保持暂停.
+        // 只有播放按钮与剧集按钮会开始播放.
         .onChange(of: scenePhase) { _, phase in
             // Checkpoint before the app is suspended; the session flush may run before this one.
             //
@@ -69,7 +62,7 @@ struct DetailView: View {
             if showPlayer {
                 viewModel?.pause()
             } else {
-                viewModel?.cleanup()
+                viewModel?.close()
             }
         }
         .onExitCommand { dismiss() }
@@ -78,12 +71,30 @@ struct DetailView: View {
                 FullScreenPlayerRepresentable(player: player)
                     .ignoresSafeArea()
                     .onDisappear {
+                        // Keep a rate picked in the system controls for the next episode.
+                        //
+                        // 保留在系统控件中选择的倍速, 供下一集使用.
+                        viewModel?.syncRateFromPlayer()
                         viewModel?.pause()
                     }
             } else {
                 ProgressView()
             }
         }
+    }
+
+    /// Shown when every source failed, so the page does not spin forever.
+    ///
+    /// 所有视频源均失败时显示, 避免页面一直转圈.
+    private func failure(_ message: String) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.largeTitle)
+                .foregroundStyle(.red)
+            Text(title).font(.title2.bold()).foregroundStyle(.primary)
+            Text(message).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
@@ -205,7 +216,8 @@ struct DetailView: View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 8), spacing: 6) {
             ForEach(vm.sources) { source in
                 SourceButton(source: source, isSelected: source.sourceKey == vm.currentSourceKey) {
-                    Task { await vm.switchSource(source.sourceKey) }
+                    guard source.sourceKey != vm.currentSourceKey else { return }
+                    vm.selectSource(source.sourceKey, autoplay: false)
                 }
             }
         }

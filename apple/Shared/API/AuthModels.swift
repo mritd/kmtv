@@ -33,6 +33,18 @@ struct User: Codable, Sendable {
         self.avatarIsDefault = avatarIsDefault
     }
 
+    /// Whether this user has the admin role.
+    ///
+    /// 该用户是否为管理员角色.
+    var isAdmin: Bool { role == "admin" }
+
+    /// The role's user-facing name: "Admin" or "Regular User".
+    ///
+    /// 角色面向用户的名称: "Admin" 或 "Regular User".
+    var roleDisplayName: String {
+        isAdmin ? String(localized: "Admin") : String(localized: "Regular User")
+    }
+
     /// Whether the user uploaded an avatar that can be removed. Servers before default avatars
     /// omit `avatar` for users without one.
     ///

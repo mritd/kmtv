@@ -12,7 +12,7 @@ struct FavoritesView: View {
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
 
-    init(path: Binding<NavigationPath> = .constant(NavigationPath())) {
+    init(path: Binding<NavigationPath>) {
         self._path = path
     }
     #endif
@@ -30,14 +30,14 @@ struct FavoritesView: View {
         .navigationTitle("Favorites")
         .readableColumn(maxWidth: nil)
         #endif
+        // The one entry point: builds the view model on first appearance and requests a page sync
+        // on every appearance.
+        //
+        // 唯一入口: 首次出现时创建视图模型, 每次出现都请求一次页面同步.
         .task {
             if viewModel == nil {
-                let vm = FavoritesViewModel(syncStore: appVM.sync?.store, syncEngine: appVM.sync?.engine)
-                viewModel = vm
-                vm.load()
+                viewModel = FavoritesViewModel(syncStore: appVM.sync?.store, syncEngine: appVM.sync?.engine)
             }
-        }
-        .onAppear {
             viewModel?.load()
         }
     }

@@ -52,19 +52,26 @@ tasks:
       - cd server && go run -ldflags "-w -s -X github.com/mritd/kmtv/internal/version.Version=v0.0.0-dev -X github.com/mritd/kmtv/internal/version.GitCommit={{.GIT_COMMIT}} -X github.com/mritd/kmtv/internal/version.BuildTime={{.BUILD_TIME}}" . --listen :{{.PORT}} --db-path ../dev.db
 
   web:install:
-    desc: Install frontend dependencies
+    desc: Install frontend dependencies (skipped while node_modules matches package.json and bun.lock)
     dir: web
     cmds:
       - bun install
+    sources:
+      - package.json
+      - bun.lock
+    status:
+      - test -d node_modules
 
   web:dev:
     desc: Run frontend dev server
+    deps: [web:install]
     dir: web
     cmds:
       - bun run dev
 
   web:build:
     desc: Build frontend for production
+    deps: [web:install]
     dir: web
     cmds:
       - bun run build
@@ -74,30 +81,35 @@ tasks:
 
   web:test:
     desc: Run frontend tests
+    deps: [web:install]
     dir: web
     cmds:
       - bun run test
 
   web:lint:
     desc: Type-check frontend
+    deps: [web:install]
     dir: web
     cmds:
       - bun run lint
 
   web:i18n-check:
     desc: Verify i18n key parity across locales
+    deps: [web:install]
     dir: web
     cmds:
       - bun run i18n-check
 
   web:bilingual-check:
     desc: Advisory scan for missing bilingual comments on exports
+    deps: [web:install]
     dir: web
     cmds:
       - bun run bilingual-check
 
   web:coverage:
     desc: Run vitest with coverage thresholds
+    deps: [web:install]
     dir: web
     cmds:
       - bun run coverage

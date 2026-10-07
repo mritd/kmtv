@@ -34,7 +34,6 @@ struct APIRequestExecutor: Sendable {
     func data(for input: URLRequest) async throws -> Data {
         var request = input
         authorize(&request)
-        let shouldNotifyAuthExpired = notifiesAuthExpired && request.value(forHTTPHeaderField: "Authorization") != nil
 
         let data: Data
         let response: URLResponse
@@ -45,6 +44,20 @@ struct APIRequestExecutor: Sendable {
             throw APIError.networkError(error)
         }
 
+        try await validate(response, body: data, for: request)
+        return data
+    }
+
+    /// Checks the HTTP status of a response to `request` and throws the API error it stands for.
+    /// Plain requests and SSE streams both use it, so they report 401s and server errors the same
+    /// way. A 401 on a request that carried a bearer posts `.authExpired` with the rejected token,
+    /// so the app can ignore a 401 for a token it no longer uses.
+    ///
+    /// 检查 `request` 响应的 HTTP 状态, 并抛出对应的 API 错误. 普通请求与 SSE 流都使用它, 因此 401
+    /// 与服务端错误的报告方式一致. 携带 bearer 的请求收到 401 时, 会随被拒 token 一起发送
+    /// `.authExpired`, 应用因此可以忽略已不再使用的 token 的 401.
+    @discardableResult
+    func validate(_ response: URLResponse, body data: Data, for request: URLRequest) async throws -> HTTPURLResponse {
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.serverError(0, 1300, "Not an HTTP response")
         }
@@ -60,9 +73,10 @@ struct APIRequestExecutor: Sendable {
                 logger.warning("Server error: [\(parsed.code ?? 0)] \(parsed.error)")
             }
             let error = APIError.serverError(401, parsed?.code ?? 1002, parsed?.error ?? "not logged in")
-            if shouldNotifyAuthExpired {
+            if notifiesAuthExpired, let token = Self.bearerToken(of: request) {
                 await MainActor.run {
-                    NotificationCenter.default.post(name: .authExpired, object: error)
+                    NotificationCenter.default.post(name: .authExpired, object: error,
+                                                    userInfo: [Notification.rejectedTokenKey: token])
                 }
             }
             throw error
@@ -79,7 +93,15 @@ struct APIRequestExecutor: Sendable {
             throw APIError.serverError(httpResponse.statusCode, 1300, String(data: data, encoding: .utf8) ?? "")
         }
 
-        return data
+        return httpResponse
+    }
+
+    /// The bearer token a request carried, if any.
+    ///
+    /// 请求携带的 bearer token, 没有则为 nil.
+    private static func bearerToken(of request: URLRequest) -> String? {
+        guard let header = request.value(forHTTPHeaderField: "Authorization"), !header.isEmpty else { return nil }
+        return header.hasPrefix("Bearer ") ? String(header.dropFirst(7)) : header
     }
 
     /// Executes a request and decodes JSON using the app's API date strategy.

@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import os
 
 /// Playback progress and settings for one server and title. Progress comes from the sync store
 /// (the watch record); settings still come from SwiftData `PlaybackSettings`.
@@ -26,6 +27,23 @@ struct PlaybackProgressStore {
     func loadSettings() -> PlaybackSettings {
         PlaybackSettings.get(in: modelContext, serverURL: serverURL, title: title)
     }
+
+    /// Persists the skip settings for the current title and server; a nil value keeps the stored one.
+    /// A failed save is logged rather than silently dropped.
+    ///
+    /// 保存当前标题与服务器的跳过设置; 传入 nil 的值保持原样. 保存失败会记录日志, 而不是静默丢弃.
+    func saveSettings(skipIntroSeconds: Int? = nil, skipOutroSeconds: Int? = nil) {
+        let settings = loadSettings()
+        if let skipIntroSeconds { settings.skipIntroSeconds = skipIntroSeconds }
+        if let skipOutroSeconds { settings.skipOutroSeconds = skipOutroSeconds }
+        do {
+            try modelContext.save()
+        } catch {
+            Self.logger.error("saveSettings failed error=\(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private static let logger = Logger(subsystem: "com.mritd.kmtv", category: "playback")
 
     /// Resolves the start position: the watch record wins when it was saved for exactly this source,
     /// line, and episode and is not finished; otherwise intro skip applies.

@@ -172,6 +172,11 @@ final class PlaybackCoordinator {
             player = AVPlayer(playerItem: item)
         }
         player?.allowsExternalPlayback = allowsExternalPlayback
+        // `play()` starts at the default rate, and the system fullscreen controls read and write it,
+        // so the chosen rate lives there.
+        //
+        // `play()` 以默认倍速开始播放, 系统全屏控件也读写该值, 因此所选倍速保存在这里.
+        player?.defaultRate = rate
         errorReported = false
         setupObservers(for: item, onTime: onTime, onBuffer: onBuffer, onEnd: onEnd, onError: onError)
         if let loadTimeout {
@@ -224,10 +229,31 @@ final class PlaybackCoordinator {
     }
 
     func resume(rate: Float) {
+        player?.defaultRate = rate
         player?.play()
         if rate != 1.0 {
             player?.rate = rate
         }
+    }
+
+    /// Sets the playback rate: the default rate for the next `play()`, and the current rate when
+    /// already playing.
+    ///
+    /// 设置播放倍速: 作为下一次 `play()` 的默认倍速; 正在播放时同时修改当前倍速.
+    func setRate(_ rate: Float) {
+        player?.defaultRate = rate
+        if player?.timeControlStatus == .playing {
+            player?.rate = rate
+        }
+    }
+
+    /// The rate the user last chose, including one picked in the system fullscreen controls: the
+    /// current rate while playing, otherwise the default rate. Nil without a player.
+    ///
+    /// 用户最近选择的倍速, 包括在系统全屏控件中选择的: 播放时为当前倍速, 否则为默认倍速. 没有播放器时为 nil.
+    var chosenRate: Float? {
+        guard let player else { return nil }
+        return player.rate > 0 ? player.rate : player.defaultRate
     }
 
     func cleanup() {
@@ -290,27 +316,31 @@ final class PlaybackCoordinator {
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item,
             queue: .main
-        ) { _ in
-            // AVFoundation callbacks arrive outside SwiftUI state flow; hop back to MainActor.
+        ) { [weak self] _ in
+            // Delivered on the main queue (`queue: .main`), so the main actor is already running;
+            // reporting in this turn keeps the end and the item it belongs to together.
             //
-            // AVFoundation 回调不属于 SwiftUI 状态流, 需要回到 MainActor.
-            MainActor.assumeIsolated { self.logger.info("coordinator.endNotification") }
-            MainActor.assumeIsolated { onEnd() }
+            // 在主队列上投递 (`queue: .main`), 因此主 actor 已在运行; 在本轮次内上报,
+            // 使结束事件与其所属的 item 保持一致.
+            MainActor.assumeIsolated {
+                self?.logger.info("coordinator.endNotification")
+                onEnd()
+            }
         }
         errorObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemFailedToPlayToEndTime,
             object: item,
             queue: .main
-        ) { notification in
+        ) { [weak self, weak item] notification in
             let message = (notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error)?.localizedDescription
-            // Log before surfacing the error so black-screen diagnostics keep AVPlayer state.
+            // Delivered on the main queue (`queue: .main`). Log before surfacing the error so
+            // black-screen diagnostics keep AVPlayer state.
             //
-            // 上抛错误前先记录状态, 便于保留黑屏问题的 AVPlayer 证据.
+            // 在主队列上投递 (`queue: .main`). 上抛错误前先记录状态, 便于保留黑屏问题的 AVPlayer 证据.
             MainActor.assumeIsolated {
+                guard let self else { return }
                 self.logger.error("coordinator.errorNotification message=\(message ?? "unknown", privacy: .public)")
-                self.logPlayerState("errorNotification", item: item)
-            }
-            MainActor.assumeIsolated {
+                if let item { self.logPlayerState("errorNotification", item: item) }
                 guard !self.errorReported else { return }
                 self.errorReported = true
                 self.suspendLoadWatchdog()
@@ -324,23 +354,14 @@ final class PlaybackCoordinator {
     /// 观察 SwiftUI 不会自动暴露的 AVFoundation 播放状态变化.
     private func setupStatusObservers(for item: AVPlayerItem, player: AVPlayer) {
         statusObservers = [
-            item.observe(\.status, options: [.initial, .new]) { [weak self, weak item] _, _ in
-                MainActor.assumeIsolated {
-                    guard let self, let item else { return }
-                    self.logPlayerState("item.status", item: item)
-                }
+            item.observe(\.status, options: [.initial, .new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.logCurrentItemState("item.status") }
             },
-            item.observe(\.isPlaybackLikelyToKeepUp, options: [.initial, .new]) { [weak self, weak item] _, _ in
-                MainActor.assumeIsolated {
-                    guard let self, let item else { return }
-                    self.logPlayerState("item.keepUp", item: item)
-                }
+            item.observe(\.isPlaybackLikelyToKeepUp, options: [.initial, .new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.logCurrentItemState("item.keepUp") }
             },
-            item.observe(\.isPlaybackBufferEmpty, options: [.initial, .new]) { [weak self, weak item] _, _ in
-                MainActor.assumeIsolated {
-                    guard let self, let item else { return }
-                    self.logPlayerState("item.bufferEmpty", item: item)
-                }
+            item.observe(\.isPlaybackBufferEmpty, options: [.initial, .new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.logCurrentItemState("item.bufferEmpty") }
             },
             // No observer for isPlaybackBufferFull: once the buffer settles AVFoundation
             // flips it as it drains and refills its internal buffer, and a measured 73s
@@ -354,13 +375,21 @@ final class PlaybackCoordinator {
             // 仅出自这一个属性 — 约每小时 2700 条, 把其余信息全部淹没.
             // 它的值本就是本方法写出的每一行的固定字段, 因此该观察器始终只是在
             // 重复其他信号已经携带的内容.
-            player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self, weak item] _, _ in
-                MainActor.assumeIsolated {
-                    guard let self, let item else { return }
-                    self.logPlayerState("player.timeControlStatus", item: item)
-                }
+            player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.logCurrentItemState("player.timeControlStatus") }
             },
         ]
+    }
+
+    /// Logs the state of the current item. KVO may deliver on any thread, so the observers hop to
+    /// the main actor and log whatever item is current by then; observers are removed whenever the
+    /// item is replaced.
+    ///
+    /// 记录当前 item 的状态. KVO 可能在任意线程投递, 因此观察者跳转到主 actor, 并记录届时的当前 item;
+    /// 每次替换 item 时观察者都会被移除.
+    private func logCurrentItemState(_ event: String) {
+        guard let item = player?.currentItem else { return }
+        logPlayerState(event, item: item)
     }
 
     /// Records the compact playback state needed to diagnose black-screen playback.

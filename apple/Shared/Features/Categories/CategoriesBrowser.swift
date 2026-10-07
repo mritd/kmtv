@@ -55,7 +55,7 @@ struct CategoriesBrowser: View {
             }
         }
         .scrollPosition($position)
-        .refreshable { await vm.fetchItems() }
+        .refreshable { await vm.refresh() }
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, offset in
             let nowScrolled = offset > 1
             if nowScrolled != scrolled { scrolled = nowScrolled }
@@ -213,6 +213,9 @@ struct CategoriesBrowser: View {
             ContentUnavailableView {
                 Label("No results found", systemImage: "film")
                     .accessibilityIdentifier("categoriesEmptyState")
+            } actions: {
+                Button("Retry") { Task { await vm.refresh() } }
+                    .accessibilityIdentifier("categoriesRetry")
             }
             .padding(.top, Spacing.xxl)
         } else {

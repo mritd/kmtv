@@ -3,6 +3,18 @@
 Bugs worth remembering, newest first: what broke, why, how it was fixed, and how to avoid it again.
 Keep entries short; remove entries that no longer teach anything.
 
+### 2026-10-07 - Login timeout never said "timed out"; offline choice did not stop a login
+- **Issue**: A connect that hit the 10 s timeout showed "Network error", and tapping "Watch Downloads Offline" during a login could later replace offline mode with the main screen.
+- **Root Cause**: The executor wraps URLSession's cancellation as `APIError.networkError`, so `catch is CancellationError` never matched; the login ran in an unstructured task that the view's cancel never reached, and `connectServer` ignored the session epoch.
+- **Solution**: `AppViewModel.connectServer` owns the timeout (`withTimeout`) and checks the session epoch before committing; covered by `BootstrapOfflineTests`.
+- **Prevention**: Awaiting an unstructured `Task` does not forward cancellation; check what error a cancelled request actually throws.
+
+### 2026-10-07 - Home crashed when hero items changed
+- **Issue**: `HomeViewModelTests` crashed the test host after the hero index clamp was added.
+- **Root Cause**: `heroIndex`'s `didSet` assigned `heroIndex`; on an `@Observable` property the macro-generated setter runs `didSet` again, so it recursed until the stack overflowed.
+- **Solution**: Only `heroItems.didSet` clamps, and only when the value changes.
+- **Prevention**: Never assign an `@Observable` property from its own `didSet`.
+
 ### 2026-10-07 - Categories "All" showed only six titles
 - **Issue**: Movie, sub-category "All", region "All" listed six titles while "Hot" listed hundreds.
 - **Root Cause**: With no filter at all, Douban's `rexxar/api/v2/movie/recommend` answers a curated list of eight cards (six movies, a playlist, an ad); any filter, or `sort=U`, returns the full catalog (`total` 500).

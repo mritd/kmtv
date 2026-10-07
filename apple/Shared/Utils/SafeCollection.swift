@@ -8,15 +8,3 @@ extension Collection {
         indices.contains(index) ? self[index] : nil
     }
 }
-
-enum SearchRowIdentity: Hashable {
-    /// Placeholder row identity namespace.
-    ///
-    /// 占位行标识命名空间.
-    case skeleton(Int)
-
-    /// Search result row identity namespace.
-    ///
-    /// 搜索结果行标识命名空间.
-    case result(Int)
-}

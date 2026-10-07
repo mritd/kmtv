@@ -24,12 +24,6 @@ enum Theme {
     static let textPrimary = Color(red: 232/255, green: 232/255, blue: 240/255)  // #E8E8F0
     static let textSecondary = Color(red: 160/255, green: 160/255, blue: 168/255) // #A0A0A8
     static let ratingBadgeBg = Color.black.opacity(0.7)
-    #endif
-
-    #if os(iOS)
-    static let cardWidth: CGFloat = 116
-    static let heroHeight: CGFloat = 214
-    #else
     static let cardWidth: CGFloat = 200
     static let heroHeight: CGFloat = 400
     #endif

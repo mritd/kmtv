@@ -5,7 +5,7 @@ import os
 ///
 /// 请求同步的原因; 只有 `.page` 会被限频.
 enum SyncReason: String, Sendable {
-    case launch, foreground, page, player, change, retry
+    case launch, login, foreground, online, page, player, change, retry
 }
 
 /// How the engine treats a failed request.
@@ -111,6 +111,16 @@ final class SyncEngine {
     private var retryDelay = SyncEngine.retryMinMs
     private var pushCount = 0
     private var unsubscribe: (() -> Void)?
+    // startWaiters settle syncs requested before the first start(): the first cycle after start()
+    // settles them, or stop() does. Callers such as the player gate bound their own wait with
+    // requestSync(_:waitingAtMost:). The first start() or stop() ends the waiting phase, so an engine
+    // the app decides never to start stops queueing waiters once it is stopped.
+    //
+    // startWaiters 用于结束首次 start() 之前请求的同步: start() 之后的第一轮同步结束它们, 或由
+    // stop() 结束. 播放器等调用方通过 requestSync(_:waitingAtMost:) 自行限制等待时长. 首次 start()
+    // 或 stop() 结束等待阶段, 因此应用决定不启动的引擎在被停止后不再累积等待者.
+    private var waitForStart = true
+    private var startWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     /// Creates an engine that stays idle until `start()`: it sends nothing and ignores local
     /// changes. `start()` activates it (a no-op while active) and `stop()` returns it to idle. Work
@@ -146,6 +156,7 @@ final class SyncEngine {
     func start() {
         guard stopped else { return }
         stopped = false
+        waitForStart = false
         generation += 1
         retryDelay = Self.retryMinMs
         unsubscribe = store.onLocalChange { [weak self] kind in self?.schedulePush(kind) }
@@ -163,6 +174,34 @@ final class SyncEngine {
         retryTimer = nil
         unsubscribe?()
         unsubscribe = nil
+        waitForStart = false
+        settleStartWaiters()
+    }
+
+    private func settleStartWaiters() {
+        let waiters = startWaiters
+        startWaiters = [:]
+        for waiter in waiters.values { waiter.resume() }
+    }
+
+    // Parks the caller until the first cycle after start() or stop() settles it. Cancelling the
+    // caller removes its waiter, so a timed-out requestSync(_:waitingAtMost:) leaves nothing behind.
+    //
+    // 挂起调用方, 直到 start() 之后的第一轮同步或 stop() 结束它. 调用方被取消时会移除自己的
+    // 等待者, 因此超时的 requestSync(_:waitingAtMost:) 不会留下残留.
+    private func waitForFirstCycle() async {
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                if Task.isCancelled {
+                    continuation.resume()
+                } else {
+                    startWaiters[id] = continuation
+                }
+            }
+        } onCancel: {
+            Task { @MainActor in self.startWaiters.removeValue(forKey: id)?.resume() }
+        }
     }
 
     private func schedulePush(_ kind: SyncKind) {
@@ -190,7 +229,14 @@ final class SyncEngine {
     ///
     /// 运行一轮同步; 若已有一轮在运行则等待它, 并在结束后再执行一轮.
     func requestSync(_ reason: SyncReason) async {
-        guard !stopped else { return }
+        guard !stopped else {
+            if waitForStart { await waitForFirstCycle() }
+            return
+        }
+        // Connectivity is back, so the backoff of the failed attempts no longer applies.
+        //
+        // 网络已恢复, 之前失败尝试累积的退避不再适用.
+        if reason == .online { retryDelay = Self.retryMinMs }
         // A page entry joins a running cycle instead of queueing another one.
         //
         // 页面进入时若已有同步在运行, 直接复用它, 不再排队新的一轮.
@@ -203,6 +249,8 @@ final class SyncEngine {
             await running.value
             return
         }
+        let waiters = startWaiters
+        startWaiters = [:]
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             repeat {
@@ -210,6 +258,7 @@ final class SyncEngine {
                 await self.cycle()
             } while self.rerun && !self.stopped
             self.running = nil
+            for waiter in waiters.values { waiter.resume() }
         }
         running = task
         await task.value
@@ -219,17 +268,27 @@ final class SyncEngine {
     ///
     /// 请求一次同步, 在同步完成或超时之后返回, 以先到者为准.
     func requestSync(_ reason: SyncReason, waitingAtMost timeout: Duration) async {
-        let once = SyncOnce()
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            Task { @MainActor in
-                await self.requestSync(reason)
-                once.run { continuation.resume() }
-            }
-            Task { @MainActor in
-                try? await Task.sleep(for: timeout)
-                once.run { continuation.resume() }
-            }
+        // The group's sync child cannot end early on cancellation (a cycle is not cancellable), so
+        // it watches a stream that the unstructured sync task finishes; iterating it ends on
+        // cancellation, which lets the timeout or the caller's cancellation win promptly.
+        //
+        // 任务组中的同步子任务无法在取消时提前结束 (同步流程不可取消), 因此它监听一个由非结构化
+        // 同步任务结束的流; 遍历该流在取消时会立即结束, 超时或调用方取消因而可以及时返回.
+        let (finished, signal) = AsyncStream<Void>.makeStream()
+        let sync = Task { @MainActor in
+            await self.requestSync(reason)
+            signal.finish()
         }
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { for await _ in finished {} }
+            group.addTask { try? await Task.sleep(for: timeout) }
+            await group.next()
+            group.cancelAll()
+        }
+        // Drops a start waiter when the timeout won; a cycle already running carries on.
+        //
+        // 超时先到时移除等待首轮同步的等待者; 已在运行的同步流程不受影响.
+        sync.cancel()
     }
 
     /// Pushes pending changes now, outside the cycle, before the app leaves the foreground. It is
@@ -410,15 +469,11 @@ final class SyncEngine {
             store.clock.observe(serverTimeMs: page.serverTimeMs, sentAtMs: sentAt, receivedAtMs: now())
             if page.reset {
                 if !state.epoch.isEmpty && page.epoch != state.epoch {
-                    let dropped = SyncMerge.dropsData(state, username: store.username)
-                    store.update { SyncMerge.resetForNewEpoch($0, epoch: page.epoch, username: store.username) }
-                    if dropped { onScopeDropped?() }
+                    handleServerLoss(state, epoch: page.epoch)
                     return false
                 }
                 if page.rev < state.cursor {
-                    let dropped = SyncMerge.dropsData(state, username: store.username)
-                    store.update { SyncMerge.resetForNewEpoch($0, epoch: $0.epoch, username: store.username) }
-                    if dropped { onScopeDropped?() }
+                    handleServerLoss(state, epoch: state.epoch)
                     return false
                 }
                 resets += 1
@@ -448,6 +503,16 @@ final class SyncEngine {
         return true
     }
 
+    // Re-marks the scope's records for upload after the server lost data, or drops them when the
+    // user ID was reused by someone else.
+    //
+    // 服务端丢失数据后重新标记作用域内的记录以便上传; 用户 ID 被他人复用时则丢弃这些记录.
+    private func handleServerLoss(_ state: SyncState, epoch: String) {
+        let dropped = SyncMerge.dropsData(state, username: store.username)
+        store.update { SyncMerge.resetForServerLoss($0, epoch: epoch, username: store.username) }
+        if dropped { onScopeDropped?() }
+    }
+
     private func cycle() async {
         // A cycle runs in its own task or as a rerun, so it may begin after stop().
         //
@@ -467,19 +532,5 @@ final class SyncEngine {
         } catch {
             handle(error, started)
         }
-    }
-}
-
-/// Runs a body at most once; used to resume a continuation from two racing tasks.
-///
-/// 最多执行一次; 用于在两个竞争的任务中只恢复一次 continuation.
-@MainActor
-private final class SyncOnce {
-    private var done = false
-
-    func run(_ body: () -> Void) {
-        guard !done else { return }
-        done = true
-        body()
     }
 }

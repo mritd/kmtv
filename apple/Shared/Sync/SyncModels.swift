@@ -410,6 +410,10 @@ struct SyncRecordWire: Decodable, Equatable, Sendable {
     let key: String
     let payload: SyncPayload?
     let eventTimeMs: Int64
+    // Wire fields mirror the web types (web/src/sync/types.ts) and the server contract; the merge
+    // does not read every one of them.
+    //
+    // 线上字段与 web 类型 (web/src/sync/types.ts) 及服务端约定保持一致; 合并逻辑并不读取其中每一个.
     let deleted: Bool
     let rev: Int64
 
@@ -444,6 +448,10 @@ struct SyncRecordWire: Decodable, Equatable, Sendable {
 /// 服务端返回的清空时间点.
 struct SyncClearWire: Decodable, Equatable, Sendable {
     let kind: SyncKind?
+    // Wire fields mirror the web types (web/src/sync/types.ts) and the server contract; the merge
+    // does not read every one of them.
+    //
+    // 线上字段与 web 类型 (web/src/sync/types.ts) 及服务端约定保持一致; 合并逻辑并不读取其中每一个.
     let clearedAtMs: Int64
     let rev: Int64
 
@@ -484,6 +492,10 @@ struct SyncResultWire: Decodable, Equatable, Sendable {
     let index: Int
     let status: Status
     let record: SyncRecordWire?
+    // Wire fields mirror the web types (web/src/sync/types.ts) and the server contract; the merge
+    // does not read every one of them.
+    //
+    // 线上字段与 web 类型 (web/src/sync/types.ts) 及服务端约定保持一致; 合并逻辑并不读取其中每一个.
     let clear: SyncClearWire?
     let reason: String?
 
