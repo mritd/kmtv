@@ -3,6 +3,12 @@
 Bugs worth remembering, newest first: what broke, why, how it was fixed, and how to avoid it again.
 Keep entries short; remove entries that no longer teach anything.
 
+### 2026-10-07 - Categories "All" showed only six titles
+- **Issue**: Movie, sub-category "All", region "All" listed six titles while "Hot" listed hundreds.
+- **Root Cause**: With no filter at all, Douban's `rexxar/api/v2/movie/recommend` answers a curated list of eight cards (six movies, a playlist, an ad); any filter, or `sort=U`, returns the full catalog (`total` 500).
+- **Solution**: `GetRecommendByFilters` adds `sort=U` when `selected_categories` is empty; covered by `TestDoubanGetRecommendByFiltersSortsUnfilteredRequests`.
+- **Prevention**: Check Douban's `total` when a list looks short before blaming the client.
+
 ### 2026-10-07 - Web avatars 401 when anonymous access is off; avatars never refreshed after upload
 - **Issue**: Web drew avatars with `<img src="/api/v1/avatar/...">`, which 401s once `anonymous_access` is off; avatar URLs never changed, so browsers (max-age 3600) and the iOS view kept showing a replaced avatar.
 - **Root Cause**: The avatar route is protected and `middleware.Auth` reads only the `Authorization` header, which an `<img>` cannot send; the URL was `/api/v1/avatar/<username>` for every image a user ever had.

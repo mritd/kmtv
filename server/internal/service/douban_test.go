@@ -190,6 +190,26 @@ func TestDoubanGetRecommendByFilters(t *testing.T) {
 	}
 }
 
+func TestDoubanGetRecommendByFiltersSortsUnfilteredRequests(t *testing.T) {
+	ds := NewDoubanService(newServiceTestStore(t))
+	var sorts []string
+	ds.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		sorts = append(sorts, req.URL.Query().Get("sort"))
+		return stringResponse(http.StatusOK, `{"items": []}`), nil
+	})}
+
+	if _, err := ds.GetRecommendByFilters(context.Background(), "movie", "", "", "", 0, 20); err != nil {
+		t.Fatalf("unfiltered GetRecommendByFilters error: %v", err)
+	}
+	if _, err := ds.GetRecommendByFilters(context.Background(), "movie", "", "", "华语", 0, 20); err != nil {
+		t.Fatalf("filtered GetRecommendByFilters error: %v", err)
+	}
+	// Without any filter Douban answers a short curated list unless a sort is given.
+	if len(sorts) != 2 || sorts[0] != "U" || sorts[1] != "" {
+		t.Fatalf("sort params = %q, want [U, \"\"]", sorts)
+	}
+}
+
 func TestDoubanGetSubjectDescription(t *testing.T) {
 	ds := NewDoubanService(newServiceTestStore(t))
 	ds.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
