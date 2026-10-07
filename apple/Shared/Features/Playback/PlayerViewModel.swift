@@ -6,6 +6,7 @@ import os
 enum PlayerError: LocalizedError {
     case missingEpisode
     case invalidPlaybackURL(String)
+    case allSourcesFailed
 
     var errorDescription: String? {
         switch self {
@@ -13,6 +14,8 @@ enum PlayerError: LocalizedError {
             return String(localized: "No playable episode")
         case .invalidPlaybackURL:
             return String(localized: "Invalid playback URL")
+        case .allSourcesFailed:
+            return String(localized: "All sources failed")
         }
     }
 }
@@ -21,6 +24,15 @@ enum PlayerError: LocalizedError {
 @MainActor
 final class PlayerViewModel {
     private let logger = Logger(subsystem: "com.mritd.kmtv", category: "playback")
+
+    /// What the page can show: still loading, the loaded detail, or a failure once opening gave up.
+    ///
+    /// 页面可展示的状态: 仍在加载, 详情已加载, 或打开流程放弃后的失败.
+    enum LoadState: Equatable {
+        case loading
+        case loaded
+        case failed(String)
+    }
 
     // Data.
     //
@@ -37,10 +49,24 @@ final class PlayerViewModel {
     var isLoadingDetail = false
     var error: String?
 
+    /// The page state both platforms render; a failure appears only after `open` finished without a
+    /// detail, so a fallback still in progress shows as loading.
+    ///
+    /// 两个平台共同渲染的页面状态; 只有 `open` 结束且仍没有详情时才显示失败, 因此仍在进行的回退显示为加载中.
+    var loadState: LoadState {
+        if detail != nil { return .loaded }
+        if openState == .opened { return .failed(error ?? PlayerError.allSourcesFailed.localizedDescription) }
+        return .loading
+    }
+
     // Playback UI state (updated by time observer).
     //
     // 播放 UI 状态, 由时间观察器持续更新.
-    var currentTime: TimeInterval = 0
+
+    /// The time the UI shows: the playhead, or the scrub position while the user drags.
+    ///
+    /// UI 显示的时间: 播放头位置, 用户拖动时则为拖动位置.
+    private(set) var currentTime: TimeInterval = 0
     var duration: TimeInterval = 0
     var playbackRate: Float = 1.0
 
@@ -70,7 +96,11 @@ final class PlayerViewModel {
     var bufferedAheadSeconds: TimeInterval = 0
 
     var isPlaying: Bool = false
-    var isSeeking: Bool = false
+    /// Whether a seek or a scrub owns the time display; changed only through the seek and scrub
+    /// methods, so no path can leave it set without a way to clear it.
+    ///
+    /// seek 或拖动是否正占用时间显示; 只能通过 seek 与拖动相关方法修改, 因此不会有路径把它置位后无法清除.
+    private(set) var isSeeking: Bool = false
     var isBuffering: Bool = false
 
     /// Observable player handle used by SwiftUI to mount the video layer.
@@ -87,7 +117,7 @@ final class PlayerViewModel {
     // Progress tracking.
     //
     // 播放进度跟踪.
-    private var lastSaveTime: TimeInterval = 0
+    private var saveThrottle = PlaybackProgressPolicy.SaveThrottle()
     private var skipOutroTriggered = false
     // The last checkpoint written to the store. A paused player that reports the same position again
     // must not give old progress a newer event time.
@@ -100,18 +130,36 @@ final class PlayerViewModel {
     // 最后一集结束并写入最终检查点后置位; 已结束 item 之后的检查点不能用未看完的记录覆盖它.
     // seek 或开始新 item 时清除.
     private var endCheckpointWritten = false
-    // Set from the moment the selection starts to change until `startPlayer` attaches the new item.
-    // The outgoing AVPlayer item keeps reporting in that gap, and its time must not be saved under
-    // the new source, line, or episode.
+    // Generation of the coordinator's current item, bumped for every item `startPlayer` attaches.
+    // Every coordinator callback carries the generation it was registered for, so a callback queued
+    // by an item that has since been replaced is recognized in the same turn it arrives. Readable
+    // for tests.
     //
-    // 从选择开始变化到 `startPlayer` 挂载新 item 之间置位. 这段时间旧的 AVPlayer item 仍在上报,
-    // 其时间不能被保存到新的来源, 线路或分集下.
-    private var detachedFromItem = false
+    // 协调器当前 item 的代号, `startPlayer` 每挂载一个 item 都会递增. 每个协调器回调都携带注册时的
+    // 代号, 因此已被替换的 item 排队的回调在到达的同一轮次即可被识别. 只读公开, 供测试使用.
+    private(set) var itemGeneration = 0
+    // The generation whose reports may change the selection or write progress; nil from the moment
+    // the selection starts to change until `startPlayer` attaches the next item, because the outgoing
+    // item keeps reporting in that gap. Before any item exists, direct calls count as the live item.
+    //
+    // 其上报可以改变选择或写入进度的 item 代号; 从选择开始变化到 `startPlayer` 挂载下一个 item 之间为
+    // nil, 因为旧 item 在这段时间仍在上报. 尚无任何 item 时, 直接调用视为来自当前 item.
+    private var liveItem: Int? = 0
     // Bumped for every playback request; a URL reply that is not for the latest one is stale and
     // never attaches an item.
     //
     // 每次播放请求都会递增; 不属于最新请求的地址响应已过期, 不会挂载 item.
     private var playbackRequest = 0
+    // The request whose URL reply has not arrived yet, if any.
+    //
+    // 尚未收到地址响应的播放请求 (如有).
+    private var pendingPlaybackRequest: Int?
+    private var playbackTask: Task<Void, Never>?
+    // Bumped for every source switch; a detail reply for an older switch never commits.
+    //
+    // 每次切换视频源都会递增; 属于较早切换的详情响应永远不会提交.
+    private var switchGeneration = 0
+    private var switchTask: Task<Void, Never>?
     // Set by `prepareResume` when no record exists under the navigation title; the first
     // `loadDetail` then looks the record up under the detail title that checkpoints write under.
     //
@@ -119,15 +167,40 @@ final class PlayerViewModel {
     // 详情标题查找记录.
     private var resumeByDetailTitle = false
 
+    private enum OpenState { case idle, opening, opened }
+    private var openState = OpenState.idle
+
+    // Lifecycle of the hosting page (iOS): while hidden no item attaches, and the flags say what to
+    // do on the next `appear()`.
+    //
+    // 宿主页面的生命周期 (iOS): 隐藏期间不挂载任何 item, 这些标志决定下一次 `appear()` 要做什么.
+    private var isHidden = false
+    /// Whether playback was running when the page disappeared, so the next appear resumes it.
+    ///
+    /// 页面消失时是否正在播放, 下一次出现时据此恢复播放.
+    private(set) var resumesOnAppear = false
+    private var restartOnAppear = false
+
+    // Scrub state: the playhead the item last reported, kept while a drag moves `currentTime`, so a
+    // cancelled drag can put the label back.
+    //
+    // 拖动状态: item 最近一次报告的播放头, 在拖动改变 `currentTime` 时保留, 以便取消拖动时恢复显示.
+    private var isScrubbing = false
+    private var reportedTime: TimeInterval = 0
+
     private let apiClient: any PlaybackDetailAPIProtocol
-    private let modelContext: ModelContext
-	private let serverURL: String
     private let syncStore: SyncStore?
     private let syncEngine: SyncEngine?
     private let playerSyncWait: Duration
     private let videoTitle: String
+    /// The video ID the page was opened with; `open` uses it when the source list has no entry for
+    /// the opening source.
+    ///
+    /// 打开页面时传入的视频 ID; 来源列表中没有打开时的来源条目时, `open` 使用它.
+    private let initialVideoID: String
     private let coverHint: String
     private let progressStore: PlaybackProgressStore
+    private let now: @MainActor () -> ContinuousClock.Instant
     /// Downloads the player may use instead of streaming.
     ///
     /// 播放器可以替代流媒体使用的下载内容.
@@ -155,18 +228,20 @@ final class PlayerViewModel {
          sources: [SourceResult], sourceKey: String, videoId: String, title: String,
          coverHint: String = "", initialEpisodeIndex: Int? = nil, playerSyncWait: Duration = .milliseconds(1500),
          localEpisodes: (any LocalEpisodeProviding)? = nil,
-         localLoadTimeout: Duration = PlaybackCoordinator.localLoadTimeout) {
+         localLoadTimeout: Duration = PlaybackCoordinator.localLoadTimeout,
+         now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }) {
         self.localEpisodes = localEpisodes
         self.localLoadTimeout = localLoadTimeout
         self.apiClient = apiClient
-        self.modelContext = modelContext
-		self.serverURL = serverURL
         self.syncStore = syncStore
         self.syncEngine = syncEngine
         self.playerSyncWait = playerSyncWait
         self.videoTitle = title
+        self.initialVideoID = videoId
         self.coverHint = coverHint
-		self.progressStore = PlaybackProgressStore(modelContext: modelContext, serverURL: serverURL, syncStore: syncStore, title: title)
+        self.now = now
+        self.progressStore = PlaybackProgressStore(modelContext: modelContext, serverURL: serverURL,
+                                                   syncStore: syncStore, title: title)
         self.sources = sources
         self.currentSourceKey = sourceKey
         self.currentEpisodeIndex = max(0, initialEpisodeIndex ?? 0)
@@ -202,15 +277,60 @@ final class PlayerViewModel {
         currentEpisode?.name ?? ""
     }
 
-	var currentSourceName: String {
+    var currentSourceName: String {
         selection.sourceName()
-	}
+    }
 
-	var currentVideoID: String {
-		selection.sourceVideoID()
-	}
+    var currentVideoID: String {
+        selection.sourceVideoID()
+    }
 
-	// MARK: - Load
+    // MARK: - Load
+
+    /// Opens the page: waits briefly for a sync and picks the resume episode, loads the detail, and
+    /// falls back to another line or source when that fails. With `autoplay`, playback starts at the
+    /// end. Runs once; a call while it runs or after it finished does nothing, and an open whose task
+    /// was cancelled runs again on the next call.
+    ///
+    /// 打开页面: 短暂等待同步并选出续播分集, 加载详情, 失败时回退到其他线路或视频源. `autoplay` 为 true
+    /// 时最后开始播放. 只执行一次; 执行中或完成后的调用不做任何事, 任务被取消的打开会在下次调用时重新执行.
+    func open(autoplay: Bool) async {
+        guard openState == .idle else { return }
+        openState = .opening
+        // A source the user picks while this runs owns the selection from then on.
+        //
+        // 执行期间用户选择的视频源从此接管当前选择.
+        let generation = switchGeneration
+        await prepareResume()
+        guard !Task.isCancelled else {
+            openState = .idle
+            return
+        }
+        guard generation == switchGeneration else { return await yieldOpenToSwitch() }
+        let videoID = currentVideoID.isEmpty ? initialVideoID : currentVideoID
+        let ok = await loadDetail(sourceKey: currentSourceKey, videoId: videoID, generation: generation)
+        guard !Task.isCancelled else {
+            openState = .idle
+            return
+        }
+        guard generation == switchGeneration else { return await yieldOpenToSwitch() }
+        if ok {
+            if autoplay { startPlayback() }
+        } else {
+            await recoverFromFailure(autoplay: autoplay)?.value
+        }
+        openState = .opened
+    }
+
+    /// Ends an open that a user's source switch overtook: the switch already loads, commits, and plays
+    /// its source, so the open only waits for it, which keeps a switch in flight from reading as a failure.
+    ///
+    /// 结束被用户切换视频源抢先的打开流程: 切换本身会加载, 提交并播放所选视频源, 因此打开流程只需等待它
+    /// 完成, 避免切换进行中时页面显示为失败.
+    private func yieldOpenToSwitch() async {
+        await switchTask?.value
+        openState = .opened
+    }
 
     /// Waits briefly for a sync, then lets an unfinished watch record pick the line and episode,
     /// whichever source it was saved from. The open source stays; `loadDetail` clamps the indices,
@@ -221,9 +341,14 @@ final class PlayerViewModel {
     /// 保持不变; `loadDetail` 会钳制索引, `startTime` 仅在来源, 视频, 线路和分集都一致时复用保存的进度.
     /// 导航标题下没有记录时, `loadDetail` 会改用详情标题再查一次.
     func prepareResume() async {
+        let generation = switchGeneration
         if let syncEngine {
             await syncEngine.requestSync(.player, waitingAtMost: playerSyncWait)
         }
+        // A source picked during the wait chose its own line and episode.
+        //
+        // 等待期间选择的视频源已自行决定线路和分集.
+        guard generation == switchGeneration else { return }
         let record = syncStore?.watch(title: videoTitle)
         resumeByDetailTitle = syncStore != nil && record == nil
         guard let item = record, !item.completed else { return }
@@ -231,13 +356,20 @@ final class PlayerViewModel {
         currentEpisodeIndex = max(0, item.episodeIndex)
     }
 
-	func loadDetail(sourceKey: String, videoId: String) async -> Bool {
+    /// Loads and commits the detail of `sourceKey`. With a `generation`, a reply that arrives after a
+    /// newer source switch is dropped and reported as not loaded.
+    ///
+    /// 加载并提交 `sourceKey` 的详情. 传入 `generation` 时, 晚于更新的视频源切换到达的响应会被丢弃,
+    /// 并视为未加载.
+    func loadDetail(sourceKey: String, videoId: String, generation: Int? = nil) async -> Bool {
         isLoadingDetail = true
         defer { isLoadingDetail = false }
         do {
             let d = try await apiClient.detail(sourceKey: sourceKey, videoId: videoId)
+            if let generation, generation != switchGeneration { return false }
             detail = detailApplyingCoverHint(d)
             currentSourceKey = sourceKey
+            error = nil
 
             if !sources.contains(where: { $0.sourceKey == sourceKey }) {
                 sources.insert(SourceResult(
@@ -248,8 +380,9 @@ final class PlayerViewModel {
             applyResumeByDetailTitle()
             clampCurrentEpisodeIndex()
 
-            return !d.episodes.isEmpty && !(d.episodes.first?.isEmpty ?? true)
+            return Self.isPlayable(d)
         } catch {
+            if let generation, generation != switchGeneration { return false }
             self.error = error.localizedDescription
             return false
         }
@@ -257,10 +390,19 @@ final class PlayerViewModel {
 
     // MARK: - Playback
 
+    /// Starts playing the current selection in a stored task; a newer request or `close()` cancels
+    /// it. While the page is hidden nothing attaches: the request waits for the next `appear()`.
+    ///
+    /// 在保存的任务中开始播放当前选择; 更新的请求或 `close()` 会取消它. 页面隐藏期间不会挂载任何 item:
+    /// 请求等到下一次 `appear()` 再执行.
     func startPlayback() {
-        Task {
-            await startPlaybackAsync()
+        guard !isHidden else {
+            restartOnAppear = true
+            return
         }
+        playbackTask?.cancel()
+        let id = beginPlaybackRequest()
+        playbackTask = Task { await self.play(request: id) }
     }
 
     /// The show key downloads are filed under: the detail title, as when enqueueing.
@@ -269,17 +411,32 @@ final class PlayerViewModel {
     private var localShowKey: String { normalizeSyncKey(detail?.title ?? videoTitle) }
 
     func startPlaybackAsync() async {
+        await play(request: beginPlaybackRequest())
+    }
+
+    private func beginPlaybackRequest() -> Int {
+        playbackRequest += 1
+        pendingPlaybackRequest = playbackRequest
+        return playbackRequest
+    }
+
+    /// Whether `id` is still the latest playback request and its task was not cancelled.
+    ///
+    /// `id` 是否仍是最新的播放请求, 且其任务未被取消.
+    private func isCurrentRequest(_ id: Int) -> Bool {
+        id == playbackRequest && !Task.isCancelled
+    }
+
+    private func play(request id: Int) async {
         do {
             logger.info(
                 "startPlaybackAsync source=\(self.currentSourceKey, privacy: .public) line=\(self.currentLineIndex, privacy: .public) episode=\(self.currentEpisodeIndex, privacy: .public)"
             )
-            playbackRequest += 1
-            let id = playbackRequest
             if !skipLocalCopy, let localEpisodes,
                let local = await localEpisodes.localPlaybackURL(showKey: localShowKey, sourceKey: currentSourceKey,
                                                                 videoId: currentVideoID,
                                                                 episodeIndex: currentEpisodeIndex) {
-                guard id == playbackRequest else { return }
+                guard isCurrentRequest(id) else { return }
                 isPlayingLocalCopy = true
                 startPlayer(with: local, allowsExternalPlayback: false, loadTimeout: localLoadTimeout)
                 return
@@ -290,9 +447,11 @@ final class PlayerViewModel {
             // A newer switch took over while this reply was in flight.
             //
             // 等待响应期间已有更新的切换接管.
-            guard id == playbackRequest else { return }
+            guard isCurrentRequest(id) else { return }
             startPlayer(with: url)
         } catch {
+            guard isCurrentRequest(id) else { return }
+            pendingPlaybackRequest = nil
             logger.error("startPlaybackAsync failed error=\(error.localizedDescription, privacy: .public)")
             self.error = error.localizedDescription
         }
@@ -321,9 +480,16 @@ final class PlayerViewModel {
     }
 
     private func startPlayer(with url: URL, allowsExternalPlayback: Bool = true, loadTimeout: Duration? = nil) {
+        pendingPlaybackRequest = nil
         skipOutroTriggered = false
         endCheckpointWritten = false
-        detachedFromItem = false
+        itemGeneration += 1
+        let generation = itemGeneration
+        liveItem = generation
+        // A new item is a recovery; an error from an earlier attempt no longer applies.
+        //
+        // 新 item 意味着已恢复; 之前尝试留下的错误不再适用.
+        error = nil
         // Show loading feedback while AVPlayer resolves playlists and media segments.
         //
         // AVPlayer 解析播放列表和媒体片段期间先显示加载反馈.
@@ -331,11 +497,11 @@ final class PlayerViewModel {
         isBuffering = true
         resetPlaybackUIState()
         let startTime = startTimeForCurrentSelection()
-        // The new item reports from its own start; the outgoing item's last save time must not make
-        // its first tick write at once.
+        // The new item reports from its own start; the outgoing item's last save must not make its
+        // first tick write at once.
         //
-        // 新 item 从自己的起点开始上报; 旧 item 的最近保存时间不能让它的第一次时间更新立刻写入.
-        lastSaveTime = startTime
+        // 新 item 从自己的起点开始上报; 旧 item 的最近一次保存不能让它的第一次时间更新立刻写入.
+        saveThrottle.restart(at: now())
         logger.info(
             "startPlayer url=\(PlaybackCoordinator.loggableURL(url), privacy: .public) startTime=\(startTime, privacy: .public) rate=\(self.playbackRate, privacy: .public) hadPlayer=\(self.player != nil, privacy: .public)"
         )
@@ -346,22 +512,39 @@ final class PlayerViewModel {
             allowsExternalPlayback: allowsExternalPlayback,
             loadTimeout: loadTimeout,
             onTime: { [weak self] current, total in
-                self?.onTimeUpdate(current: current, total: total)
+                self?.onTimeUpdate(current: current, total: total, item: generation)
             },
             onBuffer: { [weak self] sample in
-                self?.onBufferUpdate(sample)
+                self?.onBufferUpdate(sample, item: generation)
             },
             onEnd: { [weak self] in
-                self?.handleItemEnded()
+                self?.handleItemEnded(item: generation)
             },
             onError: { [weak self] message in
-                Task { await self?.handleItemError(message) }
+                self?.handleItemError(message, item: generation)
             }
         )
         player = coordinator.player
         logger.info(
             "startPlayer ready hasPlayer=\(self.player != nil, privacy: .public) hasCurrentItem=\(self.player?.currentItem != nil, privacy: .public) timeControlStatus=\(PlaybackCoordinator.describeTimeControlStatus(self.player?.timeControlStatus), privacy: .public)"
         )
+    }
+
+    /// Whether a report tagged with `item` may change the selection or write progress. Untagged
+    /// reports (direct calls) speak for the live item.
+    ///
+    /// 带有 `item` 标记的上报是否可以改变选择或写入进度. 未标记的上报 (直接调用) 代表当前 item.
+    private func isLive(_ item: Int?) -> Bool {
+        guard let liveItem else { return false }
+        return item.map { $0 == liveItem } ?? true
+    }
+
+    /// Whether a report tagged with `item` still describes the coordinator's current item, live or
+    /// outgoing.
+    ///
+    /// 带有 `item` 标记的上报是否仍描述协调器的当前 item, 无论它是当前 item 还是正在离开的 item.
+    private func isCurrentItem(_ item: Int?) -> Bool {
+        item.map { $0 == itemGeneration } ?? true
     }
 
     /// Where the new item starts. The watch record is read by the detail title, like the write path
@@ -379,21 +562,23 @@ final class PlayerViewModel {
         )
     }
 
-    /// The player item reported its end. An outgoing item that ends while the selection is changing
-    /// must not move the new selection on.
+    /// The player item reported its end. An outgoing or replaced item's end must not move the
+    /// selection on.
     ///
-    /// 播放器 item 报告结束. 选择正在变化时, 旧 item 的结束不能让新的选择继续往下走.
-    func handleItemEnded() {
-        guard !detachedFromItem else { return }
+    /// 播放器 item 报告结束. 正在离开或已被替换的 item 的结束不能让选择继续往下走.
+    func handleItemEnded(item: Int? = nil) {
+        guard isLive(item) else { return }
         handlePlaybackEnded()
     }
 
-    /// The player item reported a failure. Ignored while the selection is changing, because the
-    /// outgoing item's failure says nothing about the item that is about to attach.
+    /// The player item reported a failure. Decided in the turn the report arrives in: a report
+    /// from an outgoing or replaced item says nothing about the item that is about to attach or
+    /// already attached, so it is ignored.
     ///
-    /// 播放器 item 报告失败. 选择正在变化时忽略, 因为旧 item 的失败与即将挂载的 item 无关.
-    func handleItemError(_ message: String?) async {
-        guard !detachedFromItem else { return }
+    /// 播放器 item 报告失败. 在上报到达的同一轮次内做出决定: 来自正在离开或已被替换的 item 的上报
+    /// 与即将挂载或已挂载的 item 无关, 因此忽略.
+    func handleItemError(_ message: String?, item: Int? = nil) {
+        guard isLive(item) else { return }
         if isPlayingLocalCopy, let localEpisodes {
             // A failed local copy falls back to streaming the same selection, not to the next line.
             // The manager deletes the copy only when its files are missing.
@@ -409,7 +594,7 @@ final class PlayerViewModel {
         }
         if let message { error = message }
         isBuffering = false
-        await handlePlaybackError()
+        recoverFromFailure(autoplay: true)
     }
 
     // MARK: - Time Updates
@@ -428,6 +613,7 @@ final class PlayerViewModel {
     /// 会按上一集的时长换算 — 进度条宽度错误, 旁边的播放时间同样属于刚离开的那一集.
     func resetPlaybackUIState() {
         currentTime = 0
+        reportedTime = 0
         duration = 0
         bufferedFraction = 0
         bufferedAheadSeconds = 0
@@ -437,6 +623,7 @@ final class PlayerViewModel {
         // 未能完成的 seek — item 在其进行中被替换 —
         // 否则会让播放时间与缓冲进度条一并冻结, 一直延续到新剧集.
         isSeeking = false
+        isScrubbing = false
     }
 
     /// Converts a buffered timeline position into the fraction the progress bar draws.
@@ -448,7 +635,8 @@ final class PlayerViewModel {
     ///
     /// 首次时间更新到达前 `duration` 为 0, 直播流则报告不确定的时长,
     /// 两者都必须收敛为空进度条, 而不是一个 NaN 宽度.
-    func onBufferUpdate(_ sample: BufferSample) {
+    func onBufferUpdate(_ sample: BufferSample, item: Int? = nil) {
+        guard isCurrentItem(item) else { return }
         // A sample taken before a seek lands still describes the old playhead. Seeking
         // backwards would then draw the bar far to the right of the thumb across media that
         // is not in fact continuously playable from there.
@@ -510,7 +698,12 @@ final class PlayerViewModel {
         return Int(secondsAhead / 30)
     }
 
-    func onTimeUpdate(current: TimeInterval, total: TimeInterval) {
+    func onTimeUpdate(current: TimeInterval, total: TimeInterval, item: Int? = nil) {
+        // A tick queued by an item that has since been replaced describes nothing on screen.
+        //
+        // 已被替换的 item 排队的时间更新与屏幕上的内容无关.
+        guard isCurrentItem(item) else { return }
+        reportedTime = current
         // Don't overwrite currentTime while user is dragging the slider.
         //
         // 用户拖动进度条时不覆盖 currentTime, 避免 UI 跳动.
@@ -520,26 +713,29 @@ final class PlayerViewModel {
         duration = total
         refreshTransportState(player?.timeControlStatus)
 
-        // Scrubbing back out of the finished zone after the last episode ended is a rewatch; record it.
-        // Late ticks near the end stay blocked so they cannot overwrite the finished record.
+        // Scrubbing back out of the finished zone after the last episode ended is a rewatch; record it
+        // at once. Late ticks near the end stay blocked so they cannot overwrite the finished record.
         //
-        // 最后一集结束后拖回片尾区之外属于重看, 需要记录; 片尾附近迟到的时间更新仍被拦截,
+        // 最后一集结束后拖回片尾区之外属于重看, 立即记录; 片尾附近迟到的时间更新仍被拦截,
         // 以免覆盖已看完的记录.
-        if endCheckpointWritten && total.isFinite && !playbackCompleted(current: current, duration: total) {
+        if endCheckpointWritten && total.isFinite
+            && !PlaybackProgressPolicy.isCompleted(current: current, duration: total) {
             endCheckpointWritten = false
+            saveThrottle.reset()
         }
 
-        if abs(current - lastSaveTime) >= 5 {
-            lastSaveTime = current
+        // Throttled by wall clock, not by position: scrubbing moves the position many times a
+        // second and would otherwise save on almost every tick.
+        //
+        // 按墙钟而非位置节流: 拖动进度时位置每秒变化多次, 否则几乎每次时间更新都会保存.
+        if isLive(item), current.isFinite, total.isFinite, saveThrottle.shouldSave(at: now()) {
             saveProgress(current: current, duration: total)
         }
 
-        if !skipOutroTriggered && !detachedFromItem && skipOutroSeconds > 0 && total > 0 {
-            let remaining = total - current
-            if remaining <= TimeInterval(skipOutroSeconds) && remaining > 0 {
-                skipOutroTriggered = true
-                playNextEpisode()
-            }
+        if !skipOutroTriggered, isLive(item),
+           PlaybackProgressPolicy.shouldSkipOutro(current: current, duration: total, skipOutroSeconds: skipOutroSeconds) {
+            skipOutroTriggered = true
+            playNextEpisode()
         }
     }
 
@@ -577,7 +773,7 @@ final class PlayerViewModel {
         // A non-finite time or duration never becomes a checkpoint.
         //
         // 非有限的时间或时长不会成为检查点.
-        guard current.isFinite, duration.isFinite, current > 0, !endCheckpointWritten, !detachedFromItem else { return }
+        guard current.isFinite, duration.isFinite, current > 0, !endCheckpointWritten, liveItem != nil else { return }
         guard let detail else { return }
         guard let ep = currentEpisode else { return }
         let videoId = selection.sourceVideoID()
@@ -585,7 +781,7 @@ final class PlayerViewModel {
         guard checkpoint != lastSavedCheckpoint else { return }
         lastSavedCheckpoint = checkpoint
         let completed = finished || (currentEpisodeIndex == episodes.count - 1
-            && playbackCompleted(current: current, duration: duration))
+            && PlaybackProgressPolicy.isCompleted(current: current, duration: duration))
         progressStore.saveProgress(
             detail: detail,
             sourceKey: currentSourceKey,
@@ -625,44 +821,73 @@ final class PlayerViewModel {
     // MARK: - Switching
 
     /// Saves and pushes the outgoing position, then stops the outgoing item from writing progress
-    /// until the next item is attached.
+    /// until the next item is attached. A URL reply still in flight belongs to the old selection, so
+    /// it is dropped.
     ///
-    /// 保存并推送当前位置, 然后在下一个 item 挂载之前禁止旧 item 写入进度.
+    /// 保存并推送当前位置, 然后在下一个 item 挂载之前禁止旧 item 写入进度. 仍在途中的地址响应属于旧的
+    /// 选择, 因此被丢弃.
     private func detachOutgoingItem() {
         checkpoint()
-        detachedFromItem = true
+        liveItem = nil
         isPlaying = false
+        cancelPendingPlayback()
     }
 
-    func switchSource(_ sourceKey: String) async {
-        // Save and push the outgoing position before the selection changes.
-        //
-        // 在切换之前保存并推送当前位置.
-        detachOutgoingItem()
-        let prevEpName = currentEpisode?.name ?? ""
+    private func cancelPendingPlayback() {
+        playbackRequest += 1
+        pendingPlaybackRequest = nil
+        playbackTask?.cancel()
+        playbackTask = nil
+    }
 
-        currentSourceKey = sourceKey
-        currentLineIndex = 0
+    /// Switches to another source in a stored task and returns it. A newer switch or `close()`
+    /// supersedes it. The new detail is fetched first; the source, line, episodes, and episode then
+    /// change together in one step, so nothing ever pairs the old source's episodes with the new
+    /// source. With `autoplay`, playback starts once the switch committed.
+    ///
+    /// 在保存的任务中切换到另一个视频源并返回该任务. 更新的切换或 `close()` 会使其失效. 先拉取新的详情,
+    /// 然后在同一步内一起修改视频源, 线路, 剧集列表与当前分集, 因此旧视频源的剧集永远不会与新视频源
+    /// 配对. `autoplay` 为 true 时, 切换提交后开始播放.
+    @discardableResult
+    func selectSource(_ sourceKey: String, autoplay: Bool) -> Task<Void, Never> {
+        switchTask?.cancel()
+        switchGeneration += 1
+        let generation = switchGeneration
+        let task = Task { await self.performSourceSwitch(to: sourceKey, autoplay: autoplay, generation: generation) }
+        switchTask = task
+        return task
+    }
 
+    /// `selectSource(_:autoplay:)`, awaiting the switch.
+    ///
+    /// 等待切换完成的 `selectSource(_:autoplay:)`.
+    func switchSource(_ sourceKey: String, autoplay: Bool) async {
+        await selectSource(sourceKey, autoplay: autoplay).value
+    }
+
+    private func performSourceSwitch(to sourceKey: String, autoplay: Bool, generation: Int) async {
         guard let source = sources.first(where: { $0.sourceKey == sourceKey }) else { return }
-
-        // Only fetch episodes for the new source, preserve existing detail info.
+        let fetched = await fetchPlayableDetail(sourceKey: sourceKey, videoId: source.videoId)
+        // A newer switch, or `close()`, took over while this reply was in flight.
         //
-        // 切源时只拉取新源剧集, 保留当前影片元数据.
-        do {
-            let d = try await apiClient.detail(sourceKey: sourceKey, videoId: source.videoId)
-            applyDetail(d)
-        } catch {
-            await autoFallbackSource(failedKey: sourceKey)
-            return
+        // 等待响应期间已有更新的切换或 `close()` 接管.
+        guard generation == switchGeneration else { return }
+        if let fetched {
+            // Only the episodes come from the new source; the movie metadata stays.
+            //
+            // 只有剧集来自新视频源; 影片元数据保持不变.
+            let prevEpName = currentEpisode?.name ?? ""
+            detachOutgoingItem()
+            currentSourceKey = sourceKey
+            currentLineIndex = 0
+            applyDetail(fetched)
+            matchEpisode(prevName: prevEpName)
+            error = nil
+        } else {
+            removeSource(sourceKey)
+            guard await fallBackToAnotherSource(generation: generation) else { return }
         }
-
-        guard hasPlayableDetail() else {
-            await autoFallbackSource(failedKey: sourceKey)
-            return
-        }
-
-        matchEpisode(prevName: prevEpName)
+        if autoplay { startPlayback() }
     }
 
     func switchLine(_ index: Int) {
@@ -694,49 +919,87 @@ final class PlayerViewModel {
 
     // MARK: - Auto-fallback
 
-    /// Handles failed playback by trying another CDN line first, then another source.
+    /// Handles failed playback by trying another CDN line first, then another source, and waits
+    /// for a source switch it starts.
     ///
-    /// 处理播放失败: 优先尝试下一条 CDN 线路, 再尝试下一个视频源.
+    /// 处理播放失败: 优先尝试下一条 CDN 线路, 再尝试下一个视频源, 并等待其发起的视频源切换完成.
     func handlePlaybackError() async {
+        await recoverFromFailure(autoplay: true)?.value
+    }
+
+    /// Decides the fallback synchronously: finished if the last episode was past the finished
+    /// threshold, else the next line, else the next source (whose switch task it returns), else the
+    /// all-sources-failed error. With `autoplay`, the recovered selection starts playing.
+    ///
+    /// 同步决定回退方式: 最后一集已越过看完阈值则视为结束, 否则下一条线路, 否则下一个视频源 (返回其切换
+    /// 任务), 否则报告所有视频源均失败. `autoplay` 为 true 时, 恢复后的选择会开始播放.
+    @discardableResult
+    private func recoverFromFailure(autoplay: Bool) -> Task<Void, Never>? {
         // An error on the last episode at or past the finished threshold counts as its end, so the
         // fallback does not restart it and overwrite the finished record.
         //
         // 最后一集在已看完阈值之后出错视为播放结束, 避免回退逻辑重新播放并覆盖已看完的记录.
-        if currentEpisodeIndex == episodes.count - 1, playbackCompleted(current: currentTime, duration: duration) {
+        if currentEpisodeIndex == episodes.count - 1,
+           PlaybackProgressPolicy.isCompleted(current: currentTime, duration: duration) {
             handlePlaybackEnded()
-            return
+            return nil
         }
         let nextLine = currentLineIndex + 1
         if nextLine < allLines.count {
             detachOutgoingItem()
             currentLineIndex = nextLine
-            startPlayback()
-        } else {
-            removeSource(currentSourceKey)
-            if let next = sources.first {
-                await switchSource(next.sourceKey)
-                startPlayback()
-            } else {
-                error = "All sources failed"
+            if autoplay { startPlayback() }
+            return nil
+        }
+        removeSource(currentSourceKey)
+        guard let next = sources.first else {
+            error = PlayerError.allSourcesFailed.localizedDescription
+            return nil
+        }
+        return selectSource(next.sourceKey, autoplay: autoplay)
+    }
+
+    /// Commits the first remaining source, in list order, that exposes playable episodes, dropping
+    /// each one that fails. Returns false when a newer switch took over or no source is left.
+    ///
+    /// 按列表顺序提交第一个能提供可播放剧集的剩余视频源, 并移除每个失败的视频源. 有更新的切换接管或
+    /// 没有剩余视频源时返回 false.
+    private func fallBackToAnotherSource(generation: Int) async -> Bool {
+        for source in sources {
+            let fetched = await fetchPlayableDetail(sourceKey: source.sourceKey, videoId: source.videoId)
+            guard generation == switchGeneration else { return false }
+            guard let fetched else {
+                removeSource(source.sourceKey)
+                continue
             }
+            detachOutgoingItem()
+            detail = detailApplyingCoverHint(fetched)
+            currentSourceKey = source.sourceKey
+            applyResumeByDetailTitle()
+            currentLineIndex = 0
+            clampCurrentEpisodeIndex()
+            error = nil
+            return true
+        }
+        error = PlayerError.allSourcesFailed.localizedDescription
+        return false
+    }
+
+    /// The source's detail when it loads and has a playable first line; nil otherwise.
+    ///
+    /// 视频源详情加载成功且第一条线路可播放时返回该详情; 否则返回 nil.
+    private func fetchPlayableDetail(sourceKey: String, videoId: String) async -> VideoDetail? {
+        do {
+            let fetched = try await apiClient.detail(sourceKey: sourceKey, videoId: videoId)
+            return Self.isPlayable(fetched) ? fetched : nil
+        } catch {
+            logger.error("fetchPlayableDetail failed source=\(sourceKey, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            return nil
         }
     }
 
-    /// Drops failed sources and loads the next source that exposes playable episodes.
-    ///
-    /// 移除失败视频源, 并加载下一个能提供可播放剧集的视频源.
-    private func autoFallbackSource(failedKey: String) async {
-        removeSource(failedKey)
-        let candidates = sources
-        for source in candidates {
-            let ok = await loadDetail(sourceKey: source.sourceKey, videoId: source.videoId)
-            if ok {
-                currentLineIndex = 0
-                clampCurrentEpisodeIndex()
-                return
-            }
-            removeSource(source.sourceKey)
-        }
+    private static func isPlayable(_ detail: VideoDetail) -> Bool {
+        !detail.episodes.isEmpty && !(detail.episodes.first?.isEmpty ?? true)
     }
 
     private func matchEpisode(prevName: String) {
@@ -769,23 +1032,18 @@ final class PlayerViewModel {
         currentEpisodeIndex = max(0, item.episodeIndex)
     }
 
-	private func clampCurrentEpisodeIndex() {
-		if let lineCount = detail?.episodes.count, lineCount > 0 {
-			currentLineIndex = min(max(0, currentLineIndex), lineCount - 1)
-		} else {
-			currentLineIndex = 0
-		}
-		guard !episodes.isEmpty else {
-			currentEpisodeIndex = 0
-			return
-		}
-		currentEpisodeIndex = min(max(0, currentEpisodeIndex), episodes.count - 1)
-	}
-
-	private func playbackCompleted(current: TimeInterval, duration: TimeInterval) -> Bool {
-		guard duration > 0, current > 0 else { return false }
-		return duration - current <= 30 || current / duration >= 0.95
-	}
+    private func clampCurrentEpisodeIndex() {
+        if let lineCount = detail?.episodes.count, lineCount > 0 {
+            currentLineIndex = min(max(0, currentLineIndex), lineCount - 1)
+        } else {
+            currentLineIndex = 0
+        }
+        guard !episodes.isEmpty else {
+            currentEpisodeIndex = 0
+            return
+        }
+        currentEpisodeIndex = min(max(0, currentEpisodeIndex), episodes.count - 1)
+    }
 
     /// Applies detail refreshes without replacing stable movie metadata during source switching.
     ///
@@ -813,10 +1071,6 @@ final class PlayerViewModel {
         return updated
     }
 
-    private func hasPlayableDetail() -> Bool {
-        !(detail?.episodes.isEmpty ?? true) && !(detail?.episodes.first?.isEmpty ?? true)
-    }
-
     private func removeSource(_ sourceKey: String) {
         sources.removeAll { $0.sourceKey == sourceKey }
     }
@@ -829,6 +1083,7 @@ final class PlayerViewModel {
             checkpoint()
             coordinator.pause()
             isPlaying = false
+            isBuffering = false
         } else {
             coordinator.resume(rate: playbackRate)
             isPlaying = true
@@ -893,6 +1148,54 @@ final class PlayerViewModel {
         refreshTransportState(player?.timeControlStatus)
     }
 
+    // MARK: - Scrubbing
+
+    /// A drag on the progress bar started: the time label follows the drag, not the playhead.
+    ///
+    /// 进度条拖动开始: 时间显示跟随拖动位置, 而不是播放头.
+    func beginScrub() {
+        isScrubbing = true
+        isSeeking = true
+    }
+
+    /// Moves the time label to `fraction` of the timeline while dragging.
+    ///
+    /// 拖动期间把时间显示移到时间轴的 `fraction` 处.
+    func updateScrub(toFraction fraction: Double) {
+        guard isScrubbing else { return }
+        currentTime = Self.clampedFraction(fraction) * max(duration, 1)
+    }
+
+    /// The drag ended at `fraction`: seeks there. Without a player there is nothing to seek, so the
+    /// label goes back to the playhead.
+    ///
+    /// 拖动在 `fraction` 处结束: seek 到该位置. 没有播放器时无从 seek, 时间显示回到播放头.
+    func endScrub(atFraction fraction: Double) {
+        guard isScrubbing else { return }
+        isScrubbing = false
+        guard player != nil else {
+            isSeeking = false
+            currentTime = reportedTime
+            return
+        }
+        seek(to: Self.clampedFraction(fraction) * max(duration, 1))
+    }
+
+    /// The drag was cancelled (the system took the touch, or the bar went away): no seek, and the
+    /// label goes back to the playhead.
+    ///
+    /// 拖动被取消 (系统接管了触摸, 或进度条消失): 不 seek, 时间显示回到播放头.
+    func cancelScrub() {
+        guard isScrubbing else { return }
+        isScrubbing = false
+        isSeeking = false
+        currentTime = reportedTime
+    }
+
+    private static func clampedFraction(_ fraction: Double) -> Double {
+        fraction.isFinite ? min(1, max(0, fraction)) : 0
+    }
+
     func skip(by seconds: TimeInterval) {
         guard let player else { return }
         let current = CMTimeGetSeconds(player.currentTime())
@@ -902,36 +1205,39 @@ final class PlayerViewModel {
 
     func setRate(_ rate: Float) {
         playbackRate = rate
-        if player?.timeControlStatus == .playing {
-            player?.rate = rate
-        }
+        coordinator.setRate(rate)
+    }
+
+    /// Adopts a rate picked in the system fullscreen controls, so the inline menu shows it and the
+    /// next episode keeps it.
+    ///
+    /// 采用在系统全屏控件中选择的倍速, 使内嵌菜单显示该倍速, 下一集也沿用它.
+    func syncRateFromPlayer() {
+        guard let rate = coordinator.chosenRate, rate > 0, rate != playbackRate else { return }
+        playbackRate = rate
     }
 
     // MARK: - Skip Settings
 
     func updateSkipIntro(_ value: Int) {
         skipIntroSeconds = value
-        let settings = PlaybackSettings.get(in: modelContext, serverURL: serverURL, title: videoTitle)
-        settings.skipIntroSeconds = value
-        try? modelContext.save()
+        progressStore.saveSettings(skipIntroSeconds: value)
     }
 
     func updateSkipOutro(_ value: Int) {
         skipOutroSeconds = value
-        let settings = PlaybackSettings.get(in: modelContext, serverURL: serverURL, title: videoTitle)
-        settings.skipOutroSeconds = value
-        try? modelContext.save()
+        progressStore.saveSettings(skipOutroSeconds: value)
     }
 
     deinit {
-        // Safety net: primary cleanup is via cleanup() called from view lifecycle.
-        // This class is @MainActor and owned by SwiftUI views, so deallocation
-        // happens on the main thread. assumeIsolated is safe here.
+        // Pages call `close()` or `disappear()`, which save the position; this only makes sure the
+        // coordinator's observers and sampler timer go away with the model. It hops to the main actor
+        // instead of asserting isolation, and does no SwiftData work.
         //
-        // 兜底清理: 主要清理由视图生命周期调用 cleanup 完成.
-        // 该类由 SwiftUI 在 MainActor 上持有, 因此这里使用 assumeIsolated 是安全的.
-        MainActor.assumeIsolated {
-            cleanup()
+        // 页面会调用 `close()` 或 `disappear()`, 它们负责保存位置; 这里只确保协调器的观察者与采样定时器
+        // 随模型一起释放. 通过跳转到主 actor 而不是断言隔离来完成, 且不做任何 SwiftData 操作.
+        Task { @MainActor [coordinator] in
+            coordinator.cleanup()
         }
     }
 
@@ -939,11 +1245,48 @@ final class PlayerViewModel {
 
     func pause() {
         checkpoint()
-        player?.pause()
+        coordinator.pause()
+        isPlaying = false
+        isBuffering = false
     }
 
     func resume() {
         coordinator.resume(rate: playbackRate)
+    }
+
+    /// The page left the screen, by a pop or another tab. Saves and pauses, and remembers whether
+    /// playback was running. A URL request still in flight is dropped and nothing attaches while the
+    /// page is hidden, so a popped page never starts playing.
+    ///
+    /// 页面离开屏幕 (返回上一页或切换到其他标签页). 保存位置并暂停, 并记住此前是否正在播放.
+    /// 仍在途中的地址请求被丢弃, 页面隐藏期间不会挂载任何 item, 因此已返回的页面永远不会开始播放.
+    func disappear() {
+        guard !isHidden else { return }
+        resumesOnAppear = isPlaying || isBuffering
+        if pendingPlaybackRequest != nil {
+            restartOnAppear = true
+            cancelPendingPlayback()
+        }
+        isHidden = true
+        pause()
+    }
+
+    /// The page is back on screen: playback resumes only if it was running when the page left, and
+    /// a request dropped while hidden starts again.
+    ///
+    /// 页面回到屏幕: 只有离开时正在播放才恢复播放, 隐藏期间被丢弃的请求会重新开始.
+    func appear() {
+        guard isHidden else { return }
+        isHidden = false
+        let restart = restartOnAppear
+        let resumePlayback = resumesOnAppear
+        restartOnAppear = false
+        resumesOnAppear = false
+        if restart {
+            startPlayback()
+        } else if resumePlayback {
+            resume()
+        }
     }
 
     /// Stops the local copy's load watchdog while the app is in the background, where the loopback
@@ -961,12 +1304,25 @@ final class PlayerViewModel {
         coordinator.resumeLoadWatchdog()
     }
 
-    func cleanup() {
-        logger.info("cleanup playback hasPlayer=\(self.player != nil, privacy: .public)")
+    /// Tears playback down: drops pending URL replies and source switches, saves the position, and
+    /// releases the player. Playback can start again later, which the tvOS detail page relies on
+    /// after a tab switch.
+    ///
+    /// 拆除播放: 丢弃待处理的地址响应与视频源切换, 保存位置并释放播放器. 之后仍可重新开始播放,
+    /// tvOS 详情页在切换标签页后依赖这一点.
+    func close() {
+        logger.info("close playback hasPlayer=\(self.player != nil, privacy: .public)")
+        cancelPendingPlayback()
+        switchGeneration += 1
+        switchTask?.cancel()
+        switchTask = nil
         pause()
         coordinator.cleanup()
+        // Reports queued by the torn-down item must not reach the next one.
+        //
+        // 已拆除的 item 排队的上报不能影响下一个 item.
+        itemGeneration += 1
+        liveItem = nil
         player = nil
-        isPlaying = false
-        isBuffering = false
     }
 }

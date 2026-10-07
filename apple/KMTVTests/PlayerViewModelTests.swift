@@ -16,8 +16,23 @@ final class PlayerViewModelTests: XCTestCase {
             episodes: [[Episode(name: "EP1", url: "https://cdn.example/video.m3u8")]]
         )
 
+        /// Per-source detail replies; sources without an entry answer `detailResponse`.
+        ///
+        /// 按视频源区分的详情响应; 没有条目的视频源返回 `detailResponse`.
+        var detailResponses: [String: VideoDetail] = [:]
+        /// Sources whose detail request fails.
+        ///
+        /// 详情请求会失败的视频源.
+        var failingDetailSources: Set<String> = []
+        /// Holds the detail reply for a source until its gate opens.
+        ///
+        /// 让某个视频源的详情响应等待, 直到其 gate 放行.
+        var detailGates: [String: SyncTestGate] = [:]
+
         func detail(sourceKey: String, videoId: String) async throws -> VideoDetail {
-            detailResponse
+            if let gate = detailGates[sourceKey] { await gate.wait() }
+            if failingDetailSources.contains(sourceKey) { throw URLError(.badServerResponse) }
+            return detailResponses[sourceKey] ?? detailResponse
         }
 
         /// When set, replies carry a file URL named after the request, so a test can tell which item attached.
@@ -91,7 +106,7 @@ final class PlayerViewModelTests: XCTestCase {
         let local = FakeLocalEpisodes()
         let vm = try localFirstViewModel(local, api: api)
         await vm.startPlaybackAsync()
-        await vm.handleItemError("cannot open")
+        vm.handleItemError("cannot open")
         // The real player item may fail on its own too, so allow repeated reports of episode 0.
         //
         // 真实的播放 item 也可能自行失败, 因此允许对第 0 集重复上报.
@@ -113,7 +128,7 @@ final class PlayerViewModelTests: XCTestCase {
         local.url = try await hanging.start()
         defer { hanging.stop() }
         let vm = try localFirstViewModel(local, api: api, loadTimeout: .milliseconds(300))
-        defer { vm.cleanup() }
+        defer { vm.close() }
         await vm.startPlaybackAsync()
         XCTAssertTrue(vm.isPlayingLocalCopy)
         for _ in 0..<100 where api.playbackRequests.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
@@ -290,7 +305,7 @@ final class PlayerViewModelTests: XCTestCase {
         _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
         sync.upsert(.watch(WatchPayload(title: "Video", sourceKey: "s1", videoId: "video-1", progressSec: 31, durationSec: 120)))
 
-        await vm.switchSource("s2")
+        await vm.switchSource("s2", autoplay: false)
         await waitUntil { !api.pushes.isEmpty }
 
         XCTAssertEqual(api.pushes.first?.changes.first?.kind, .watch)
@@ -554,7 +569,7 @@ final class PlayerViewModelTests: XCTestCase {
         let (vm, _, _) = try await makeSwitchFixture(episodes: 2)
 
         vm.switchEpisode(1)
-        await vm.handleItemError("outgoing item failed")
+        vm.handleItemError("outgoing item failed")
 
         XCTAssertEqual(vm.currentEpisodeIndex, 1)
         XCTAssertEqual(vm.currentLineIndex, 0)
@@ -566,9 +581,9 @@ final class PlayerViewModelTests: XCTestCase {
     func testAnItemErrorWithoutASwitchStillFallsBack() async throws {
         let (vm, _, _) = try await makeSwitchFixture(episodes: 2)
 
-        await vm.handleItemError("load failed")
+        vm.handleItemError("load failed")
 
-        XCTAssertEqual(vm.error, "All sources failed")
+        XCTAssertEqual(vm.error, String(localized: "All sources failed"))
         XCTAssertTrue(vm.sources.isEmpty)
     }
 
@@ -1225,7 +1240,7 @@ final class PlayerViewModelTests: XCTestCase {
         )
         vm.detail = initialDetail
 
-        await vm.switchSource("source-b")
+        await vm.switchSource("source-b", autoplay: false)
 
         XCTAssertEqual(vm.currentSourceKey, "source-b")
         XCTAssertEqual(vm.detail?.title, "Video")
@@ -1369,4 +1384,332 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(vm.detail?.cover, "https://img.example/cover.jpg")
         XCTAssertEqual(history?.cover, "https://img.example/cover.jpg")
     }
+}
+
+// MARK: - Serialized switches, item identity, page lifecycle, and scrubbing
+
+extension PlayerViewModelTests {
+    @MainActor
+    private func makeSourcesFixture(_ keys: [String], now: (@MainActor () -> ContinuousClock.Instant)? = nil) throws
+        -> (PlayerViewModel, FakePlayerAPI, SyncStore) {
+        let container = try ModelContainerFactory.makeInMemory()
+        let sync = makeSyncStore(container)
+        let api = FakePlayerAPI()
+        api.echoPlaybackURL = true
+        for key in keys {
+            api.detailResponses[key] = VideoDetail(
+                id: "video-\(key)", title: "Video", type: "tv", year: "2026",
+                cover: "", desc: "", director: "", actor: "", area: "",
+                episodes: [(1...3).map { Episode(name: "EP\($0)", url: "https://cdn.example/\(key)-\($0).m3u8") }]
+            )
+        }
+        let vm = PlayerViewModel(
+            apiClient: api, modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: sync, syncEngine: nil,
+            sources: keys.map { SourceResult(sourceKey: $0, sourceName: $0.uppercased(), videoId: "video-\($0)",
+                                             durationMs: 0, episodes: []) },
+            sourceKey: keys[0], videoId: "video-\(keys[0])", title: "Video",
+            now: now ?? { ContinuousClock.now }
+        )
+        return (vm, api, sync)
+    }
+
+    @MainActor
+    func testALateReplyFromAnEarlierSourceSwitchIsIgnored() async throws {
+        let (vm, api, _) = try makeSourcesFixture(["s1", "s2", "s3"])
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-s1")
+        let gate = SyncTestGate()
+        api.detailGates["s2"] = gate
+
+        let first = vm.selectSource("s2", autoplay: false)
+        await waitUntil { gate.waiting == 1 }
+        // Until its reply arrives, the selection still names the old source with its own episodes.
+        //
+        // 在响应到达之前, 选择仍指向旧视频源及其自己的剧集.
+        XCTAssertEqual(vm.currentSourceKey, "s1")
+        XCTAssertEqual(vm.currentEpisode?.url, "https://cdn.example/s1-1.m3u8")
+
+        await vm.switchSource("s3", autoplay: false)
+        XCTAssertEqual(vm.currentSourceKey, "s3")
+
+        // The first switch's reply arrives last.
+        //
+        // 第一次切换的响应最后才到达.
+        gate.open()
+        await first.value
+
+        XCTAssertEqual(vm.currentSourceKey, "s3")
+        XCTAssertEqual(vm.currentVideoID, "video-s3")
+        XCTAssertEqual(vm.currentEpisode?.url, "https://cdn.example/s3-1.m3u8")
+        XCTAssertEqual(vm.sources.map(\.sourceKey), ["s1", "s2", "s3"])
+    }
+
+    @MainActor
+    func testASourcePickedWhileOpeningIsKeptWhenTheFirstReplySucceeds() async throws {
+        try await assertSourcePickedWhileOpeningIsKept(firstReplyFails: false)
+    }
+
+    @MainActor
+    func testASourcePickedWhileOpeningIsKeptWhenTheFirstReplyFails() async throws {
+        try await assertSourcePickedWhileOpeningIsKept(firstReplyFails: true)
+    }
+
+    /// Holds the opening source's detail, picks another source, then releases the first reply.
+    ///
+    /// 挂起打开时视频源的详情, 选择另一个视频源, 然后放行第一个响应.
+    @MainActor
+    private func assertSourcePickedWhileOpeningIsKept(firstReplyFails: Bool) async throws {
+        let (vm, api, _) = try makeSourcesFixture(["s1", "s2", "s3"])
+        let gate = SyncTestGate()
+        api.detailGates["s1"] = gate
+        if firstReplyFails { api.failingDetailSources = ["s1"] }
+
+        let opening = Task { await vm.open(autoplay: true) }
+        await waitUntil { gate.waiting == 1 }
+        await vm.switchSource("s2", autoplay: true)
+        await waitUntil { vm.player != nil }
+
+        gate.open()
+        await opening.value
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(vm.currentSourceKey, "s2")
+        XCTAssertEqual(vm.currentEpisode?.url, "https://cdn.example/s2-1.m3u8")
+        XCTAssertTrue(vm.sources.contains { $0.sourceKey == "s2" }, "the picked source is never removed")
+        XCTAssertEqual(api.playbackRequests.map(\.source), ["s2"], "only the picked source plays")
+        XCTAssertEqual(vm.loadState, .loaded)
+    }
+
+    @MainActor
+    func testSwitchingToAnUnknownSourceChangesNothing() async throws {
+        let (vm, _, sync) = try makeSourcesFixture(["s1", "s2"])
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-s1")
+
+        await vm.switchSource("gone", autoplay: false)
+
+        XCTAssertEqual(vm.currentSourceKey, "s1")
+        // Still attached: progress keeps being written.
+        //
+        // 仍处于挂载状态: 进度照常写入.
+        vm.checkpoint(current: 120, duration: 1000)
+        XCTAssertEqual(sync.watch(title: "Video")?.progressSec, 120)
+    }
+
+    @MainActor
+    func testSwitchSourceWithAutoplayPlaysTheNewSourceOnce() async throws {
+        let (vm, api, _) = try makeSourcesFixture(["s1", "s2"])
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-s1")
+
+        await vm.switchSource("s2", autoplay: true)
+        await waitUntil { vm.player != nil }
+
+        XCTAssertEqual(api.playbackRequests.map(\.url), ["https://cdn.example/s2-1.m3u8"])
+        XCTAssertEqual(api.playbackRequests.map(\.source), ["s2"])
+    }
+
+    @MainActor
+    func testOpenFallsBackOnceAndClearsTheError() async throws {
+        let (vm, api, _) = try makeSourcesFixture(["s1", "s2"])
+        api.failingDetailSources = ["s1"]
+
+        await vm.open(autoplay: true)
+        await waitUntil { vm.player != nil }
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(vm.currentSourceKey, "s2")
+        XCTAssertEqual(api.playbackRequests.map(\.source), ["s2"], "the URL is resolved once")
+        XCTAssertNil(vm.error, "the first source's failure no longer applies")
+        XCTAssertEqual(vm.loadState, .loaded)
+    }
+
+    @MainActor
+    func testOpenReportsAFailureWhenEverySourceFails() async throws {
+        let (vm, api, _) = try makeSourcesFixture(["s1", "s2"])
+        api.failingDetailSources = ["s1", "s2"]
+        XCTAssertEqual(vm.loadState, .loading)
+
+        await vm.open(autoplay: true)
+
+        XCTAssertEqual(vm.loadState, .failed(String(localized: "All sources failed")))
+        XCTAssertTrue(api.playbackRequests.isEmpty)
+    }
+
+    @MainActor
+    func testAnErrorClearsOnceTheNextLinePlays() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let api = FakePlayerAPI()
+        api.echoPlaybackURL = true
+        api.detailResponse.episodes = [
+            [Episode(name: "EP1", url: "https://cdn.example/1.m3u8")],
+            [Episode(name: "EP1", url: "https://cdn.example/1b.m3u8")],
+        ]
+        let vm = PlayerViewModel(
+            apiClient: api, modelContext: container.mainContext, serverURL: "https://kmtv.example",
+            syncStore: makeSyncStore(container), syncEngine: nil,
+            sources: [SourceResult(sourceKey: "s1", sourceName: "S1", videoId: "video-1", durationMs: 0, episodes: [])],
+            sourceKey: "s1", videoId: "video-1", title: "Video"
+        )
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-1")
+
+        vm.handleItemError("line 1 failed")
+        XCTAssertEqual(vm.error, "line 1 failed")
+        XCTAssertEqual(vm.currentLineIndex, 1)
+        await waitUntil { vm.player != nil }
+
+        XCTAssertNil(vm.error)
+    }
+
+    @MainActor
+    func testReportsFromAReplacedItemAreIgnored() async throws {
+        let (vm, _, _) = try await makeSwitchFixture(episodes: 2)
+        await vm.startPlaybackAsync()
+        let first = vm.itemGeneration
+        vm.switchEpisode(1)
+        await waitUntil { vm.itemGeneration != first }
+
+        // The first item's failure and end were queued before the second item attached.
+        //
+        // 第一个 item 的失败与结束在第二个 item 挂载之前已排队.
+        vm.handleItemError("late failure", item: first)
+        vm.handleItemEnded(item: first)
+
+        XCTAssertNil(vm.error)
+        XCTAssertEqual(vm.currentEpisodeIndex, 1)
+        XCTAssertEqual(vm.sources.map(\.sourceKey), ["s1"])
+    }
+
+    @MainActor
+    func testAppearResumesOnlyWhatWasPlaying() async throws {
+        let (vm, _, _) = try await makeSwitchFixture()
+        await vm.startPlaybackAsync()
+
+        vm.refreshTransportState(.playing)
+        vm.disappear()
+        XCTAssertTrue(vm.resumesOnAppear)
+        vm.appear()
+        XCTAssertFalse(vm.resumesOnAppear)
+
+        // The user paused, then left and came back: it stays paused.
+        //
+        // 用户暂停后离开再回来: 保持暂停.
+        vm.pause()
+        vm.refreshTransportState(.paused)
+        vm.disappear()
+        XCTAssertFalse(vm.resumesOnAppear)
+        vm.appear()
+        XCTAssertEqual(vm.player?.rate, 0)
+    }
+
+    @MainActor
+    func testPlaybackRequestedWhileHiddenWaitsForAppear() async throws {
+        let (vm, api, _) = try await makeSwitchFixture()
+        let gate = SyncTestGate()
+        api.playbackGates["https://cdn.example/1.m3u8"] = gate
+
+        vm.startPlayback()
+        await waitUntil { gate.waiting == 1 }
+        vm.disappear()
+        gate.open()
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertNil(vm.player, "a page that left never starts playing")
+
+        vm.appear()
+        await waitUntil { vm.player != nil }
+        XCTAssertNotNil(vm.player)
+    }
+
+    @MainActor
+    func testCloseDropsAPendingSourceSwitch() async throws {
+        let (vm, api, _) = try makeSourcesFixture(["s1", "s2"])
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-s1")
+        let gate = SyncTestGate()
+        api.detailGates["s2"] = gate
+
+        let task = vm.selectSource("s2", autoplay: true)
+        await waitUntil { gate.waiting == 1 }
+        vm.close()
+        gate.open()
+        await task.value
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(vm.currentSourceKey, "s1")
+        XCTAssertNil(vm.player)
+        XCTAssertTrue(api.playbackRequests.isEmpty)
+    }
+
+    @MainActor
+    func testACancelledScrubPutsTheTimeBack() throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let vm = PlayerViewModel(
+            apiClient: APIClient(baseURL: "http://localhost"), modelContext: container.mainContext,
+            serverURL: "http://localhost", sources: [], sourceKey: "test", videoId: "1", title: "Test"
+        )
+        vm.onTimeUpdate(current: 100, total: 1000)
+
+        vm.beginScrub()
+        vm.updateScrub(toFraction: 0.5)
+        XCTAssertEqual(vm.currentTime, 500)
+        XCTAssertTrue(vm.isSeeking)
+        vm.onTimeUpdate(current: 101, total: 1000)
+        XCTAssertEqual(vm.currentTime, 500, "the playhead does not fight the drag")
+
+        vm.cancelScrub()
+        XCTAssertFalse(vm.isSeeking)
+        XCTAssertEqual(vm.currentTime, 101)
+    }
+
+    @MainActor
+    func testAScrubEndingWithoutAPlayerDoesNotFreezeTheTime() throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let vm = PlayerViewModel(
+            apiClient: APIClient(baseURL: "http://localhost"), modelContext: container.mainContext,
+            serverURL: "http://localhost", sources: [], sourceKey: "test", videoId: "1", title: "Test"
+        )
+        vm.onTimeUpdate(current: 100, total: 1000)
+
+        vm.beginScrub()
+        vm.updateScrub(toFraction: 0.5)
+        vm.endScrub(atFraction: 0.5)
+
+        XCTAssertFalse(vm.isSeeking)
+        XCTAssertEqual(vm.currentTime, 100)
+        vm.onTimeUpdate(current: 102, total: 1000)
+        XCTAssertEqual(vm.currentTime, 102)
+    }
+
+    @MainActor
+    func testOnlineProgressSavesAreThrottledByWallClockNotPosition() async throws {
+        let clock = PlayerTestClock()
+        let (vm, _, sync) = try makeSourcesFixture(["s1"], now: { clock.now })
+        _ = await vm.loadDetail(sourceKey: "s1", videoId: "video-s1")
+
+        vm.onTimeUpdate(current: 10, total: 1000)
+        XCTAssertEqual(sync.watch(title: "Video")?.progressSec, 10)
+        // Scrubbing jumps the position many times within a second; none of those ticks save.
+        //
+        // 拖动进度条会在一秒内多次跳转位置; 这些时间更新都不会保存.
+        for position in stride(from: 50.0, through: 600, by: 50) {
+            vm.onTimeUpdate(current: position, total: 1000)
+        }
+        clock.advance(.seconds(4))
+        vm.onTimeUpdate(current: 610, total: 1000)
+        XCTAssertEqual(sync.watch(title: "Video")?.progressSec, 10)
+
+        clock.advance(.seconds(1))
+        vm.onTimeUpdate(current: 611, total: 1000)
+        XCTAssertEqual(sync.watch(title: "Video")?.progressSec, 611)
+    }
+}
+
+/// Settable instant for the player's injected clock.
+///
+/// 供播放器注入时钟使用的可设置时间点.
+@MainActor
+private final class PlayerTestClock {
+    private(set) var now = ContinuousClock.now
+
+    /// Moves the clock forward.
+    ///
+    /// 将时钟向前推进.
+    func advance(_ duration: Duration) { now = now.advanced(by: duration) }
 }

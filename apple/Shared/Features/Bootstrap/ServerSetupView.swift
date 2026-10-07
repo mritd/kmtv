@@ -177,6 +177,11 @@ struct ServerSetupView: View {
         }
     }
 
+    /// Runs the connect as one structured call: cancelling `connectTask` (offline entry, the view
+    /// going away) cancels the request itself, and the timeout lives in `connectServer`.
+    ///
+    /// 以单个结构化调用执行连接: 取消 `connectTask` (进入离线, 视图消失) 会直接取消请求本身, 超时
+    /// 由 `connectServer` 负责.
     private func connect() async {
         let trimmedURL = url.trimmingCharacters(in: .whitespaces)
         guard !trimmedURL.isEmpty else { return }
@@ -184,25 +189,11 @@ struct ServerSetupView: View {
         let startTime = ContinuousClock.now
 
         do {
-            let innerTask = Task {
-                try await self.appVM.connectServer(
-                    url: trimmedURL,
-                    username: self.username.trimmingCharacters(in: .whitespaces),
-                    password: self.password
-                )
-            }
-            let timeoutTask = Task {
-                try await Task.sleep(for: .seconds(10))
-                innerTask.cancel()
-            }
-            do {
-                try await innerTask.value
-                timeoutTask.cancel()
-            } catch is CancellationError {
-                timeoutTask.cancel()
-                try Task.checkCancellation()
-                throw URLError(.timedOut)
-            }
+            try await appVM.connectServer(
+                url: trimmedURL,
+                username: username.trimmingCharacters(in: .whitespaces),
+                password: password
+            )
             // Ensure loading is visible for at least 0.5s.
             //
             // 至少展示 0.5 秒加载状态, 避免快速成功时按钮闪烁.
@@ -210,18 +201,14 @@ struct ServerSetupView: View {
             if elapsed < .milliseconds(500) {
                 try? await Task.sleep(for: .milliseconds(500) - elapsed)
             }
-        } catch let error as APIError {
-            if case .unauthorized = error {
-                errorMessage = String(localized: "Login Required")
-            } else {
-                errorMessage = error.localizedDescription
-            }
         } catch is CancellationError {
             // Task cancelled, ignore.
             //
             // 视图消失或用户离开时取消任务, 不需要向用户展示错误.
         } catch let error as URLError where error.code == .timedOut {
             errorMessage = String(localized: "Connection timed out")
+        } catch let error as APIError {
+            errorMessage = error.localizedMessage
         } catch {
             errorMessage = error.localizedDescription
         }

@@ -186,7 +186,7 @@ final class SyncMergeTests: XCTestCase {
     func testNewEpochMarksEverythingForUpload() {
         var s = state(rec(.favorite, "x", 1))
         s.cursor = 9
-        let next = SyncMerge.resetForNewEpoch(s, epoch: "e9", username: "alice")
+        let next = SyncMerge.resetForServerLoss(s, epoch: "e9", username: "alice")
         XCTAssertEqual(next.epoch, "e9")
         XCTAssertEqual(next.cursor, 0)
         XCTAssertEqual(next.username, "alice")
@@ -199,7 +199,7 @@ final class SyncMergeTests: XCTestCase {
         s.cursor = 9
         s.clockOffsetMs = 7
         s.pendingClears = [.search: 3]
-        let next = SyncMerge.resetForNewEpoch(s, epoch: "e9", username: "bob")
+        let next = SyncMerge.resetForServerLoss(s, epoch: "e9", username: "bob")
         XCTAssertEqual(next, SyncState(username: "bob", epoch: "e9", clockOffsetMs: 7))
     }
 

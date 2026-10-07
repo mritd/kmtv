@@ -13,6 +13,7 @@ struct ProfileView: View {
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var showPhotoPicker = false
     @State private var showAvatarOptions = false
+    @State private var confirmClearHistory = false
 
     var body: some View {
         Group {
@@ -96,8 +97,8 @@ struct ProfileView: View {
                             Text(vm.user?.username ?? String(localized: "Unknown"))
                                 .font(AppFont.section)
                                 .lineLimit(1)
-                            if !isAnonymous {
-                                roleBadge(isAdmin: vm.user?.role == "admin")
+                            if !isAnonymous, let user = vm.user {
+                                roleBadge(user)
                             }
                             Button {
                                 vm.editUsername = vm.user?.username ?? ""
@@ -128,8 +129,9 @@ struct ProfileView: View {
         }
     }
 
-    private func roleBadge(isAdmin: Bool) -> some View {
-        Text(isAdmin ? String(localized: "Admin") : String(localized: "Regular User"))
+    private func roleBadge(_ user: User) -> some View {
+        let isAdmin = user.isAdmin
+        return Text(user.roleDisplayName)
             .font(AppFont.meta.weight(.semibold))
             .foregroundStyle(isAdmin ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             .padding(.horizontal, Spacing.sm)
@@ -192,10 +194,11 @@ struct ProfileView: View {
             .onChange(of: selectedPhoto) { _, newValue in
                 guard let newValue else { return }
                 Task {
-                    if let data = try? await newValue.loadTransferable(type: Data.self) {
-                        await vm.uploadAvatar(imageData: data)
-                        selectedPhoto = nil
-                    }
+                    await vm.pickAvatar { try await newValue.loadTransferable(type: Data.self) }
+                    // Always reset, so picking the same photo again fires `onChange` again.
+                    //
+                    // 始终重置, 这样再次选择同一张照片时仍会触发 `onChange`.
+                    selectedPhoto = nil
                 }
             }
         }
@@ -203,9 +206,9 @@ struct ProfileView: View {
 
     @ViewBuilder
     private func accountSection(_ vm: ProfileViewModel) -> some View {
-        if vm.user?.role == "admin" || !isAnonymous {
+        if vm.user?.isAdmin == true || !isAnonymous {
             Section {
-                if vm.user?.role == "admin" {
+                if vm.user?.isAdmin == true {
                     NavigationLink {
                         AdminView()
                     } label: {
@@ -244,9 +247,15 @@ struct ProfileView: View {
     private func dangerSection(_ vm: ProfileViewModel) -> some View {
         Section {
             Button("Clear Watch History", role: .destructive) {
-                vm.clearWatchHistory()
+                confirmClearHistory = true
             }
             .foregroundStyle(.red)
+            .confirmationDialog("Clear watch history on all devices?", isPresented: $confirmClearHistory,
+                                titleVisibility: .visible) {
+                Button("Clear", role: .destructive) { vm.clearWatchHistory() }
+            } message: {
+                Text("This removes your watch history on every device signed in to this account and cannot be undone.")
+            }
             Button("Sign Out", role: .destructive) {
                 Task { await appVM.logout() }
             }
@@ -402,7 +411,7 @@ private struct DownloadsSettingsSection: View {
     @State private var confirmDeleteAll = false
 
     var body: some View {
-        let total = downloads.storage.activeBytes + downloads.storage.otherBytes
+        let total = downloads.usedBytes
         if scope != nil || total > 0 {
             Section {
                 if scope != nil {

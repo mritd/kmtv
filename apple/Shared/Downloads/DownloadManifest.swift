@@ -60,18 +60,13 @@ struct DownloadManifest: Codable, Equatable, Sendable {
     let lines: [Line]
 
     /// The identity of a key or map URL. Proxied playlists give every line its own `mt` token, so
-    /// the same upstream key appears under many URLs; the proxy's `url` query parameter names it.
-    /// Direct URLs are their own identity.
+    /// the same upstream key appears under many URLs; the proxy's `url` query parameter names it
+    /// (see `KMTVProxyURL`). Direct URLs are their own identity.
     ///
     /// key 或 map URL 的身份. 代理后的 playlist 每一行都带各自的 `mt` token, 同一个上游 key 会以多个
-    /// URL 出现; 代理的 `url` 查询参数标识它. 直连 URL 自身即为身份.
+    /// URL 出现; 代理的 `url` 查询参数标识它 (见 `KMTVProxyURL`). 直连 URL 自身即为身份.
     static func dedupeKey(_ url: URL) -> String {
-        if url.path.contains("/proxy/"),
-           let upstream = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-               .queryItems?.first(where: { $0.name == "url" })?.value {
-            return upstream
-        }
-        return url.absoluteString
+        KMTVProxyURL.upstream(of: url) ?? url.absoluteString
     }
 
     /// Builds the manifest of a media playlist. Keys and maps are deduplicated by upstream URL
@@ -121,14 +116,6 @@ struct DownloadManifest: Codable, Equatable, Sendable {
         return DownloadManifest(generation: generation, version: playlist.version,
                                 targetDuration: playlist.targetDuration, mediaSequence: playlist.mediaSequence,
                                 entries: entries, lines: lines)
-    }
-
-    /// Whether an entry is AES-128 ciphertext: the segment of a line that has a key, or a map the
-    /// source declared while a key was active.
-    ///
-    /// 条目是否为 AES-128 密文: 带 key 的行所引用的分片, 或源 playlist 在 key 生效时声明的 map.
-    func isEncrypted(entry index: Int) -> Bool {
-        lines.contains { ($0.segment == index && $0.key != nil) || ($0.map == index && $0.mapIsEncrypted) }
     }
 
     /// The 16-byte big-endian IV for a media sequence number.
@@ -279,16 +266,19 @@ struct DownloadManifest: Codable, Equatable, Sendable {
                                 mediaSequence: mediaSequence, entries: remappedEntries, lines: remappedLines)
     }
 
-    /// Whether every entry is a proxy URL, whose `url` parameter names the upstream file reliably.
+    /// Whether every entry is a KMTV proxy URL, whose `url` parameter names the upstream file
+    /// reliably.
     ///
-    /// 是否所有条目都是代理 URL; 代理 URL 的 `url` 参数能可靠地标识上游文件.
+    /// 是否所有条目都是 KMTV 代理 URL; 代理 URL 的 `url` 参数能可靠地标识上游文件.
     var hasUpstreamIdentities: Bool {
-        !entries.isEmpty && entries.allSatisfy { Self.dedupeKey($0.remoteURL) != $0.remoteURL.absoluteString }
+        !entries.isEmpty && entries.allSatisfy { KMTVProxyURL.upstream(of: $0.remoteURL) != nil }
     }
 
-    /// Indexes of the entries that hold AES-128 ciphertext (see `isEncrypted(entry:)`), in one pass.
+    /// Indexes of the entries that hold AES-128 ciphertext, in one pass: the segment of a line that
+    /// has a key, or a map the source declared while a key was active.
     ///
-    /// 存放 AES-128 密文的条目序号 (见 `isEncrypted(entry:)`), 一次遍历得出.
+    /// 存放 AES-128 密文的条目序号, 一次遍历得出: 带 key 的行所引用的分片, 或源 playlist 在 key 生效
+    /// 时声明的 map.
     var encryptedEntries: Set<Int> {
         var indexes: Set<Int> = []
         for line in lines {
@@ -302,11 +292,6 @@ struct DownloadManifest: Codable, Equatable, Sendable {
     ///
     /// 仍需下载的条目数.
     var missingCount: Int { entries.reduce(0) { $1.done ? $0 : $0 + 1 } }
-
-    /// Entries still to download.
-    ///
-    /// 仍需下载的条目.
-    var missing: [Entry] { entries.filter { !$0.done } }
 
     /// Whether every entry is downloaded.
     ///
@@ -334,14 +319,6 @@ struct DownloadManifest: Codable, Equatable, Sendable {
     static func load(from url: URL) -> DownloadManifest? {
         guard let data = try? Data(contentsOf: url) else { return nil }
         return try? JSONDecoder().decode(DownloadManifest.self, from: data)
-    }
-
-    /// Writes the manifest atomically.
-    ///
-    /// 以原子方式写入 manifest.
-    func save(to url: URL) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONEncoder().encode(self).write(to: url, options: .atomic)
     }
 
     /// Writes the manifest atomically only when its directory still exists; returns whether it

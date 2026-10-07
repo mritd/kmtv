@@ -294,3 +294,11 @@
 "Queued" = "Queued";
 "Watch Downloads Offline" = "Watch Downloads Offline";
 "Back to Top" = "Back to Top";
+"Clear watch history on all devices?" = "Clear watch history on all devices?";
+"This removes your watch history on every device signed in to this account and cannot be undone." = "This removes your watch history on every device signed in to this account and cannot be undone.";
+"Could not load the selected photo" = "Could not load the selected photo";
+
+/* Player errors */
+"All sources failed" = "All sources failed";
+"No playable episode" = "No playable episode";
+"Invalid playback URL" = "Invalid playback URL";

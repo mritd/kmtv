@@ -45,7 +45,7 @@ enum DownloadEntryValidator {
                 return .retry(.invalidContent)
             }
             return .accept
-        case 401 where isProxyURL(url) && String(decoding: head, as: UTF8.self).contains(mediaTokenMessage):
+        case 401 where KMTVProxyURL.isProxy(url) && String(decoding: head, as: UTF8.self).contains(mediaTokenMessage):
             return .tokenExpired
         case 408, 425, 429, 500..<600:
             return .retry(.sourceStatus(status))
@@ -59,12 +59,5 @@ enum DownloadEntryValidator {
     /// 对传输错误分类; 取消返回 nil, 因为暂停与刷新会主动取消任务.
     static func classify(transportError: URLError) -> EntryOutcome? {
         transportError.code == .cancelled ? nil : .retry(.network)
-    }
-
-    /// Whether a URL is a KMTV media proxy URL.
-    ///
-    /// URL 是否为 KMTV 媒体代理 URL.
-    static func isProxyURL(_ url: URL) -> Bool {
-        url.path.contains("/api/v1/proxy/")
     }
 }

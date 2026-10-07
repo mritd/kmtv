@@ -21,7 +21,27 @@ final class HomeViewModel {
         return picked
     }
 
-    var heroItems: [DoubanItem] = []
+    var heroItems: [DoubanItem] = [] {
+        didSet {
+            // Assigning an observed property from its own didSet recurses, so only heroIndex is written.
+            //
+            // 在被观察属性自身的 didSet 中给它赋值会递归, 因此这里只写 heroIndex.
+            let clamped = Self.clampedHeroIndex(heroIndex, count: heroItems.count)
+            if clamped != heroIndex { heroIndex = clamped }
+        }
+    }
+    /// Selected hero page; kept in range when a refresh shrinks `heroItems`. The view only sets
+    /// indexes of existing pages.
+    ///
+    /// 当前 hero 页; 刷新使 `heroItems` 变少时保持在有效范围内. 视图只会设置已有页面的下标.
+    var heroIndex = 0
+
+    /// Clamps a hero page index into `0..<count` (0 when there are no items).
+    ///
+    /// 将 hero 页下标限制在 `0..<count` 内 (无条目时为 0).
+    static func clampedHeroIndex(_ index: Int, count: Int) -> Int {
+        max(0, min(index, count - 1))
+    }
     var isLoading = false
     var error: String?
 
@@ -32,6 +52,7 @@ final class HomeViewModel {
     private let apiClient: any DoubanAPIProtocol
     private let syncStore: SyncStore?
     private let syncEngine: SyncEngine?
+    private let baseURL: String
 
     /// Continue watching: the newest 10 unfinished titles from the sync store.
     ///
@@ -40,8 +61,9 @@ final class HomeViewModel {
         Array((syncStore?.watchItems ?? []).filter { !$0.completed }.prefix(10))
     }
 
-    init(apiClient: any DoubanAPIProtocol, syncStore: SyncStore?, syncEngine: SyncEngine?) {
+    init(apiClient: any DoubanAPIProtocol, baseURL: String = "", syncStore: SyncStore?, syncEngine: SyncEngine?) {
         self.apiClient = apiClient
+        self.baseURL = baseURL
         self.syncStore = syncStore
         self.syncEngine = syncEngine
     }
@@ -56,22 +78,24 @@ final class HomeViewModel {
         // 请求一次限频的页面同步, 不阻塞首页内容加载.
         refreshWatchHistory()
 
-        let client = self.apiClient
         do {
-            // Run network decoding off the main actor while keeping UI state updates on MainActor.
+            // The client call is already async and off the main actor; staying in this task lets a
+            // cancelled refresh cancel the request.
             //
-            // 将网络解码放到 MainActor 之外执行, UI 状态更新仍留在 MainActor.
-            let response: DoubanHomeResponse = try await Task.detached {
-                try await client.doubanHome()
-            }.value
+            // 客户端调用本身是异步且不占用主线程; 留在当前任务内可让被取消的刷新一并取消请求.
+            let response = try await apiClient.doubanHome()
             sections = response.sections
             #if os(iOS)
-            CoverRegistry.remember(sections.flatMap(\.items), baseURL: (client as? APIClient)?.baseURL ?? "")
+            CoverRegistry.remember(sections.flatMap(\.items), baseURL: baseURL)
             #endif
             let candidates = Self.heroCandidates(sections)
             if !candidates.isEmpty { heroItems = candidates }
             error = nil
         } catch {
+            if Task.isCancelled || error is CancellationError {
+                isLoading = false
+                return
+            }
             logger.error("Home load failed: \(error.localizedDescription)")
             let message: String
             if let apiError = error as? APIError {

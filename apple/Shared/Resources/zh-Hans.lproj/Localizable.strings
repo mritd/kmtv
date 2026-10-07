@@ -294,3 +294,11 @@
 "Queued" = "排队中";
 "Watch Downloads Offline" = "离线观看已下载内容";
 "Back to Top" = "返回顶部";
+"Clear watch history on all devices?" = "要清除所有设备上的观看历史吗?";
+"This removes your watch history on every device signed in to this account and cannot be undone." = "这会清除登录此账号的所有设备上的观看历史, 且无法撤销.";
+"Could not load the selected photo" = "无法加载所选照片";
+
+/* Player errors */
+"All sources failed" = "所有视频源均无法播放";
+"No playable episode" = "没有可播放的剧集";
+"Invalid playback URL" = "播放地址无效";

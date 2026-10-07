@@ -76,7 +76,7 @@ enum SyncMerge {
         encoder.outputFormatting = .withoutEscapingSlashes
         func take(_ change: SyncChangeWire, _ target: String?) -> Bool {
             guard batch.changes.count < limit else { return false }
-            let size = ((try? encoder.encode(change))?.count ?? 0) + 1
+            let size = ((try? encoder.encode(change))?.count ?? maxBytes) + 1
             if !batch.changes.isEmpty && bytes + size > maxBytes { return false }
             bytes += size
             batch.changes.append(change)
@@ -255,7 +255,7 @@ enum SyncMerge {
     /// 处理服务端丢失本设备已有数据的情况: 新 epoch, 或同 epoch 下从旧副本恢复 (传入当前 epoch).
     /// 如果本地数据属于其他用户名, 说明该用户 ID 已被他人复用, 本地数据会被丢弃, 仅保留时钟偏移
     /// 与 epoch. 否则所有记录都标记为需要重新上传.
-    static func resetForNewEpoch(_ state: SyncState, epoch: String, username: String) -> SyncState {
+    static func resetForServerLoss(_ state: SyncState, epoch: String, username: String) -> SyncState {
         if dropsData(state, username: username) {
             return SyncState(username: username, epoch: epoch, clockOffsetMs: state.clockOffsetMs)
         }

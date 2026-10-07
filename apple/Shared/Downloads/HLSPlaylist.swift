@@ -218,7 +218,17 @@ enum HLSParser {
             return .none
         case "AES-128":
             guard let uri = try attrs["URI"].flatMap({ try resolve($0, baseURL) }) else { throw HLSParseError.notHLS }
-            return .aes128(uri: uri, iv: attrs["IV"].flatMap(parseIV))
+            // An IV that is present but does not parse is an error, never a missing IV: the
+            // sequence IV would decrypt nothing, and the episode would complete unplayable.
+            //
+            // 存在但无法解析的 IV 视为错误, 而不是缺少 IV: 按序号推导的 IV 解不开任何内容, 该集会在
+            // 完成后无法播放.
+            var iv: Data?
+            if let raw = attrs["IV"] {
+                guard let parsed = parseIV(raw) else { throw HLSParseError.notHLS }
+                iv = parsed
+            }
+            return .aes128(uri: uri, iv: iv)
         default:
             throw HLSParseError.unsupportedKey(method)
         }

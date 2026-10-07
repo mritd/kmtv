@@ -75,38 +75,11 @@ struct DownloadsView: View {
             }
         }
         .navigationTitle("Downloads")
-        .toolbar {
-            if !shows.isEmpty {
-                ToolbarItem(placement: .topBarTrailing) { EditButton() }
+        .downloadsEditing(editMode: $editMode, selection: $selection, isEmpty: shows.isEmpty,
+                          showsEditButton: !shows.isEmpty) { keys in
+            for showKey in shows.map(\.showKey) where keys.contains(showKey) {
+                await downloads.deleteShowFromLibrary(showKey: showKey)
             }
-            if editMode.isEditing && !selection.isEmpty {
-                ToolbarItem(placement: .bottomBar) {
-                    Button("Delete", role: .destructive) {
-                        let doomed = shows.map(\.showKey).filter { selection.contains($0) }
-                        selection = []
-                        editMode = .inactive
-                        Task { for showKey in doomed { await downloads.deleteShowFromLibrary(showKey: showKey) } }
-                    }
-                    // Red like other deletes; the app-wide accent tint would otherwise color it.
-                    //
-                    // 与其他删除操作一样使用红色; 否则会被全局强调色着色.
-                    .tint(.red)
-                }
-            }
-        }
-        // Applied outside `.toolbar`, so `EditButton` and the bottom bar read the same binding as the list.
-        //
-        // 放在 `.toolbar` 之外, `EditButton` 与底部栏才能和列表读到同一个绑定.
-        .environment(\.editMode, $editMode)
-        // The floating tab bar would cover the bottom Delete bar, so editing hides it, as Photos does.
-        //
-        // 浮动标签栏会遮住底部的删除栏, 因此编辑时将其隐藏, 与 "照片" 的做法一致.
-        .toolbar(editMode.isEditing ? .hidden : .automatic, for: .tabBar)
-        .onChange(of: shows.isEmpty) { _, empty in
-            if empty { editMode = .inactive }
-        }
-        .onChange(of: editMode.isEditing) { _, editing in
-            if !editing { selection = [] }
         }
         .navigationDestination(for: DownloadShowRoute.self) { route in
             DownloadShowView(showKey: route.showKey, mode: mode)
@@ -278,7 +251,7 @@ private struct DownloadsStorageFooter: View {
 
     var body: some View {
         HStack {
-            Label("Used \(DownloadFormatting.bytes(downloads.storage.activeBytes + downloads.storage.otherBytes))",
+            Label("Used \(DownloadFormatting.bytes(downloads.usedBytes))",
                   systemImage: "internaldrive")
             Spacer()
             Text("Free \(DownloadFormatting.bytes(downloads.freeBytes))")

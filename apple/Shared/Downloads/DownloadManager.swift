@@ -30,15 +30,6 @@ struct DownloadEpisodeRequest: Sendable, Equatable {
     let episodeURL: String
 }
 
-/// Bytes used by the active scope and by every other scope, cached so views never fetch rows while
-/// rendering; they follow row writes.
-///
-/// 当前作用域与其他所有作用域占用的字节数; 缓存起来, 视图渲染时无需读取数据行; 随数据行写入更新.
-struct DownloadStorageUsage: Equatable {
-    var activeBytes: Int64 = 0
-    var otherBytes: Int64 = 0
-}
-
 /// Every observed input of `DownloadManager.displayState(of:)` besides the row itself, plus the
 /// structural and progress counters; views that compute download state outside their body refresh
 /// when it changes.
@@ -131,16 +122,17 @@ final class DownloadManager {
     ///
     /// 当前作用域中正在下载或排队的集数 (tab 角标); 只在结构变化时重新计算.
     private(set) var activeEpisodeCount = 0
-    /// Cached storage use and free space. Bytes change with the rows (never by a full fetch per
-    /// tick); free space is read off the main actor by `refreshFreeSpace()` and at enqueue.
+    /// Bytes of every download on the device, whatever its scope, cached so views never fetch rows
+    /// while rendering. It changes with the rows (never by a full fetch per tick).
     ///
-    /// 缓存的存储占用与剩余空间. 字节数随数据行变化 (不会每次进度通知都完整读取);
-    /// 剩余空间由 `refreshFreeSpace()` 在主 actor 之外读取, 入队时也会读取.
-    private(set) var storage = DownloadStorageUsage()
-    /// The volume's free space, apart from `storage` so its readers do not change with every
-    /// progress tick.
+    /// 本机所有下载占用的字节数 (不分作用域); 缓存起来, 视图渲染时无需读取数据行. 它随数据行变化
+    /// (不会每次进度通知都完整读取).
+    private(set) var usedBytes: Int64 = 0
+    /// The volume's free space, read off the main actor by `refreshFreeSpace()` and at enqueue;
+    /// apart from `usedBytes` so its readers do not change with every progress tick.
     ///
-    /// 磁盘卷的剩余空间; 与 `storage` 分开, 读取它的视图因此不会随每次进度通知变化.
+    /// 磁盘卷的剩余空间, 由 `refreshFreeSpace()` 在主 actor 之外读取, 入队时也会读取; 与 `usedBytes`
+    /// 分开, 读取它的视图因此不会随每次进度通知变化.
     private(set) var freeBytes: Int64 = 0
     /// The progress tick at which each show (by `showDir`) last had entries reach its rows, so
     /// readers of one show skip ticks that only moved other shows.
@@ -250,6 +242,21 @@ final class DownloadManager {
     @ObservationIgnored private var wakeDeadline: ContinuousClock.Instant?
     @ObservationIgnored private let wakeBudget: Duration
     @ObservationIgnored private var server: LocalMediaServer?
+    /// Removes deleted downloads off the main actor. Exposed for tests.
+    ///
+    /// 在主 actor 之外移除已删除的下载. 供测试使用.
+    @ObservationIgnored let trash: DownloadTrash
+    /// The latest scope transition (`activate`, `deactivate`, `openOffline`, `deleteScope`). Each
+    /// new one waits for it, so transitions run one at a time in call order and an earlier one's
+    /// tail never overwrites a later one.
+    ///
+    /// 最近一次作用域切换 (`activate`, `deactivate`, `openOffline`, `deleteScope`). 每次新的切换都会
+    /// 等待它, 因此切换按调用顺序逐个执行, 较早切换的收尾不会覆盖较晚的切换.
+    @ObservationIgnored private var lastTransition: Task<Void, Never>?
+    /// Transitions queued or running; `openOffline` applies at once when there are none.
+    ///
+    /// 已排队或正在执行的切换数; 没有时 `openOffline` 立即生效.
+    @ObservationIgnored private var pendingTransitions = 0
     @ObservationIgnored private let progressInterval: Duration
     /// Waits out one progress interval; tests replace it to fire ticks on demand.
     ///
@@ -289,6 +296,8 @@ final class DownloadManager {
         self.progressInterval = progressInterval
         self.progressWait = progressWait
         self.manifestWriter = manifestWriter
+        trash = DownloadTrash(layout: layout)
+        trash.sweep()
         transport.onEvent = { [weak self] event in await self?.process(event) }
         network?.onRestore = { [weak self] in self?.schedulePump() }
         recomputeBytes()
@@ -534,28 +543,6 @@ final class DownloadManager {
         return layout.showDir(scopeHash: show.scopeHash, showDir: show.showDir).appending(path: show.coverFile)
     }
 
-    /// Bytes stored for a scope.
-    ///
-    /// 某个作用域占用的字节数.
-    func usedBytes(in scopeKey: String) -> Int64 {
-        episodes(in: scopeKey).reduce(0) { $0 + $1.bytes }
-    }
-
-    /// Bytes stored for every scope except one.
-    ///
-    /// 除指定作用域外, 其他所有作用域占用的字节数.
-    func otherScopesBytes(excluding scopeKey: String?) -> Int64 {
-        let all = (try? context.fetch(FetchDescriptor<DownloadEpisode>())) ?? []
-        return all.filter { $0.scopeKey != scopeKey }.reduce(0) { $0 + $1.bytes }
-    }
-
-    /// Whether a scope has at least one completed episode.
-    ///
-    /// 某个作用域是否至少有一集已完成.
-    func hasCompleted(in scopeKey: String) -> Bool {
-        episodes(in: scopeKey).contains { $0.state == .completed }
-    }
-
     /// Display state of an episode under the current network path.
     ///
     /// 当前网络路径下一集的展示状态.
@@ -607,14 +594,14 @@ final class DownloadManager {
     /// 将 `scopeKey` 设为已登录的作用域: 暂停前一个作用域, 恢复本作用域中因登出而暂停的剧集, 对账任务
     /// 并推进队列.
     func activate(scopeKey: String, preparer: any DownloadPreparing) async {
+        await enqueueTransition { await self.applyActivate(scopeKey: scopeKey, preparer: preparer) }.value
+    }
+
+    private func applyActivate(scopeKey: String, preparer: any DownloadPreparing) async {
         if let previous = activeScopeKey, previous != scopeKey {
             await pauseScope(previous, reason: .signedOut)
-            stopServer()
         }
-        if activeScopeKey != scopeKey {
-            activeScopeKey = scopeKey
-            recomputeBytes()
-        }
+        if activeScopeKey != scopeKey { activeScopeKey = scopeKey }
         self.preparer = preparer
         for ep in episodes(in: scopeKey) where ep.state == .paused && ep.pauseReason == .signedOut {
             ep.state = .queued
@@ -658,15 +645,21 @@ final class DownloadManager {
         return URL(string: show.cover)
     }
 
-    /// Shows a scope offline: rows and playback only, no preparation.
+    /// Shows a scope offline: rows and playback only, no preparation. Applies at once unless
+    /// another transition is queued or running; then it runs after them.
     ///
-    /// 以离线方式展示某个作用域: 只读数据与播放, 不做准备.
+    /// 以离线方式展示某个作用域: 只读数据与播放, 不做准备. 没有其他切换排队或执行时立即生效; 否则在
+    /// 它们之后执行.
     func openOffline(scopeKey: String) {
-        if activeScopeKey != scopeKey {
-            stopServer()
-            activeScopeKey = scopeKey
-            recomputeBytes()
+        guard pendingTransitions > 0 else {
+            applyOffline(scopeKey: scopeKey)
+            return
         }
+        _ = enqueueTransition { self.applyOffline(scopeKey: scopeKey) }
+    }
+
+    private func applyOffline(scopeKey: String) {
+        if activeScopeKey != scopeKey { activeScopeKey = scopeKey }
         preparer = nil
         bump()
     }
@@ -675,13 +668,40 @@ final class DownloadManager {
     ///
     /// 让当前作用域登出: 其中排队与下载中的剧集以 `.signedOut` 暂停.
     func deactivate() async {
+        await beginDeactivate().value
+    }
+
+    /// Queues `deactivate` now and returns its task, so a caller that does not wait still holds its
+    /// place: a transition requested later always runs after it.
+    ///
+    /// 立即将 `deactivate` 排入队列并返回其任务, 因此不等待的调用方也能占住顺序: 之后请求的切换总在它之后执行.
+    @discardableResult
+    func beginDeactivate() -> Task<Void, Never> {
+        enqueueTransition { await self.applyDeactivate() }
+    }
+
+    private func applyDeactivate() async {
         guard let scope = activeScopeKey else { return }
         preparer = nil
         await pauseScope(scope, reason: .signedOut)
         activeScopeKey = nil
-        recomputeBytes()
-        stopServer()
         bump()
+    }
+
+    /// Queues a scope transition behind every earlier one and returns its task; callers that
+    /// return after it completes await the task.
+    ///
+    /// 将一次作用域切换排在所有之前的切换之后, 并返回其任务; 需要在其完成后才返回的调用方会等待该任务.
+    private func enqueueTransition(_ body: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
+        let previous = lastTransition
+        pendingTransitions += 1
+        let task = Task { @MainActor in
+            await previous?.value
+            await body()
+            self.pendingTransitions -= 1
+        }
+        lastTransition = task
+        return task
     }
 
     private func pauseScope(_ scopeKey: String, reason: DownloadPauseReason) async {
@@ -873,7 +893,7 @@ final class DownloadManager {
         context.delete(ep)
         saveContext()
         if episodes(in: scopeKey, showKey: showKey).isEmpty, let show = show(scopeKey: scopeKey, showKey: showKey) {
-            try? FileManager.default.removeItem(at: layout.showDir(scopeHash: show.scopeHash, showDir: show.showDir))
+            trash.discard(layout.showDir(scopeHash: show.scopeHash, showDir: show.showDir))
             context.delete(show)
             saveContext()
         }
@@ -888,10 +908,14 @@ final class DownloadManager {
         for ep in episodes(in: show.scopeKey, showKey: show.showKey) { await delete(ep) }
     }
 
-    /// Deletes every download of a scope.
+    /// Deletes every download of a scope; a scope transition, so it runs after earlier ones.
     ///
-    /// 删除某个作用域的所有下载.
+    /// 删除某个作用域的所有下载; 属于作用域切换, 因此在之前的切换之后执行.
     func deleteScope(_ scopeKey: String) async {
+        await enqueueTransition { await self.applyDeleteScope(scopeKey) }.value
+    }
+
+    private func applyDeleteScope(_ scopeKey: String) async {
         let hash = DownloadPaths.scopeHash(scopeKey)
         for ep in episodes(in: scopeKey) {
             ep.state = .paused
@@ -908,17 +932,9 @@ final class DownloadManager {
             context.delete(ep)
         }
         for show in shows(in: scopeKey) { context.delete(show) }
-        try? FileManager.default.removeItem(at: layout.scopeDir(hash))
+        trash.discard(layout.scopeDir(hash))
         saveContext()
         bump()
-    }
-
-    /// Deletes the downloads of every scope except one.
-    ///
-    /// 删除除指定作用域外所有作用域的下载.
-    func deleteOtherScopes(excluding scopeKey: String?) async {
-        let all = (try? context.fetch(FetchDescriptor<DownloadEpisode>())) ?? []
-        for other in Set(all.map(\.scopeKey)) where other != scopeKey { await deleteScope(other) }
     }
 
     /// Marks a completed episode whose files failed to play as damaged and removes its files, so a
@@ -985,21 +1001,13 @@ final class DownloadManager {
     /// 已完成剧集的 loopback URL. 一个以下载目录为根的服务覆盖所有作用域, 因此播放另一个账号下载的
     /// 下一集时, 不会在仍在播放的 item 下重启服务.
     func localPlaybackURL(for ep: DownloadEpisode) async throws -> URL {
-        if server?.root != layout.root {
-            server?.stop()
-            server = LocalMediaServer(root: layout.root)
-        }
-        guard let server else { throw LocalMediaServerError.notReady }
+        let server = self.server ?? LocalMediaServer(root: layout.root)
+        self.server = server
         _ = try await server.start()
         guard let url = server.url(forRelativePath: "\(ep.scopeHash)/\(ep.showDir)/\(ep.episodeDir)/index.m3u8") else {
             throw LocalMediaServerError.notReady
         }
         return url
-    }
-
-    private func stopServer() {
-        server?.stop()
-        server = nil
     }
 
     // MARK: - Lifecycle
@@ -1064,6 +1072,7 @@ final class DownloadManager {
         //
         // 已完成任务的事件不再出现在 `outstanding()` 中; 必须先处理这些事件, 否则对应条目会被重复提交.
         await transport.drainEvents()
+        await preloadManifests(of: downloadingEpisodes())
         let before = inFlight
         let watch = UUID()
         cancelledDuringReconcile[watch] = []
@@ -1150,6 +1159,8 @@ final class DownloadManager {
         let candidates = episodes(in: scopeKey)
             .filter { $0.state == .queued || $0.state == .downloading }
             .sorted { $0.queueOrder < $1.queueOrder }
+        await preloadManifests(of: candidates)
+        guard self.preparer != nil else { return }
         for (position, ep) in candidates.enumerated() {
             guard activeScopeKey == scopeKey else { return }
             guard inFlight.count < outstandingLimit else {
@@ -1612,6 +1623,45 @@ final class DownloadManager {
         return shows
     }
 
+    /// Downloading rows of every scope.
+    ///
+    /// 所有作用域中下载中的数据行.
+    private func downloadingEpisodes() -> [DownloadEpisode] {
+        let downloading = DownloadState.downloading.rawValue
+        let descriptor = FetchDescriptor<DownloadEpisode>(predicate: #Predicate { $0.stateRaw == downloading })
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    /// Decodes the saved manifests of downloading rows that are not cached yet off the main actor
+    /// (a long episode's manifest is megabytes of JSON), so the reconcile or pump that follows reads
+    /// them from the cache. Returns at once when nothing needs decoding. A manifest is cached only
+    /// when its row is still live, still downloading, and still the row of its key, and nothing
+    /// cached one meanwhile; otherwise `manifest(for:)` reads the disk later as before.
+    ///
+    /// 在主 actor 之外解码尚未缓存的下载中数据行的已保存 manifest (长剧集的 manifest 是数 MB 的 JSON),
+    /// 之后的对账或队列推进因此直接读取缓存. 没有需要解码的内容时立即返回. 只有当数据行仍然存在, 仍在
+    /// 下载, 仍是该键对应的数据行, 且期间没有其他操作缓存过 manifest 时才会缓存; 否则仍由
+    /// `manifest(for:)` 像以前一样稍后读取磁盘.
+    private func preloadManifests(of rows: [DownloadEpisode]) async {
+        var wanted: [String: DownloadEpisode] = [:]
+        var files: [(key: String, url: URL)] = []
+        for ep in rows where ep.state == .downloading && manifests[ep.episodeKey] == nil && wanted[ep.episodeKey] == nil {
+            wanted[ep.episodeKey] = ep
+            let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
+            files.append((ep.episodeKey, layout.manifestURL(episodeDir: dir)))
+        }
+        guard !files.isEmpty else { return }
+        let loaded = await Task.detached(priority: .userInitiated) {
+            files.compactMap { file in DownloadManifest.load(from: file.url).map { (file.key, $0) } }
+        }.value
+        for (key, manifest) in loaded {
+            guard manifests[key] == nil, let row = wanted[key], isLive(row), row.state == .downloading,
+                  episode(forKey: key) === row else { continue }
+            manifests[key] = manifest
+            facts[key] = nil
+        }
+    }
+
     private func manifest(for ep: DownloadEpisode) -> DownloadManifest? {
         if let cached = manifests[ep.episodeKey] { return cached }
         let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
@@ -1643,12 +1693,13 @@ final class DownloadManager {
         manifestWriter.cancel(key)
     }
 
-    /// Removes an episode's files and cached manifest. Callers with a manifest write possibly in
+    /// Removes an episode's files (moved to the trash at once, deleted off the main actor) and
+    /// cached manifest. Callers with a manifest write possibly in
     /// progress await `manifestWriter.discard` first; `markDamaged` only sees completed episodes,
     /// whose last write `complete` already flushed, so dropping a pending one is enough there.
     /// The writer never creates directories either, so a late write cannot bring the files back.
     ///
-    /// 删除某集的文件与缓存的 manifest. 可能有 manifest 写入正在进行的调用方会先等待
+    /// 删除某集的文件 (立即移入回收站, 在主 actor 之外删除) 与缓存的 manifest. 可能有 manifest 写入正在进行的调用方会先等待
     /// 对 `manifestWriter.discard` 的调用; 而 `markDamaged` 只处理已完成的剧集, 其最后一次写入已由
     /// 对 `complete` 的调用落盘, 因此丢弃待写入快照即可. 写入器也从不创建目录, 迟到的写入无法让文件
     /// 重新出现.
@@ -1658,8 +1709,7 @@ final class DownloadManager {
         facts[ep.episodeKey] = nil
         unsaved[ep.episodeKey] = nil
         progressPending.remove(ep.episodeKey)
-        try? FileManager.default.removeItem(at: layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir,
-                                                                  episodeDir: ep.episodeDir))
+        trash.discard(layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir))
     }
 
     private func fetchCover(scopeKey: String, showKey: String, from url: URL) async {
@@ -1738,33 +1788,23 @@ final class DownloadManager {
         if freeBytes != free { freeBytes = free }
     }
 
-    /// Writes an episode's bytes and moves the cached totals by the difference.
+    /// Writes an episode's bytes and moves the cached total by the difference.
     ///
     /// 写入某集的字节数, 并按差值调整缓存的总量.
     private func setBytes(_ ep: DownloadEpisode, _ value: Int64) {
         guard ep.bytes != value else { return }
         let delta = value - ep.bytes
         ep.bytes = value
-        if ep.scopeKey == activeScopeKey {
-            storage.activeBytes += delta
-        } else {
-            storage.otherBytes += delta
-        }
+        usedBytes += delta
     }
 
-    /// Recomputes the cached totals from every row; only at launch, on scope changes, and on demand.
+    /// Recomputes the cached total from every row; only at launch and on demand.
     ///
-    /// 依据所有数据行重新计算缓存的总量; 只在启动, 作用域变化以及按需时执行.
+    /// 依据所有数据行重新计算缓存的总量; 只在启动与按需时执行.
     private func recomputeBytes() {
         let all = (try? context.fetch(FetchDescriptor<DownloadEpisode>())) ?? []
-        let scope = activeScopeKey
-        var active: Int64 = 0
-        var other: Int64 = 0
-        for ep in all {
-            if ep.scopeKey == scope { active += ep.bytes } else { other += ep.bytes }
-        }
-        if storage.activeBytes != active { storage.activeBytes = active }
-        if storage.otherBytes != other { storage.otherBytes = other }
+        let total = all.reduce(Int64(0)) { $0 + $1.bytes }
+        if usedBytes != total { usedBytes = total }
     }
 
     /// Recounts queued and downloading episodes of the active scope with a count query; assigns only

@@ -122,6 +122,25 @@ final class HLSParserTests: XCTestCase {
         XCTAssertNil(HLSParser.parseIV("0x" + String(repeating: "1", count: 34)))
     }
 
+    func testPresentButMalformedIVIsRejected() throws {
+        func playlist(iv: String) -> String {
+            "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"k.key\",IV=\(iv)\n#EXTINF:2,\na.ts\n#EXT-X-ENDLIST"
+        }
+        func error(_ text: String) -> HLSParseError? {
+            do { _ = try HLSParser.parse(text, baseURL: base); return nil } catch { return error as? HLSParseError }
+        }
+        // A present IV that does not parse would pair the ciphertext with the sequence IV and
+        // leave a completed episode that never plays.
+        //
+        // 存在但无法解析的 IV 会让密文配上按序号推导的 IV, 留下一集永远无法播放的已完成剧集.
+        XCTAssertEqual(error(playlist(iv: "0xZZ")), .notHLS)
+        XCTAssertEqual(error(playlist(iv: "0x" + String(repeating: "1", count: 34))), .notHLS)
+        XCTAssertEqual(error(playlist(iv: "")), .notHLS)
+        guard case .media(let valid) = try HLSParser.parse(playlist(iv: "0x1F"), baseURL: base) else { return XCTFail() }
+        guard case .aes128(_, let iv) = valid.segments[0].key else { return XCTFail() }
+        XCTAssertEqual(iv, Data(repeating: 0, count: 15) + Data([0x1F]))
+    }
+
     func testBOMAndCRLF() throws {
         let text = "\u{FEFF}#EXTM3U\r\n#EXT-X-TARGETDURATION:2\r\n#EXTINF:2,\r\na.ts\r\n#EXT-X-ENDLIST\r\n"
         guard case .media(let playlist) = try HLSParser.parse(text, baseURL: base) else { return XCTFail() }

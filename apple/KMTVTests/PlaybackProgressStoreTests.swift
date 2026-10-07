@@ -15,6 +15,20 @@ final class PlaybackProgressStoreTests: XCTestCase {
         XCTAssertEqual(settings.skipIntroSeconds, 0)
     }
 
+    func testSaveSettingsPersistsSkipSeconds() throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let store = PlaybackProgressStore(modelContext: container.mainContext, serverURL: "https://kmtv.example", syncStore: nil, title: "Video")
+
+        store.saveSettings(skipIntroSeconds: 15)
+        store.saveSettings(skipOutroSeconds: 40)
+
+        let reloaded = PlaybackProgressStore(modelContext: container.mainContext, serverURL: "https://kmtv.example",
+                                             syncStore: nil, title: "Video").loadSettings()
+        XCTAssertEqual(reloaded.skipIntroSeconds, 15)
+        XCTAssertEqual(reloaded.skipOutroSeconds, 40)
+        XCTAssertFalse(container.mainContext.hasChanges, "the change was saved, not left pending")
+    }
+
     private let detail = VideoDetail(id: "v1", title: "Video", type: "movie", year: "2026", cover: "c",
                                      desc: "", director: "", actor: "", area: "",
                                      episodes: [[Episode(name: "EP1", url: "u")]])

@@ -3,6 +3,7 @@ import SwiftUI
 
 struct TVSettingsView: View {
     @Environment(AppViewModel.self) private var appVM
+    @State private var confirmClearHistory = false
 
     var body: some View {
         List {
@@ -19,7 +20,7 @@ struct TVSettingsView: View {
                         Text(String(localized: "Role"))
                             .foregroundStyle(.primary)
                         Spacer()
-                        Text(user.role == "admin" ? String(localized: "Admin") : String(localized: "Regular User"))
+                        Text(user.roleDisplayName)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -43,8 +44,8 @@ struct TVSettingsView: View {
                 }
             }
 
-			Section {
-                Button(String(localized: "Clear Watch History"), role: .destructive) { appVM.sync?.store.clear(.watch) }
+            Section {
+                Button(String(localized: "Clear Watch History"), role: .destructive) { confirmClearHistory = true }
             }
 
             Section {
@@ -52,6 +53,14 @@ struct TVSettingsView: View {
                     Task { await appVM.logout() }
                 }
             }
+        }
+        .confirmationDialog(String(localized: "Clear watch history on all devices?"), isPresented: $confirmClearHistory,
+                            titleVisibility: .visible) {
+            Button(String(localized: "Clear"), role: .destructive) {
+                ProfileViewModel.clearWatchHistory(in: appVM.sync?.store)
+            }
+        } message: {
+            Text(String(localized: "This removes your watch history on every device signed in to this account and cannot be undone."))
         }
         .task {
             await appVM.fetchServerVersion()

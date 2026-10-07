@@ -10,7 +10,6 @@ struct HomeView: View {
     @Binding var path: NavigationPath
     #endif
     @State private var viewModel: HomeViewModel?
-    @State private var currentHeroIndex = 0
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var containerWidth: CGFloat = 0
@@ -102,9 +101,14 @@ struct HomeView: View {
         #endif
         .task {
             if viewModel == nil, let client = appVM.apiClient {
-                let vm = HomeViewModel(apiClient: client, syncStore: appVM.sync?.store, syncEngine: appVM.sync?.engine)
+                let vm = HomeViewModel(apiClient: client, baseURL: client.baseURL, syncStore: appVM.sync?.store, syncEngine: appVM.sync?.engine)
                 viewModel = vm
-                await vm.load()
+                // The first load runs in its own task: leaving the tab cancels this view task, and a
+                // cancelled first load would leave the page empty, with no refresh on tvOS.
+                //
+                // 首次加载在独立任务中执行: 切换标签页会取消视图的 task, 而被取消的首次加载会让页面一直为空,
+                // tvOS 上也没有刷新手段.
+                await Task { await vm.load() }.value
             }
         }
         .onAppear {
@@ -262,10 +266,14 @@ struct HomeView: View {
     // MARK: - iOS Hero Carousel
 
     #if os(iOS)
+    private var heroIndexBinding: Binding<Int> {
+        Binding(get: { viewModel?.heroIndex ?? 0}, set: { viewModel?.heroIndex = $0 })
+    }
+
     @ViewBuilder
     private func heroCarousel(_ items: [DoubanItem]) -> some View {
         VStack(spacing: Spacing.sm + 2) {
-            TabView(selection: $currentHeroIndex) {
+            TabView(selection: heroIndexBinding) {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     heroSlide(item)
                         .padding(.horizontal, Spacing.page)
@@ -276,7 +284,7 @@ struct HomeView: View {
             .frame(height: heroHeight)
 
             if items.count > 1 {
-                HeroPageDots(count: items.count, current: currentHeroIndex)
+                HeroPageDots(count: items.count, current: viewModel?.heroIndex ?? 0)
             }
         }
         .task {
@@ -285,7 +293,7 @@ struct HomeView: View {
                 guard !Task.isCancelled else { break }
                 guard let count = viewModel?.heroItems.count, count > 1 else { continue }
                 withAnimation {
-                    currentHeroIndex = (currentHeroIndex + 1) % count
+                    viewModel?.heroIndex = ((viewModel?.heroIndex ?? 0) + 1) % count
                 }
             }
         }

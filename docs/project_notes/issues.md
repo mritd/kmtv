@@ -2,6 +2,19 @@
 
 Completed and in-progress work, newest first. There is no issue tracker; entries name the branch instead of a ticket ID.
 
+### 2026-10-07 - fix/ios-review: iOS code review fixes
+- **Status**: Implemented on branch `fix/ios-review`, ready for review.
+- **Description**: A module-by-module review of the iOS code; fixes for the user-visible and lifecycle findings:
+  - Session: every transition that leaves the session bumps an epoch that async results check; 401s count only for the current token; an expired saved token says the session expired; connect probes before replacing the old server, with real timeout and cancel; one `SyncStore` per scope.
+  - Player: fetch-then-commit source switches guarded by a generation (also against the opening load); item callbacks carry their item; resume on appear only if it was playing; errors clear on recovery and tvOS gets a failure state; scrub API on the view model; `PlaybackProgressPolicy` shared by both players.
+  - Browse and screens: cancellable searches that outlive the page, recoverable categories, first loads that survive tab switches; admin forms keep input on failure and roll back settings; confirmation before clearing watch history; shared downloads edit mode.
+  - Downloads: serialized scope transitions (`beginDeactivate` queues at once); single-flight `LocalMediaServer.start()`; deletes through `Downloads/.trash`; a malformed IV fails the playlist; one `KMTVProxyURL` rule; storage is one `usedBytes`.
+  - Sync: ports web's start waiters, an `online` trigger, visible SwiftData failures, and stored-row validation; `resetForServerLoss` matches web.
+- **Verification (2026-10-07)**: `KMTVTests` 475/475 on the iPhone 17 Pro simulator; iOS and tvOS builds; `task bilingual-check`; screenshot tours against the dev server on iPhone (anonymous, including search and playback) and iPad (including downloads swipe and edit mode); a final adversarial review whose 8 findings were fixed.
+- **Open items**:
+  - Structural refactors left for a later phase: split `DownloadManager` and `PlayerViewModel`, a `PlaybackEngine` protocol, tvOS design tokens, shared poster grid and badges, cross-module duplication.
+  - Not checked on a device: fullscreen playback rate sync, `LocalMediaServer` restarts across background and foreground.
+
 ### 2026-10-07 - feat/ios-redesign: iOS redesign, themes, offline entry, default avatar (ADR-019, ADR-020)
 - **Status**: Implemented on branch `feat/ios-redesign`, ready for review; spec in `docs/superpowers/specs/2026-10-06-ios-redesign-design.md`.
 - **Description**:

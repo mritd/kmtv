@@ -1,11 +1,21 @@
 import Foundation
 import os
+import UniformTypeIdentifiers
 
 extension Notification.Name {
-    /// Posted when an authenticated API request receives a token-expired response.
+    /// Posted when an authenticated API request receives a token-expired response. `userInfo`
+    /// carries the rejected token under `Notification.rejectedTokenKey`.
     ///
-    /// 已认证 API 请求收到 token 过期响应时发送该通知.
+    /// 已认证 API 请求收到 token 过期响应时发送该通知. `userInfo` 中以 `Notification.rejectedTokenKey`
+    /// 携带被拒绝的 token.
     static let authExpired = Notification.Name("authExpired")
+}
+
+extension Notification {
+    /// `userInfo` key of the bearer token an `.authExpired` request carried.
+    ///
+    /// `.authExpired` 请求所携带 bearer token 在 `userInfo` 中的键.
+    static let rejectedTokenKey = "rejectedToken"
 }
 
 /// Concrete HTTP client for the KMTV backend API.
@@ -18,32 +28,20 @@ extension Notification.Name {
 ///
 /// APIClient 负责 URL 构造、bearer token 注入、JSON 解码、SSE 流读取以及媒体/图片 helper 连接。
 /// 具体业务接口方法拆分在 extension 文件中，便于通过 protocol 做单元测试替换。
-///
-/// SAFETY: All stored properties are immutable (let). If adding var properties,
-/// either use synchronization or remove @unchecked Sendable.
-///
-/// 安全性: 当前所有存储属性都是不可变 let. 如果后续新增 var, 需要加同步或移除 @unchecked Sendable.
-final class APIClient: @unchecked Sendable {
-    private let logger = Logger(subsystem: "com.mritd.kmtv", category: "network")
+final class APIClient: Sendable {
+    private let logger: Logger
     let baseURL: String
     let session: URLSession
-    private let tokenProvider: @Sendable () -> String?
-    private let notifiesAuthExpired: Bool
 
-    /// Lightweight request executor built from the shared session and token provider.
+    /// Request executor built once from the shared session and token provider.
     ///
-    /// 基于共享 session 与 token provider 构建的轻量请求执行器.
-    private var executor: APIRequestExecutor {
-        APIRequestExecutor(session: session, tokenProvider: tokenProvider, logger: logger,
-                           notifiesAuthExpired: notifiesAuthExpired)
-    }
+    /// 基于共享 session 与 token provider 一次性构建的请求执行器.
+    private let executor: APIRequestExecutor
 
     /// Image helper that reuses this client's base URL and URLSession configuration.
     ///
     /// 复用当前客户端 base URL 与 URLSession 配置的图片 helper.
-    private var imageClient: ImageClient {
-        ImageClient(baseURL: baseURL, sessionConfiguration: session.configuration)
-    }
+    private let imageClient: ImageClient
 
     /// Creates an API client for a backend base URL.
     ///
@@ -65,11 +63,10 @@ final class APIClient: @unchecked Sendable {
         tokenProvider: @escaping @Sendable () -> String? = { nil },
         notifiesAuthExpired: Bool = true
     ) {
-        self.baseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
-        self.tokenProvider = tokenProvider
-        self.notifiesAuthExpired = notifiesAuthExpired
+        let normalizedURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
+        let resolvedSession: URLSession
         if let session {
-            self.session = session
+            resolvedSession = session
         } else {
             // Disable cookies because bearer auth is the only supported API credential path.
             //
@@ -77,8 +74,15 @@ final class APIClient: @unchecked Sendable {
             let config = URLSessionConfiguration.default
             config.httpCookieAcceptPolicy = .never
             config.httpShouldSetCookies = false
-            self.session = URLSession(configuration: config)
+            resolvedSession = URLSession(configuration: config)
         }
+        let logger = Logger(subsystem: "com.mritd.kmtv", category: "network")
+        self.logger = logger
+        self.baseURL = normalizedURL
+        self.session = resolvedSession
+        self.executor = APIRequestExecutor(session: resolvedSession, tokenProvider: tokenProvider, logger: logger,
+                                           notifiesAuthExpired: notifiesAuthExpired)
+        self.imageClient = ImageClient(baseURL: normalizedURL, sessionConfiguration: resolvedSession.configuration)
     }
 
     /// Builds a backend URL from a path and optional query parameters.
@@ -212,13 +216,20 @@ final class APIClient: @unchecked Sendable {
 
         var body = Data()
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"avatar\"; filename=\"avatar.jpg\"\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"avatar\"; filename=\"\(Self.avatarFilename(mimeType: mimeType))\"\r\n".data(using: .utf8)!)
         body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
         body.append(imageData)
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
 
         return try await perform(request)
+    }
+
+    /// Upload filename whose extension matches `mimeType`; JPEG when the type is unknown.
+    ///
+    /// 扩展名与 `mimeType` 一致的上传文件名; 类型未知时使用 JPEG.
+    static func avatarFilename(mimeType: String) -> String {
+        "avatar." + (UTType(mimeType: mimeType)?.preferredFilenameExtension ?? "jpg")
     }
 
     // MARK: - SSE Stream

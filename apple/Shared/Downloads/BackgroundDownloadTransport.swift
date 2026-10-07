@@ -221,11 +221,22 @@ final class BackgroundDownloadTransport: DownloadTransport {
         }
     }
 
+    /// Cancels matching tasks. The loop runs on `submitQueue` like task creation: a scope can have
+    /// thousands of tasks, and each cancel is a round trip to `nsurlsessiond`.
+    ///
+    /// 取消匹配的任务. 与创建任务一样, 循环在 `submitQueue` 上执行: 一个作用域可能有数千个任务,
+    /// 每次取消都要与 `nsurlsessiond` 往返一次.
     func cancel(where predicate: @escaping @Sendable (DownloadTaskID) -> Bool) async {
         await submitted()
-        for task in await session.allTasks {
-            if let id = task.taskDescription.flatMap(DownloadTaskID.init(description:)), predicate(id) {
-                task.cancel()
+        let tasks = await session.allTasks
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            submitQueue.async {
+                for task in tasks {
+                    if let id = task.taskDescription.flatMap(DownloadTaskID.init(description:)), predicate(id) {
+                        task.cancel()
+                    }
+                }
+                continuation.resume()
             }
         }
     }

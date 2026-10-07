@@ -94,6 +94,11 @@ protocol DownloadScopeControlling: AnyObject {
     func activate(scopeKey: String, preparer: any DownloadPreparing) async
     func openOffline(scopeKey: String)
     func deactivate() async
+    /// Queues `deactivate` at once without waiting for it; see `DownloadManager.beginDeactivate()`.
+    ///
+    /// 立即排入 `deactivate` 而不等待其完成; 参见 `DownloadManager.beginDeactivate()`.
+    @discardableResult
+    func beginDeactivate() -> Task<Void, Never>
     func deleteScope(_ scopeKey: String) async
     /// Whether the device has any completed download, whatever its server or account.
     ///

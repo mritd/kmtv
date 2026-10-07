@@ -12,27 +12,18 @@ import SwiftData
 @Observable
 @MainActor
 final class OfflinePlayerViewModel {
-    /// Shortest wall-clock gap between two periodic progress saves. Scrubbing moves the position
-    /// many times a second, so a position-based gap would save on almost every callback.
-    ///
-    /// 两次周期性进度保存之间的最短实际时间间隔. 拖动进度条时位置每秒变化多次, 若按位置差判断,
-    /// 几乎每次回调都会保存.
-    static let saveInterval: Duration = .seconds(5)
-    /// How long before the end the next-episode button appears during playback.
-    ///
-    /// 播放时距离结尾多久显示下一集按钮.
-    static let upNextLead: TimeInterval = 60
-
     let show: DownloadShow
     private(set) var episode: DownloadEpisode
     private(set) var player: AVPlayer?
     var error: String?
     /// Whether playback has stayed paused for `pauseDebounce`, and whether the playhead is within
-    /// `upNextLead` of the end (or of the outro skip); the next-episode button shows only then. Both
-    /// change only on a flip; the debounce keeps a scrub (which pauses briefly) from flashing it.
+    /// `PlaybackProgressPolicy.upNextLead` of the end (or of the outro skip); the next-episode
+    /// button shows only then. Both change only on a flip; the debounce keeps a scrub (which pauses
+    /// briefly) from flashing it.
     ///
-    /// 播放是否已持续暂停 `pauseDebounce`, 以及播放头是否距结尾 (或片尾跳过点) 不足 `upNextLead`;
-    /// 只有此时才显示下一集按钮. 两者只在状态翻转时才会改变; 防抖让拖动进度 (会短暂暂停) 不会使按钮闪现.
+    /// 播放是否已持续暂停 `pauseDebounce`, 以及播放头是否距结尾 (或片尾跳过点) 不足
+    /// `PlaybackProgressPolicy.upNextLead`; 只有此时才显示下一集按钮. 两者只在状态翻转时才会改变;
+    /// 防抖让拖动进度 (会短暂暂停) 不会使按钮闪现.
     private(set) var isPaused = false
     private(set) var isNearEnd = false
     /// The next completed episode of the same source and video; recomputed on every start, so the
@@ -51,10 +42,7 @@ final class OfflinePlayerViewModel {
     @ObservationIgnored private let coordinator = PlaybackCoordinator()
     @ObservationIgnored private let skipIntroSeconds: Int
     @ObservationIgnored private let skipOutroSeconds: Int
-    // Wall-clock instant of the last periodic save; nil saves on the next callback.
-    //
-    // 上一次周期性保存的实际时间点; 为 nil 时下一次回调即保存.
-    @ObservationIgnored private var lastSaveAt: ContinuousClock.Instant?
+    @ObservationIgnored private var saveThrottle = PlaybackProgressPolicy.SaveThrottle()
     @ObservationIgnored private var pauseObservation: NSKeyValueObservation?
     // Pending switch to paused; a resume before it fires cancels it.
     //
@@ -175,7 +163,7 @@ final class OfflinePlayerViewModel {
         guard !closed, !Task.isCancelled, !suspended, generation == startGeneration else { return }
         let start = Self.resolveStart(explicit: position, record: syncStore?.watch(title: show.title),
                                       episode: episode, skipIntroSeconds: skipIntroSeconds)
-        lastSaveAt = now()
+        saveThrottle.restart(at: now())
         outroHandled = false
         isNearEnd = false
         coordinator.start(url: url, startTime: start, rate: 1, allowsExternalPlayback: false,
@@ -216,14 +204,15 @@ final class OfflinePlayerViewModel {
         return item
     }
 
-    /// Tracks whether the player is paused; KVO delivers on the main thread, as in
-    /// `PlaybackCoordinator`.
+    /// Tracks whether the player is paused. KVO may deliver on any thread, so the handler hops to
+    /// the main actor rather than asserting it, as in `PlaybackCoordinator`.
     ///
-    /// 跟踪播放器是否暂停; 与 `PlaybackCoordinator` 一样, KVO 在主线程投递.
+    /// 跟踪播放器是否暂停. KVO 可能在任意线程投递, 因此回调跳转到主 actor 而不是断言已在其上,
+    /// 与 `PlaybackCoordinator` 一致.
     private func observePause() {
         pauseObservation = coordinator.player?.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
             let paused = player.timeControlStatus == .paused
-            MainActor.assumeIsolated { self?.pauseChanged(paused) }
+            Task { @MainActor [weak self] in self?.pauseChanged(paused) }
         }
     }
 
@@ -325,7 +314,7 @@ final class OfflinePlayerViewModel {
     /// 才能将一部剧标记为看完 (ADR-015).
     func record(current: TimeInterval, duration: TimeInterval, finished: Bool) {
         guard current.isFinite, duration.isFinite, current > 0, duration > 0 else { return }
-        let done = finished || duration - current <= 30 || current / duration >= 0.95
+        let done = finished || PlaybackProgressPolicy.isCompleted(current: current, duration: duration)
         let isLast = episode.episodeIndex >= episode.episodeCount - 1
         progressStore.saveProgress(title: show.title, cover: show.cover, sourceKey: episode.sourceKey,
                                    videoId: episode.videoId, episodeName: episode.episodeName,
@@ -339,15 +328,14 @@ final class OfflinePlayerViewModel {
     /// 处理周期性时间回调: 保存进度并跳过片尾.
     func handleTime(current: TimeInterval, total: TimeInterval) {
         lastDuration = total
-        let instant = now()
-        if lastSaveAt.map({ instant - $0 >= Self.saveInterval }) ?? true {
-            lastSaveAt = instant
+        if saveThrottle.shouldSave(at: now()) {
             record(current: current, duration: total, finished: false)
         }
-        let nearEnd = total > 0 && total - current <= Self.upNextLead + TimeInterval(skipOutroSeconds)
+        let nearEnd = PlaybackProgressPolicy.isNearEnd(current: current, duration: total,
+                                                       skipOutroSeconds: skipOutroSeconds)
         if nearEnd != isNearEnd { isNearEnd = nearEnd }
-        if !outroHandled, skipOutroSeconds > 0, total > 0, total - current > 0,
-           total - current <= TimeInterval(skipOutroSeconds) {
+        if !outroHandled,
+           PlaybackProgressPolicy.shouldSkipOutro(current: current, duration: total, skipOutroSeconds: skipOutroSeconds) {
             outroHandled = true
             finishCurrent()
         }

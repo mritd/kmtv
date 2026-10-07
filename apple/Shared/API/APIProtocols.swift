@@ -177,9 +177,5 @@ typealias PlaybackDetailAPIProtocol = DetailAPIProtocol & PlaybackAPIProtocol
 ///
 /// ProfileViewModel 需要的个人资料相关组合依赖.
 typealias ProfileAPIProtocol = AuthAPIProtocol
-/// Full API surface implemented by APIClient.
-///
-/// APIClient 实现的完整 API 边界.
-typealias AppAPIProtocol = AuthAPIProtocol & SearchAPIProtocol & DetailAPIProtocol & PlaybackAPIProtocol & DoubanAPIProtocol & AdminAPIProtocol & SyncAPIProtocol
-
-extension APIClient: AppAPIProtocol {}
+extension APIClient: AuthAPIProtocol, SearchAPIProtocol, DetailAPIProtocol, PlaybackAPIProtocol, DoubanAPIProtocol,
+    AdminAPIProtocol, SyncAPIProtocol {}

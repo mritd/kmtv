@@ -23,7 +23,7 @@ final class SyncSessionTests: XCTestCase {
                                   user: User(id: 5, username: "alice", role: "user", allowAdultContent: false), api: api)
         session.store.upsert(.search(SearchPayload(query: "before the version check")))
         await session.engine?.flushNow()
-        await session.engine?.requestSync(.foreground)
+        await session.engine?.requestSync(.foreground, waitingAtMost: .milliseconds(20))
         XCTAssertTrue(api.pushes.isEmpty)
         XCTAssertEqual(api.pullCount, 0)
 
@@ -67,6 +67,73 @@ final class SyncSessionTests: XCTestCase {
         session.handleScenePhase(.background)
         await waitUntil { !api.pushes.isEmpty }
         XCTAssertEqual(api.pushes.first?.changes.count, 1)
+        session.stop()
+    }
+
+    func testNetworkComingBackSyncsAndStopStopsListening() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let api = FakeSyncAPI()
+        let reachability = FakeReachability()
+        let session = SyncSession(context: container.mainContext, serverURL: "https://kmtv.example",
+                                  user: User(id: 5, username: "alice", role: "user", allowAdultContent: false), api: api,
+                                  reachability: reachability.observe)
+        XCTAssertNil(reachability.fire, "nothing listens before the session starts")
+        session.start()
+        await waitUntil { api.pullCount == 1 }
+        XCTAssertNotNil(reachability.fire)
+
+        reachability.fire?()
+        await waitUntil { api.pullCount == 2 }
+        XCTAssertEqual(api.pullCount, 2)
+
+        session.stop()
+        XCTAssertEqual(reachability.cancelled, 1)
+    }
+
+    func testBackgroundFlushRunsInsideABackgroundTaskThatEndsOnce() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let api = FakeSyncAPI()
+        let background = FakeBackgroundTask()
+        let session = SyncSession(context: container.mainContext, serverURL: "https://kmtv.example",
+                                  user: User(id: 5, username: "alice", role: "user", allowAdultContent: false), api: api,
+                                  beginBackgroundTask: background.begin)
+        session.start()
+        await waitUntil { api.pullCount == 1 }
+
+        session.store.upsert(.search(SearchPayload(query: "pending")))
+        session.handleScenePhase(.background)
+        XCTAssertEqual(background.begun, 1)
+        await waitUntil { background.ended == 1 }
+        XCTAssertEqual(api.pushes.first?.changes.count, 1)
+        XCTAssertEqual(background.ended, 1)
+
+        // The system's time ran out after the flush ended: ending again does nothing.
+        //
+        // 补写结束后系统时间才用完: 再次结束不会产生影响.
+        background.expire?()
+        XCTAssertEqual(background.ended, 1)
+        session.stop()
+    }
+
+    func testBackgroundTaskExpiryEndsTheTaskWhileTheFlushIsStillRunning() async throws {
+        let container = try ModelContainerFactory.makeInMemory()
+        let api = FakeSyncAPI()
+        let background = FakeBackgroundTask()
+        let session = SyncSession(context: container.mainContext, serverURL: "https://kmtv.example",
+                                  user: User(id: 5, username: "alice", role: "user", allowAdultContent: false), api: api,
+                                  beginBackgroundTask: background.begin)
+        session.start()
+        await waitUntil { api.pullCount == 1 }
+        api.pushGate = SyncTestGate()
+        session.store.upsert(.search(SearchPayload(query: "pending")))
+        session.handleScenePhase(.background)
+        await waitUntil { api.pushGate?.waiting == 1 }
+
+        background.expire?()
+        XCTAssertEqual(background.ended, 1)
+        api.pushGate?.open()
+        await waitUntil { api.pullCount == 2 }
+        XCTAssertEqual(background.ended, 1, "finishing the flush must not end the task a second time")
         session.stop()
     }
 
@@ -126,5 +193,39 @@ private final class NotificationCounter: @unchecked Sendable {
         lock.lock()
         stored += 1
         lock.unlock()
+    }
+}
+
+/// Reachability fake: `fire` simulates the network coming back.
+///
+/// 可达性替身: `fire` 模拟网络恢复.
+@MainActor
+private final class FakeReachability {
+    var fire: (@MainActor @Sendable () -> Void)?
+    var cancelled = 0
+
+    var observe: SyncReachability {
+        { onOnline in
+            self.fire = onOnline
+            return { self.cancelled += 1 }
+        }
+    }
+}
+
+/// Background task fake that counts begin and end calls and keeps the expiration handler.
+///
+/// 后台任务替身, 统计开始与结束次数并保存到期回调.
+@MainActor
+private final class FakeBackgroundTask {
+    var begun = 0
+    var ended = 0
+    var expire: (@MainActor @Sendable () -> Void)?
+
+    var begin: SyncBackgroundTaskStarter {
+        { onExpire in
+            self.begun += 1
+            self.expire = onExpire
+            return { self.ended += 1 }
+        }
     }
 }
