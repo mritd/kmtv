@@ -2,14 +2,13 @@
 import Foundation
 
 /// Every observed input of `DownloadManager.displayState(of:)` besides the row itself, plus the
-/// structural and progress counters; views that compute download state outside their body refresh
-/// when it changes.
+/// structural counter; views that compute download state outside their body refresh when it or
+/// their show's progress tick changes.
 ///
-/// 除数据行本身外, `DownloadManager.displayState(of:)` 的全部被观察输入, 加上结构与进度计数; 在 body
-/// 之外计算下载状态的视图会在它变化时刷新.
+/// 除数据行本身外, `DownloadManager.displayState(of:)` 的全部被观察输入, 加上结构计数; 在 body
+/// 之外计算下载状态的视图会在它或其所属剧集的进度序号变化时刷新.
 struct DownloadDisplayRevision: Equatable {
     var structure: Int
-    var progress: Int
     var satisfied: Bool
     var expensive: Bool
     var constrained: Bool

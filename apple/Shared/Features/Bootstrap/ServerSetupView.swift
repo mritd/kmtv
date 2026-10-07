@@ -59,7 +59,7 @@ struct ServerSetupView: View {
                         #if os(tvOS)
                         .overlay(
                             RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.red, lineWidth: isURLInvalid ? 1.5 : 0)
+                                .stroke(StatusColor.danger, lineWidth: isURLInvalid ? 1.5 : 0)
                         )
                         #endif
 
@@ -70,7 +70,7 @@ struct ServerSetupView: View {
                             #else
                             .font(AppFont.footnote)
                             #endif
-                            .foregroundStyle(.red)
+                            .foregroundStyle(StatusColor.danger)
                     }
                 }
 
@@ -110,7 +110,7 @@ struct ServerSetupView: View {
 
             if let errorMessage {
                 Text(errorMessage)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(StatusColor.danger)
                     #if os(tvOS)
                     .font(.body)
                     #else
@@ -207,10 +207,8 @@ struct ServerSetupView: View {
             // 视图消失或用户离开时取消任务, 不需要向用户展示错误.
         } catch let error as URLError where error.code == .timedOut {
             errorMessage = String(localized: "Connection timed out")
-        } catch let error as APIError {
-            errorMessage = error.localizedMessage
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userMessage
         }
 
         isConnecting = false

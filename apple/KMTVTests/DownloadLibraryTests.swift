@@ -141,4 +141,29 @@ final class DownloadLibraryTests: XCTestCase {
         XCTAssertEqual(library.totalBytes(), 65)
         XCTAssertEqual(library.downloadingEpisodes().count, 2)
     }
+
+    func testSnapshotKeysShowsAndGroupsEpisodesInLibraryOrder() throws {
+        let mine = show(active, at: 1)
+        let theirs = show(other, at: 2)
+        let movie = show(other, title: "Movie", at: 3)
+        episode(mine, index: 1, at: 1)
+        episode(theirs, index: 0, state: .completed, at: 2)
+        episode(movie, index: 0, videoId: "v2", at: 3)
+        try container.mainContext.save()
+        let snapshot = DownloadLibrarySnapshot(
+            revision: 7, shows: library.libraryShows(activeScopeKey: active),
+            episodes: library.libraryEpisodes(showKey: nil, activeScopeKey: active),
+            scopeEpisodes: library.episodes(in: active))
+        XCTAssertEqual(snapshot.revision, 7)
+        XCTAssertEqual(snapshot.shows.map(\.showKey), [movie.showKey, mine.showKey])
+        XCTAssertTrue(snapshot.show(showKey: mine.showKey) === mine, "the active scope's row stands for the show")
+        XCTAssertNil(snapshot.show(showKey: "none"))
+        let grouped = snapshot.episodes(showKey: mine.showKey)
+        let direct = library.libraryEpisodes(showKey: mine.showKey, activeScopeKey: active)
+        XCTAssertEqual(grouped.map(\.episodeIndex), [0, 1])
+        XCTAssertEqual(grouped.map(\.scopeKey), direct.map(\.scopeKey))
+        XCTAssertTrue(snapshot.episodes(showKey: "none").isEmpty)
+        XCTAssertEqual(snapshot.scopeEpisodes.map(\.episodeIndex), [1])
+        XCTAssertTrue(DownloadLibrarySnapshot().shows.isEmpty)
+    }
 }

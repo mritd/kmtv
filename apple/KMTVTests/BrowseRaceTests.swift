@@ -152,7 +152,7 @@ final class BrowseRaceTests: XCTestCase {
 
     func testCategoriesRecoverAfterFailedFirstLoad() async {
         let api = FlakyCategoriesFake()
-        let vm = CategoriesViewModel(apiClient: api)
+        let vm = CategoriesViewModel(apiClient: api, covers: nil)
 
         await vm.loadCategories()
         XCTAssertTrue(vm.categoryGroups.isEmpty)
@@ -170,7 +170,7 @@ final class BrowseRaceTests: XCTestCase {
         let api = DoubanAPIFake()
         let items = (1...4).map { DoubanItem(id: "\($0)", title: "T\($0)", cover: "", rate: "", year: "", desc: "d") }
         api.home = DoubanHomeResponse(sections: [HomeSection(name: "Hot", tag: "hot", type: "movie", items: items)])
-        let vm = HomeViewModel(apiClient: api, syncStore: nil, syncEngine: nil)
+        let vm = HomeViewModel(apiClient: api, syncStore: nil, syncEngine: nil, covers: nil)
         await vm.load()
         vm.heroIndex = 3
         XCTAssertEqual(vm.heroIndex, 3)

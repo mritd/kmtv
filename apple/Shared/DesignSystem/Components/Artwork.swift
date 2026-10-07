@@ -32,12 +32,13 @@ struct PosterPlaceholder: View {
 }
 
 /// Remote artwork that falls back to `PosterPlaceholder` while loading and on failure. When `url`
-/// fails and `CoverRegistry` knows another cover for `title`, it loads that one instead.
+/// fails and the environment's `CoverRegistry` knows another cover for `title`, it loads that one
+/// instead; without a registry (previews, the unit test host) it only shows `url`.
 /// The caller sets the frame or aspect ratio and applies `artworkFrame`. Blurred backdrops pass
 /// `showsPlaceholder: false`, since a blurred placeholder glyph reads as a stray square.
 ///
-/// 远程图片, 加载中与加载失败时显示 `PosterPlaceholder`. `url` 加载失败且 `CoverRegistry` 中有
-/// `title` 的其他封面时, 改为加载该封面. 由调用方设置尺寸或宽高比并应用 `artworkFrame`.
+/// 远程图片, 加载中与加载失败时显示 `PosterPlaceholder`. `url` 加载失败且环境中的 `CoverRegistry` 有
+/// `title` 的其他封面时, 改为加载该封面; 没有登记表时 (预览, 单元测试宿主) 只显示 `url`. 由调用方设置尺寸或宽高比并应用 `artworkFrame`.
 /// 模糊背景传入 `showsPlaceholder: false`, 因为模糊后的占位字形看起来像一个多余的方块.
 struct ArtworkImage: View {
     let url: URL?
@@ -48,6 +49,7 @@ struct ArtworkImage: View {
     //
     // 在本视图中加载失败的 URL; 每个只尝试一次, 两个都失败的封面不会来回重试.
     @State private var failed: Set<URL> = []
+    @Environment(CoverRegistry.self) private var covers: CoverRegistry?
 
     var body: some View {
         Group {
@@ -57,7 +59,7 @@ struct ArtworkImage: View {
                     .onFailure { error in
                         Task { @MainActor in
                             if case .responseError(reason: .invalidHTTPStatusCode(let response)) = error {
-                                CoverRegistry.markBroken(shown, status: response.statusCode)
+                                covers?.markBroken(shown, status: response.statusCode)
                             }
                             failed.insert(shown)
                         }
@@ -85,32 +87,8 @@ struct ArtworkImage: View {
     ///
     /// 依次为 `url` 与已登记的封面, 跳过在此处失败过或已知失效的.
     private var shownURL: URL? {
-        [url, CoverRegistry.cover(for: title)].compactMap { $0 }
-            .first { !failed.contains($0) && !CoverRegistry.isBroken($0) }
-    }
-}
-
-/// A rating badge drawn on artwork: white digits on a dark scrim.
-///
-/// 绘制在图片上的评分角标: 深色遮罩上的白色数字.
-struct RatingBadge: View {
-    let rating: String
-
-    var body: some View {
-        Text(rating)
-            .font(AppFont.meta.weight(.semibold).monospacedDigit())
-            .foregroundStyle(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Surface.scrim, in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous))
-    }
-
-    /// The badge text for a raw rating, or nil when the source has no rating.
-    ///
-    /// 原始评分对应的角标文字; 来源没有评分时返回 nil.
-    static func text(for rating: String?) -> String? {
-        guard let rating, !rating.isEmpty, rating != "0", rating != "0.0" else { return nil }
-        return rating
+        [url, covers?.cover(for: title)].compactMap { $0 }
+            .first { !failed.contains($0) && covers?.isBroken($0) != true }
     }
 }
 

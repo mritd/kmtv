@@ -4,78 +4,104 @@ import XCTest
 @MainActor
 final class CoverRegistryTests: XCTestCase {
     private static let suite = "CoverRegistryTests"
+    private var registry: CoverRegistry!
 
     override func setUp() async throws {
-        CoverRegistry.use(try XCTUnwrap(UserDefaults(suiteName: Self.suite)))
-        CoverRegistry.reset()
+        registry = try makeCoverRegistry(suite: Self.suite)
     }
 
     override func tearDown() async throws {
-        CoverRegistry.reset()
-        UserDefaults().removePersistentDomain(forName: Self.suite)
-        // Back to the host's test store, so later tests never reach the real registry.
-        CoverRegistry.use(try XCTUnwrap(UserDefaults(suiteName: "KMTVTests.covers")))
+        registry = nil
+        clearCoverRegistrySuite(Self.suite)
     }
 
     func testLooksUpByNormalizedTitle() {
-        CoverRegistry.remember([(title: "深渊无间", cover: "https://img.example.com/a.jpg")], baseURL: "http://a:8080")
-        XCTAssertEqual(CoverRegistry.cover(for: " 深渊无间 ")?.absoluteString, "https://img.example.com/a.jpg")
-        XCTAssertNil(CoverRegistry.cover(for: "兰香如故"))
+        registry.remember([(title: "深渊无间", cover: "https://img.example.com/a.jpg")], baseURL: "http://a:8080")
+        XCTAssertEqual(registry.cover(for: " 深渊无间 ")?.absoluteString, "https://img.example.com/a.jpg")
+        XCTAssertNil(registry.cover(for: "兰香如故"))
     }
 
     func testKeepsServerRelativeCoversRelative() {
         let item = DoubanItem(id: "1", title: "早春晴朗", cover: "/api/v1/image?u=x", rate: "6.7", year: "2026")
-        CoverRegistry.remember([item], baseURL: "http://localhost:8081")
-        XCTAssertEqual(CoverRegistry.rawCover(for: "早春晴朗"), "/api/v1/image?u=x")
-        XCTAssertEqual(CoverRegistry.cover(for: "早春晴朗")?.absoluteString, "http://localhost:8081/api/v1/image?u=x")
-        CoverRegistry.remember([(title: "Other", cover: "https://img.example.com/o.jpg")], baseURL: "http://10.0.0.2:8080")
-        XCTAssertEqual(CoverRegistry.cover(for: "早春晴朗")?.absoluteString, "http://10.0.0.2:8080/api/v1/image?u=x")
+        registry.remember([item], baseURL: "http://localhost:8081")
+        XCTAssertEqual(registry.rawCover(for: "早春晴朗"), "/api/v1/image?u=x")
+        XCTAssertEqual(registry.cover(for: "早春晴朗")?.absoluteString, "http://localhost:8081/api/v1/image?u=x")
+        registry.remember([(title: "Other", cover: "https://img.example.com/o.jpg")], baseURL: "http://10.0.0.2:8080")
+        XCTAssertEqual(registry.cover(for: "早春晴朗")?.absoluteString, "http://10.0.0.2:8080/api/v1/image?u=x")
     }
 
     func testSkipsMissingCoversAndKeepsTheLatest() {
-        CoverRegistry.remember([(title: "A", cover: "https://img.example.com/1.jpg")], baseURL: "")
-        CoverRegistry.remember([(title: "A", cover: "")], baseURL: "")
-        XCTAssertEqual(CoverRegistry.cover(for: "A")?.absoluteString, "https://img.example.com/1.jpg")
-        CoverRegistry.remember([(title: "A", cover: "https://img.example.com/2.jpg")], baseURL: "")
-        XCTAssertEqual(CoverRegistry.cover(for: "A")?.absoluteString, "https://img.example.com/2.jpg")
+        registry.remember([(title: "A", cover: "https://img.example.com/1.jpg")], baseURL: "")
+        registry.remember([(title: "A", cover: "")], baseURL: "")
+        XCTAssertEqual(registry.cover(for: "A")?.absoluteString, "https://img.example.com/1.jpg")
+        registry.remember([(title: "A", cover: "https://img.example.com/2.jpg")], baseURL: "")
+        XCTAssertEqual(registry.cover(for: "A")?.absoluteString, "https://img.example.com/2.jpg")
     }
 
     func testRemembersRefusedCoversButNotTransientOrServerFailures() throws {
-        CoverRegistry.remember([(title: "A", cover: "/api/v1/image?u=a")], baseURL: "http://localhost:8081")
+        registry.remember([(title: "A", cover: "/api/v1/image?u=a")], baseURL: "http://localhost:8081")
         let refused = try XCTUnwrap(URL(string: "https://img.example.com/403.jpg"))
         let flaky = try XCTUnwrap(URL(string: "https://img.example.com/503.jpg"))
         let server = try XCTUnwrap(URL(string: "http://localhost:8081/api/v1/image?u=a"))
 
-        CoverRegistry.markBroken(refused, status: 403)
-        CoverRegistry.markBroken(flaky, status: 503)
-        CoverRegistry.markBroken(server, status: 403)
+        registry.markBroken(refused, status: 403)
+        registry.markBroken(flaky, status: 503)
+        registry.markBroken(server, status: 403)
 
-        XCTAssertTrue(CoverRegistry.isBroken(refused))
-        XCTAssertFalse(CoverRegistry.isBroken(flaky), "server errors may pass")
-        XCTAssertFalse(CoverRegistry.isBroken(server), "the server's own covers are never marked")
+        XCTAssertTrue(registry.isBroken(refused))
+        XCTAssertFalse(registry.isBroken(flaky), "server errors may pass")
+        XCTAssertFalse(registry.isBroken(server), "the server's own covers are never marked")
     }
 
     func testBrokenCoversAreCapped() throws {
         for index in 0...CoverRegistry.brokenLimit {
-            CoverRegistry.markBroken(try XCTUnwrap(URL(string: "https://img.example.com/\(index).jpg")), status: 404)
+            registry.markBroken(try XCTUnwrap(URL(string: "https://img.example.com/\(index).jpg")), status: 404)
         }
-        XCTAssertFalse(CoverRegistry.isBroken(try XCTUnwrap(URL(string: "https://img.example.com/0.jpg"))))
-        XCTAssertTrue(CoverRegistry.isBroken(
+        XCTAssertFalse(registry.isBroken(try XCTUnwrap(URL(string: "https://img.example.com/0.jpg"))))
+        XCTAssertTrue(registry.isBroken(
             try XCTUnwrap(URL(string: "https://img.example.com/\(CoverRegistry.brokenLimit).jpg"))))
     }
 
     func testEvictsTheLeastRecentlyRegisteredFirst() {
-        CoverRegistry.remember([(title: "kept", cover: "https://img.example.com/kept.jpg")], baseURL: "")
+        registry.remember([(title: "kept", cover: "https://img.example.com/kept.jpg")], baseURL: "")
         let filler = (0..<CoverRegistry.limit).map { (title: "title \($0)", cover: "https://img.example.com/\($0).jpg") }
-        CoverRegistry.remember(Array(filler.prefix(CoverRegistry.limit / 2)), baseURL: "")
+        registry.remember(Array(filler.prefix(CoverRegistry.limit / 2)), baseURL: "")
         // Seen again, so it moves behind the first half of the filler.
-        CoverRegistry.remember([(title: "kept", cover: "https://img.example.com/kept.jpg")], baseURL: "")
-        CoverRegistry.remember(Array(filler.suffix(CoverRegistry.limit / 2)), baseURL: "")
+        registry.remember([(title: "kept", cover: "https://img.example.com/kept.jpg")], baseURL: "")
+        registry.remember(Array(filler.suffix(CoverRegistry.limit / 2)), baseURL: "")
 
-        XCTAssertNotNil(CoverRegistry.cover(for: "kept"))
-        XCTAssertNil(CoverRegistry.cover(for: "title 0"), "the oldest entry is evicted")
-        XCTAssertNotNil(CoverRegistry.cover(for: "title \(CoverRegistry.limit - 1)"), "the newest entry stays")
-        let kept = (0..<CoverRegistry.limit).filter { CoverRegistry.cover(for: "title \($0)") != nil }
+        XCTAssertNotNil(registry.cover(for: "kept"))
+        XCTAssertNil(registry.cover(for: "title 0"), "the oldest entry is evicted")
+        XCTAssertNotNil(registry.cover(for: "title \(CoverRegistry.limit - 1)"), "the newest entry stays")
+        let kept = (0..<CoverRegistry.limit).filter { registry.cover(for: "title \($0)") != nil }
         XCTAssertEqual(kept.count + 1, CoverRegistry.limit)
+    }
+
+    func testPersistsUnderTheExistingKeysAndReloads() throws {
+        XCTAssertEqual(CoverRegistry.limit, 600)
+        registry.remember([(title: "深渊无间", cover: "/api/v1/image?u=a")], baseURL: "http://a:8080")
+        let refused = try XCTUnwrap(URL(string: "https://img.example.com/403.jpg"))
+        registry.markBroken(refused, status: 403)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: Self.suite))
+        XCTAssertEqual(defaults.dictionary(forKey: "covers.byTitle") as? [String: String],
+                       [normalizeSyncKey("深渊无间"): "/api/v1/image?u=a"])
+        XCTAssertEqual(defaults.stringArray(forKey: "covers.order"), [normalizeSyncKey("深渊无间")])
+        XCTAssertEqual(defaults.string(forKey: "covers.baseURL"), "http://a:8080")
+        XCTAssertEqual(defaults.stringArray(forKey: "covers.broken"), [refused.absoluteString])
+
+        let reloaded = CoverRegistry(defaults: defaults)
+        XCTAssertEqual(reloaded.cover(for: "深渊无间")?.absoluteString, "http://a:8080/api/v1/image?u=a")
+        XCTAssertTrue(reloaded.isBroken(refused))
+    }
+
+    func testEvictedBrokenCoversLeaveTheStoredListToo() throws {
+        for index in 0...CoverRegistry.brokenLimit {
+            registry.markBroken(try XCTUnwrap(URL(string: "https://img.example.com/\(index).jpg")), status: 410)
+        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: Self.suite))
+        let stored = try XCTUnwrap(defaults.stringArray(forKey: "covers.broken"))
+        XCTAssertEqual(stored.count, CoverRegistry.brokenLimit)
+        XCTAssertEqual(stored.first, "https://img.example.com/1.jpg")
+        XCTAssertFalse(CoverRegistry(defaults: defaults).isBroken(try XCTUnwrap(URL(string: "https://img.example.com/0.jpg"))))
     }
 }

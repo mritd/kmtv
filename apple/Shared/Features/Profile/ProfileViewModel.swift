@@ -18,6 +18,7 @@ final class ProfileViewModel {
     /// 使用协议依赖让个人资料 API 行为可以在单元测试中替换.
     private let apiClient: any ProfileAPIProtocol
     private let syncStore: SyncStore?
+    private let toasts: any ToastPresenting
     private let logger = Logger(subsystem: "com.mritd.kmtv", category: "api")
     /// Weak app state bridge used to keep the global current user snapshot fresh.
     ///
@@ -37,22 +38,20 @@ final class ProfileViewModel {
     }
     private var standaloneUser: User?
 
-    init(apiClient: any ProfileAPIProtocol, syncStore: SyncStore?, user: User?, appVM: AppViewModel? = nil) {
+    /// `toasts` shows failures; successes go to `successMessage`.
+    ///
+    /// `toasts` 显示失败提示; 成功信息写入 `successMessage`.
+    init(apiClient: any ProfileAPIProtocol, syncStore: SyncStore?, user: User?, appVM: AppViewModel? = nil,
+         toasts: any ToastPresenting = ToastManager.shared) {
         self.apiClient = apiClient
         self.syncStore = syncStore
         self.standaloneUser = user
         self.appVM = appVM
+        self.toasts = toasts
     }
 
     private func showError(_ error: Error) {
-        // Centralize profile errors so APIError localized messages stay consistent.
-        //
-        // 集中处理个人资料错误, 保持 APIError 本地化提示一致.
-        if let apiError = error as? APIError {
-            ToastManager.shared.show(apiError.localizedMessage)
-        } else {
-            ToastManager.shared.show(error.localizedDescription)
-        }
+        toasts.show(error: error)
     }
 
     func updateUsername() async {
@@ -95,11 +94,11 @@ final class ProfileViewModel {
 
     func changePassword() async {
         guard passwordNew == passwordConfirm else {
-            ToastManager.shared.show(String(localized: "Passwords don't match"))
+            toasts.show(String(localized: "Passwords don't match"))
             return
         }
         guard !passwordNew.isEmpty else {
-            ToastManager.shared.show(String(localized: "Password cannot be empty"))
+            toasts.show(String(localized: "Password cannot be empty"))
             return
         }
         do {
@@ -121,7 +120,7 @@ final class ProfileViewModel {
     /// 读取选中的照片并上传为新头像; 无法读取的照片会提示, 而不是静默失败.
     func pickAvatar(loading load: () async throws -> Data?) async {
         guard let data = try? await load() else {
-            ToastManager.shared.show(String(localized: "Could not load the selected photo"))
+            toasts.show(String(localized: "Could not load the selected photo"))
             return
         }
         await uploadAvatar(imageData: data)

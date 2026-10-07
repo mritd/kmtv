@@ -16,7 +16,6 @@ struct SourceButton: View {
         .buttonStyle(.tvPlain)
     }
 
-    @ViewBuilder
     private var label: some View {
         TVSourceButtonLabel(
             name: DisplayFormatters.cleanSourceName(source.sourceName),
@@ -24,9 +23,7 @@ struct SourceButton: View {
             isSelected: isSelected
         )
     }
-
 }
-
 
 /// tvOS label keeps focus, selected state, and latency in one stable view tree.
 ///
@@ -35,10 +32,9 @@ private struct TVSourceButtonLabel: View {
     let name: String
     let durationMs: Double
     let isSelected: Bool
-    @Environment(\.isFocused) private var isFocused
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: TVSpacing.hairline) {
             Text(name)
                 .font(.caption)
                 .lineLimit(1)
@@ -48,42 +44,16 @@ private struct TVSourceButtonLabel: View {
                     .foregroundStyle(latencyColor)
             }
         }
-        .foregroundStyle(foregroundColor)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity)
-        .background(backgroundColor)
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(borderColor, lineWidth: isFocused ? 2 : 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .scaleEffect(isFocused ? 1.05 : 1.0)
-        .animation(.easeInOut(duration: 0.15), value: isFocused)
-    }
-
-    private var foregroundColor: Color {
-        if isSelected { return .white }
-        if isFocused { return .white }
-        return Color(white: 0.7)
-    }
-
-    private var backgroundColor: Color {
-        if isSelected { return Theme.accent.opacity(0.3) }
-        if isFocused { return Color.white.opacity(0.15) }
-        return Color(white: 0.15)
-    }
-
-    private var borderColor: Color {
-        if isSelected { return Theme.accent }
-        if isFocused { return Color.white.opacity(0.4) }
-        return Color(white: 0.25)
+        .tvFocusableLabel(selected: isSelected)
     }
 
     private var latencyColor: Color {
-        if durationMs < 1000 { return .green }
-        if durationMs < 3000 { return .yellow }
-        return .orange
+        if durationMs < 1000 { return StatusColor.success }
+        if durationMs < 3000 { return StatusColor.caution }
+        return StatusColor.warning
     }
 }
 #endif

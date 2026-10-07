@@ -2,18 +2,6 @@ import Foundation
 import SwiftData
 import SwiftUI
 
-enum AppState {
-    case loading
-    case serverSetup
-    case authenticated
-    /// The device's downloads without a server. The identity, when known, records watch progress
-    /// in its local store.
-    ///
-    /// 不连接服务器时的本机下载. 已知身份时, 观看进度记录在其本地存储中.
-    case offline(DownloadIdentity?)
-    case incompatibleServer(serverVersion: String, requiredVersion: String)
-}
-
 /// Classifies why `me()` failed at launch.
 ///
 /// 判断启动时 `me()` 失败的原因.
@@ -82,7 +70,17 @@ final class NotificationObservation {
 @Observable
 @MainActor
 final class AppViewModel {
+    /// The root screen; it changes only through `send(_:)`.
+    ///
+    /// 根页面; 只通过 `send(_:)` 改变.
     private(set) var state: AppState = .loading
+
+    /// The state transitions and the session epoch. Not observed: views watch `state`, so a new
+    /// epoch alone never re-renders the root.
+    ///
+    /// 状态转换与会话纪元. 不参与观察: 视图观察的是 `state`, 因此单纯的新纪元不会让根视图重新渲染.
+    @ObservationIgnored private var machine = AppSessionMachine()
+
     /// The signed-in user; profile edits replace it.
     ///
     /// 当前登录用户; 修改个人资料时会被替换.
@@ -107,13 +105,7 @@ final class AppViewModel {
     /// 下载作用域控制; 在 tvOS 以及不涉及下载的测试中为 nil.
     private(set) var downloads: (any DownloadScopeControlling)?
     private let identityStore: LastIdentityStore
-
-    #if os(iOS)
-    /// The concrete download manager for download screens.
-    ///
-    /// 供下载页面使用的具体下载管理器.
-    var downloadManager: DownloadManager? { downloads as? DownloadManager }
-    #endif
+    private let toasts: any ToastPresenting
 
     /// How long `bootstrap()` waits for `me()` before treating the server as unreachable; tests lower it.
     ///
@@ -126,15 +118,20 @@ final class AppViewModel {
     /// `connectServer` 等待服务器的时长, 超时后以 `URLError(.timedOut)` 失败; 测试会调低该值.
     var connectTimeout: Duration = .seconds(10)
 
-    /// `session` replaces the API client's URL session; tests pass a stubbed one.
+    /// `session` replaces the API client's URL session; tests pass a stubbed one. `toasts` shows
+    /// session messages, and the sync session's, so tests can assert them through a fake.
     ///
-    /// `session` 替换 API 客户端使用的 URL 会话; 测试会传入桩会话.
+    /// `session` 替换 API 客户端使用的 URL 会话; 测试会传入桩会话. `toasts` 显示会话相关提示以及同步会话
+    /// 的提示, 测试因此可以通过替身断言它们.
     init(modelContext: ModelContext, session: URLSession? = nil,
-         downloads: (any DownloadScopeControlling)? = nil, identityStore: LastIdentityStore = LastIdentityStore()) {
+         downloads: (any DownloadScopeControlling)? = nil, identityStore: LastIdentityStore = LastIdentityStore(),
+         toasts: any ToastPresenting = ToastManager.shared) {
         self.modelContext = modelContext
+        self.serverURL = Server.current(in: modelContext)?.url ?? ""
         self.session = session
         self.downloads = downloads
         self.identityStore = identityStore
+        self.toasts = toasts
         // Removed with this view model, so a released one never reacts to another session's 401.
         //
         // 随视图模型一起移除, 已释放的视图模型不会再响应其他会话的 401.
@@ -146,39 +143,44 @@ final class AppViewModel {
         }
     }
 
-    var serverURL: String {
-        Server.current(in: modelContext)?.url ?? ""
+    /// The configured server's URL, empty when none is. Cached from the stored `Server` and updated
+    /// wherever this view model replaces or deletes it, so views can read it in `body` without a fetch.
+    ///
+    /// 已配置服务器的地址, 未配置时为空. 从已保存的 `Server` 缓存而来, 本视图模型替换或删除服务器时
+    /// 同步更新, 因此视图在 `body` 中读取它不会触发查询.
+    private(set) var serverURL: String
+
+    /// Applies `event` to the state machine and publishes the new state when it changed. Returns
+    /// whether the event applied.
+    ///
+    /// 将 `event` 应用到状态机, 状态变化时发布新状态. 返回事件是否生效.
+    @discardableResult
+    private func send(_ event: AppEvent) -> Bool {
+        guard machine.send(event) else { return false }
+        if state != machine.state { state = machine.state }
+        return true
     }
 
-    /// Identifies the current session. Every transition that starts or leaves a session bumps it
-    /// (bootstrap, connect, offline, logout, disconnect, an expired token), and every async step
-    /// checks it after each `await`, so a request that finishes for a session the user already left
-    /// drops its result instead of changing the state.
+    /// Starts a new session epoch and returns it; see `AppSessionMachine`.
     ///
-    /// 标识当前会话. 每次开始或离开会话的转换都会递增它 (启动, 连接, 离线, 登出, 断开, token 过期),
-    /// 每个异步步骤在每次 `await` 之后都会检查它, 因此为用户已离开的会话完成的请求会丢弃结果,
-    /// 而不会改变状态.
-    private var sessionEpoch = 0
-
-    /// Starts a new session epoch and returns it.
-    ///
-    /// 开始新的会话纪元并返回它.
+    /// 开始新的会话纪元并返回它; 参见 `AppSessionMachine`.
     private func beginSession() -> Int {
-        sessionEpoch += 1
-        return sessionEpoch
+        send(.beginSession)
+        return machine.epoch
     }
 
     func bootstrap() async {
         let epoch = beginSession()
-        guard let server = Server.current(in: modelContext) else {
+        let server = Server.current(in: modelContext)
+        serverURL = server?.url ?? ""
+        guard let server else {
             // Leaving offline mode opened from setup: close its store and scope too.
             //
             // 离开从设置页打开的离线模式: 同时关闭其存储与作用域.
             sync?.stop()
             sync = nil
             await releaseDownloads()
-            guard epoch == sessionEpoch else { return }
-            state = .serverSetup
+            send(.needsSetup(epoch: epoch))
             return
         }
 
@@ -208,13 +210,13 @@ final class AppViewModel {
             // 父任务被取消, 通常是视图已经消失, 这里不再更新 UI 状态.
             return
         } catch {
-            guard epoch == sessionEpoch else { return }
+            guard machine.isCurrent(epoch) else { return }
             await failBootstrap(error, serverURL: server.url, savedToken: savedToken,
                                 savedTokenExpired: saved == .expired, epoch: epoch)
             return
         }
 
-        guard epoch == sessionEpoch else { return }
+        guard machine.isCurrent(epoch) else { return }
         if saved == .expired {
             resetToServerSetup(message: Self.sessionExpiredMessage)
             return
@@ -228,31 +230,29 @@ final class AppViewModel {
     /// 结束 `me()` 失败的启动: 服务器不可达且有下载时进入离线, 否则回到设置页并说明原因.
     private func failBootstrap(_ error: Error, serverURL: String, savedToken: String?, savedTokenExpired: Bool,
                                epoch: Int) async {
-        if enterOfflineIfPossible(serverURL: serverURL, error: error) { return }
+        #if os(iOS)
+        if enterOfflineIfPossible(serverURL: serverURL, error: error, epoch: epoch) { return }
+        #endif
         if savedTokenExpired, !BootstrapFailure.isUnreachable(error) {
             resetToServerSetup(message: Self.sessionExpiredMessage)
             return
         }
         await releaseDownloads()
-        guard epoch == sessionEpoch else { return }
+        guard send(.needsSetup(epoch: epoch)) else { return }
         prefillServerURL = serverURL
-        state = .serverSetup
         if let urlError = error as? URLError, urlError.code == .timedOut {
-            ToastManager.shared.show(String(localized: "Connection timed out"))
-        } else if let error = error as? APIError {
-            if error.isUnauthorized, savedToken != nil {
-                // The saved token was rejected (for example the server's database was reset);
-                // `.authExpired` resets to setup and says the session expired.
-                //
-                // 保存的 token 被拒绝 (例如服务端数据库被重置); `.authExpired` 会回到设置页并提示登录过期.
-            } else {
-                // Without a token, a 401 means the server turned anonymous access off.
-                //
-                // 没有 token 时, 401 表示服务端关闭了匿名访问.
-                ToastManager.shared.show(error.localizedMessage)
-            }
+            toasts.show(String(localized: "Connection timed out"))
+        } else if let apiError = error as? APIError, apiError.isUnauthorized, savedToken != nil {
+            // The saved token was rejected (for example the server's database was reset);
+            // `.authExpired` resets to setup and says the session expired.
+            //
+            // 保存的 token 被拒绝 (例如服务端数据库被重置); `.authExpired` 会回到设置页并提示登录过期.
         } else {
-            ToastManager.shared.show(error.localizedDescription)
+            // Anything else shows its message; without a token, a 401 means the server turned
+            // anonymous access off.
+            //
+            // 其他错误显示其提示; 没有 token 时, 401 表示服务端关闭了匿名访问.
+            toasts.show(error: error)
         }
     }
 
@@ -269,27 +269,27 @@ final class AppViewModel {
         // 在页面出现之前打开存储, 页面因此不会在没有存储的情况下渲染.
         openSync(for: user)
         await releaseDownloads(keeping: downloadScopeKey(for: user))
-        guard epoch == sessionEpoch else { return }
-        state = .authenticated
+        guard send(.signedIn(epoch: epoch)) else { return }
         // Check server compatibility after authentication because settings are fetched best-effort.
         //
         // 认证成功后再检查服务端兼容性, 因为设置接口是尽力获取.
         await startSyncIfCompatible(epoch: epoch)
-        guard epoch == sessionEpoch else { return }
-        if case .authenticated = state {
+        guard machine.isCurrent(epoch) else { return }
+        if state == .authenticated {
             await activateDownloads(for: user)
         } else {
             await releaseDownloads()
         }
     }
 
+    #if os(iOS)
     /// Opens the device's downloads when the server is unreachable and any completed download
     /// exists. Returns whether the app went offline.
     ///
     /// 服务器无法连接且本机存在已完成的下载时, 打开本机下载. 返回 App 是否进入离线状态.
-    private func enterOfflineIfPossible(serverURL: String, error: Error) -> Bool {
+    private func enterOfflineIfPossible(serverURL: String, error: Error, epoch: Int) -> Bool {
         guard BootstrapFailure.isUnreachable(error), hasOfflineDownloads else { return false }
-        enterOffline(offlineIdentity(serverURL: serverURL))
+        enterOffline(offlineIdentity(serverURL: serverURL), epoch: epoch)
         return true
     }
 
@@ -314,12 +314,15 @@ final class AppViewModel {
     /// 不等服务器响应, 立即离线打开本机下载; 仍在进行的启动或连接请求会丢弃其结果.
     func openDownloadsOffline() {
         guard hasOfflineDownloads else { return }
-        _ = beginSession()
-        enterOffline(offlineIdentity(serverURL: serverURL))
+        let epoch = beginSession()
+        enterOffline(offlineIdentity(serverURL: serverURL), epoch: epoch)
     }
 
-    private func enterOffline(_ identity: DownloadIdentity?) {
-        guard let downloads else { return }
+    /// Opens `identity`'s downloads and store offline for the session at `epoch`.
+    ///
+    /// 为纪元为 `epoch` 的会话离线打开 `identity` 的下载与存储.
+    private func enterOffline(_ identity: DownloadIdentity?, epoch: Int) {
+        guard let downloads, machine.isCurrent(epoch) else { return }
         if let identity {
             let user = User(id: Int(identity.userID), username: identity.username, role: "user")
             // The engine stays idle offline; it is there so a reconnect as the same user keeps this store.
@@ -336,16 +339,17 @@ final class AppViewModel {
             sync = nil
             downloads.beginDeactivate()
         }
-        state = .offline(identity)
+        send(.wentOffline(identity, epoch: epoch))
     }
 
     /// Retries the connection from offline mode.
     ///
     /// 在离线模式下重新尝试连接.
     func reconnect() async {
-        state = .loading
+        send(.reconnect)
         await bootstrap()
     }
+    #endif
 
     /// Signs in to `url`, with an account or anonymously. The request runs first, against a client
     /// of its own; only when it succeeds are the stored server, token, sync, and downloads replaced,
@@ -374,7 +378,7 @@ final class AppViewModel {
             login = nil
         }
 
-        guard epoch == sessionEpoch, !Task.isCancelled else {
+        guard machine.isCurrent(epoch), !Task.isCancelled else {
             // The user left meanwhile: replace nothing, and revoke the token nobody will use.
             //
             // 用户已在此期间离开: 不替换任何内容, 并注销不会再被使用的 token.
@@ -401,6 +405,7 @@ final class AppViewModel {
         Server.deleteAll(in: modelContext)
         modelContext.insert(Server(url: serverURL))
         try? modelContext.save()
+        self.serverURL = serverURL
         authStore = store
         accessTokenBox.set(login?.accessToken)
         let client = makeClient(for: serverURL)
@@ -471,7 +476,8 @@ final class AppViewModel {
         }
         sync = SyncSession(context: modelContext, serverURL: serverURL, user: user, api: api ?? apiClient,
                            activeUserID: { [weak self] in self?.currentUser.map { Int64(max(0, $0.id)) } },
-                           onScopeDropped: { [weak self] in Task { await self?.downloads?.deleteScope(scopeKey) } })
+                           onScopeDropped: { [weak self] in Task { await self?.downloads?.deleteScope(scopeKey) } },
+                           toasts: toasts)
     }
 
     /// The download scope of `user`; nil for the anonymous user, who has no downloads.
@@ -520,14 +526,13 @@ final class AppViewModel {
     private func startSyncIfCompatible(epoch: Int) async {
         let captured = sync
         await fetchServerVersion()
-        guard epoch == sessionEpoch, sync === captured else { return }
+        guard machine.isCurrent(epoch), sync === captured else { return }
         if !serverVersion.isEmpty && !VersionCompatibility.isCompatible(serverVersion) {
+            guard send(.serverIncompatible(serverVersion: serverVersion,
+                                           requiredVersion: VersionCompatibility.minimumServerVersion,
+                                           epoch: epoch)) else { return }
             sync?.stop()
             sync = nil
-            state = .incompatibleServer(
-                serverVersion: serverVersion,
-                requiredVersion: VersionCompatibility.minimumServerVersion
-            )
             return
         }
         sync?.start()
@@ -570,16 +575,15 @@ final class AppViewModel {
         // 只有正在使用的 token 才能让当前会话过期. 之前会话的 token (旧服务器, 被放弃的启动请求) 收到的
         // 401 会被忽略; 首次重置清除 token 后, 后续的 401 也都会被忽略.
         guard let rejectedToken, rejectedToken == accessTokenBox.get() else { return }
-        // A late 401 from a bootstrap the user left for offline mode must not end offline mode.
-        //
-        // 用户已改为离线模式后, 被放弃的启动请求迟到的 401 不能结束离线模式.
-        if case .offline = state { return }
         // Posted only for requests that carried a token, so the session expired; the backend's
         // generic "not logged in" code would otherwise read as "anonymous access is disabled".
+        // `.sessionExpired` leaves offline mode alone: a late 401 from a bootstrap the user left for
+        // offline mode must not end it.
         //
         // 只有携带 token 的请求才会发送该通知, 因此是登录过期; 否则后端通用的 "未登录" 错误码会被显示为
-        // "禁止匿名登录".
-        resetToServerSetup(message: Self.sessionExpiredMessage)
+        // "禁止匿名登录". `.sessionExpired` 不会影响离线模式: 用户已改为离线模式后, 被放弃的启动请求
+        // 迟到的 401 不能结束离线模式.
+        resetToServerSetup(.sessionExpired, message: Self.sessionExpiredMessage)
     }
 
     private static var sessionExpiredMessage: String {
@@ -587,11 +591,13 @@ final class AppViewModel {
     }
 
     /// Common cleanup: clear stored credentials and redirect to server setup. Ends the session, so
-    /// any bootstrap or connect still in flight drops its result.
+    /// any bootstrap or connect still in flight drops its result. Does nothing when the state machine
+    /// rejects `event`.
     ///
     /// 通用清理: 清除已保存凭据并跳转到服务器设置页. 会结束当前会话, 仍在进行的启动或连接会丢弃结果.
-    private func resetToServerSetup(message: String? = nil) {
-        _ = beginSession()
+    /// 状态机拒绝 `event` 时不做任何事.
+    private func resetToServerSetup(_ event: AppEvent = .reset, message: String? = nil) {
+        guard send(event) else { return }
         prefillServerURL = serverURL
         authStore?.clear()
         authStore = nil
@@ -606,9 +612,9 @@ final class AppViewModel {
         // 立即排入队列, 因此之后登录请求的激活总在它之后执行.
         downloads?.beginDeactivate()
         Server.deleteAll(in: modelContext)
-        state = .serverSetup
+        serverURL = ""
         if let message {
-            ToastManager.shared.show(message)
+            toasts.show(message)
         }
     }
 

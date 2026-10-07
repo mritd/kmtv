@@ -74,7 +74,8 @@ final class BootstrapOfflineTests: XCTestCase {
         AuthStore(serverURL: serverURL).clear()
     }
 
-    private func makeViewModel(me: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)) throws -> AppViewModel {
+    private func makeViewModel(toasts: any ToastPresenting = ToastManager.shared,
+                               me: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)) throws -> AppViewModel {
         let container = try ModelContainerFactory.makeInMemory()
         containers.append(container)
         container.mainContext.insert(Server(url: serverURL))
@@ -99,7 +100,8 @@ final class BootstrapOfflineTests: XCTestCase {
         // 与 `URLProtocolStub` 一样应答, 并可挂起某个路径直到放行.
         config.protocolClasses = [HeldResponseProtocol.self]
         let vm = AppViewModel(modelContext: container.mainContext, session: URLSession(configuration: config),
-                              downloads: scope, identityStore: LastIdentityStore(defaults: defaults))
+                              downloads: scope, identityStore: LastIdentityStore(defaults: defaults),
+                              toasts: toasts)
         viewModels.append(vm)
         return vm
     }
@@ -238,6 +240,25 @@ final class BootstrapOfflineTests: XCTestCase {
         guard case .serverSetup = vm.state else { return XCTFail("expected setup, got \(vm.state)") }
         XCTAssertEqual(ToastManager.shared.currentMessage,
                        String(localized: "Anonymous access is disabled, please sign in", bundle: .main))
+    }
+
+    func testBootstrapFailureToastsThroughTheInjectedPresenter() async throws {
+        AuthStore(serverURL: serverURL).clear()
+        let toasts = ToastRecorder()
+        let vm = try makeViewModel(toasts: toasts, me: status(401, #"{"code":1002,"error":"not logged in"}"#))
+        await vm.bootstrap()
+        guard case .serverSetup = vm.state else { return XCTFail("expected setup, got \(vm.state)") }
+        XCTAssertEqual(toasts.messages, [String(localized: "Anonymous access is disabled, please sign in", bundle: .main)])
+        XCTAssertEqual(toasts.shown.first?.style, .error)
+    }
+
+    func testCancelledBootstrapRequestGoesToSetupWithoutAToast() async throws {
+        AuthStore(serverURL: serverURL).clear()
+        let toasts = ToastRecorder()
+        let vm = try makeViewModel(toasts: toasts) { _ in throw URLError(.cancelled) }
+        await vm.bootstrap()
+        guard case .serverSetup = vm.state else { return XCTFail("expected setup, got \(vm.state)") }
+        XCTAssertTrue(toasts.messages.isEmpty, "a cancelled request is not reported: \(toasts.messages)")
     }
 
     func testReconnectLeavesOfflineWhenServerAnswers() async throws {
@@ -552,6 +573,18 @@ final class BootstrapOfflineTests: XCTestCase {
         } catch let error as URLError {
             XCTAssertEqual(error.code, .timedOut)
         }
+    }
+
+    func testServerURLFollowsTheStoredServer() async throws {
+        let vm = try makeViewModel { self.ok($0) }
+        XCTAssertEqual(vm.serverURL, serverURL)
+        try await vm.connectServer(url: "https://new.example", username: "", password: "")
+        XCTAssertEqual(vm.serverURL, "https://new.example")
+        XCTAssertEqual(Server.current(in: context)?.url, vm.serverURL)
+        vm.disconnectServer()
+        XCTAssertEqual(vm.serverURL, "")
+        XCTAssertNil(Server.current(in: context))
+        XCTAssertEqual(vm.prefillServerURL, "https://new.example")
     }
 
     func testReconnectAsTheSameUserReusesTheStore() async throws {

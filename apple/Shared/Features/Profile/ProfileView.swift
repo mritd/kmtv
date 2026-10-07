@@ -8,6 +8,10 @@ import CryptoKit
 
 struct ProfileView: View {
     @Environment(AppViewModel.self) private var appVM
+    /// The download library; optional so a page built without it (a preview) still renders.
+    ///
+    /// 下载库; 设为可选, 使未提供它的页面 (例如预览) 也能渲染.
+    @Environment(DownloadManager.self) private var downloadManager: DownloadManager?
     @Environment(\.appTheme) private var theme
     @State private var viewModel: ProfileViewModel?
     @State private var selectedPhoto: PhotosPickerItem?
@@ -44,7 +48,7 @@ struct ProfileView: View {
             // would count their own downloads as another account's.
             //
             // 已登录用户的作用域在激活完成前为 nil; 此时显示会把其自己的下载算作其他账号的.
-            if let downloads = appVM.downloadManager, isAnonymous || downloads.activeScopeKey != nil {
+            if let downloads = downloadManager, isAnonymous || downloads.activeScopeKey != nil {
                 DownloadsSettingsSection(downloads: downloads, scope: isAnonymous ? nil : downloads.activeScopeKey)
             }
             accountSection(vm)
@@ -53,7 +57,7 @@ struct ProfileView: View {
         .alert("OK", isPresented: .init(get: { vm.successMessage != nil }, set: { if !$0 { vm.successMessage = nil } })) {
             Button("OK") { vm.successMessage = nil }
         } message: {
-            Text(vm.successMessage ?? "")
+            Text(verbatim: vm.successMessage ?? "")
         }
     }
 
@@ -94,11 +98,12 @@ struct ProfileView: View {
                         }
                     } else {
                         HStack(spacing: Spacing.sm) {
-                            Text(vm.user?.username ?? String(localized: "Unknown"))
+                            Text(verbatim: vm.user?.username ?? String(localized: "Unknown"))
                                 .font(AppFont.section)
                                 .lineLimit(1)
                             if !isAnonymous, let user = vm.user {
-                                roleBadge(user)
+                                RoleBadge(user: user)
+                                    .accessibilityIdentifier("roleBadge")
                             }
                             Button {
                                 vm.editUsername = vm.user?.username ?? ""
@@ -127,19 +132,6 @@ struct ProfileView: View {
             }
             .padding(.vertical, Spacing.xs)
         }
-    }
-
-    private func roleBadge(_ user: User) -> some View {
-        let isAdmin = user.isAdmin
-        return Text(user.roleDisplayName)
-            .font(AppFont.meta.weight(.semibold))
-            .foregroundStyle(isAdmin ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, 2)
-            .background(isAdmin ? theme.accentTint : Surface.fill, in: Capsule())
-            .lineLimit(1)
-            .fixedSize()
-            .accessibilityIdentifier("roleBadge")
     }
 
     /// The server address without its scheme, for the compact account line.
@@ -249,7 +241,7 @@ struct ProfileView: View {
             Button("Clear Watch History", role: .destructive) {
                 confirmClearHistory = true
             }
-            .foregroundStyle(.red)
+            .foregroundStyle(StatusColor.danger)
             .confirmationDialog("Clear watch history on all devices?", isPresented: $confirmClearHistory,
                                 titleVisibility: .visible) {
                 Button("Clear", role: .destructive) { vm.clearWatchHistory() }
@@ -259,7 +251,7 @@ struct ProfileView: View {
             Button("Sign Out", role: .destructive) {
                 Task { await appVM.logout() }
             }
-            .foregroundStyle(.red)
+            .foregroundStyle(StatusColor.danger)
             .accessibilityIdentifier("signOutButton")
         }
     }

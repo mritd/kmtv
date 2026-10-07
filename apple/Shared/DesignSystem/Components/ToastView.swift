@@ -15,9 +15,49 @@ enum ToastStyle: Sendable {
     case success
 }
 
+/// Shows short transient messages to the user. View models take one in their initializer, with
+/// `ToastManager.shared` as the default, so tests can assert what the user saw through a fake.
+///
+/// Presentation rule: transient failures (a feed, search, or background action that failed) go to
+/// a toast; errors about input in an open form stay inline in that form, so the typed values and
+/// the reason stay together.
+///
+/// 向用户显示简短的临时提示. 视图模型在初始化时接收一个实例, 默认为 `ToastManager.shared`, 测试因此
+/// 可以通过替身断言用户看到的内容.
+///
+/// 展示规则: 临时性失败 (信息流, 搜索或后台操作失败) 使用提示条; 已打开表单中与输入有关的错误留在该
+/// 表单内显示, 让已输入的值与原因保持在一起.
+@MainActor
+protocol ToastPresenting: AnyObject, Sendable {
+    /// Shows `message` with `style`.
+    ///
+    /// 以 `style` 样式显示 `message`.
+    func show(_ message: String, style: ToastStyle)
+}
+
+extension ToastPresenting {
+    /// Shows `message` as an error.
+    ///
+    /// 以错误样式显示 `message`.
+    func show(_ message: String) {
+        show(message, style: .error)
+    }
+
+    /// Shows the user-facing message of `error`; cancellations show nothing (see `Error.userMessage`).
+    ///
+    /// 显示 `error` 面向用户的提示; 取消不显示任何内容 (见 `Error.userMessage`).
+    func show(error: Error) {
+        guard let message = error.userMessage else { return }
+        show(message, style: .error)
+    }
+}
+
+/// The app's toast presenter; the root view draws its current message.
+///
+/// App 的提示条展示者; 根视图绘制其当前消息.
 @Observable
 @MainActor
-final class ToastManager {
+final class ToastManager: ToastPresenting {
     static let shared = ToastManager()
 
     var currentMessage: String?
@@ -29,10 +69,10 @@ final class ToastManager {
 
     private init() {}
 
-    /// Shows `message` with `style`; the default keeps the error look.
+    /// Shows `message` with `style`; `show(_:)` keeps the error look.
     ///
-    /// 以 `style` 样式显示 `message`; 默认保持错误外观.
-    func show(_ message: String, style: ToastStyle = .error) {
+    /// 以 `style` 样式显示 `message`; `show(_:)` 保持错误外观.
+    func show(_ message: String, style: ToastStyle) {
         switch style {
         case .error: logger.warning("Toast: \(message)")
         case .success: logger.info("Toast: \(message)")
@@ -60,7 +100,7 @@ struct ToastView: View {
         #if os(iOS)
         HStack(spacing: Spacing.sm) {
             Image(systemName: style == .success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .foregroundStyle(style == .success ? Color.green : Color.red)
+                .foregroundStyle(statusColor)
             Text(message)
                 .foregroundStyle(.primary)
                 .lineLimit(2)
@@ -72,7 +112,7 @@ struct ToastView: View {
         .background(.regularMaterial, in: Capsule())
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         #else
-        HStack(spacing: 8) {
+        HStack(spacing: TVSpacing.sm) {
             Image(systemName: style == .success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
             Text(message)
                 .lineLimit(2)
@@ -80,12 +120,19 @@ struct ToastView: View {
         }
         .font(.subheadline.weight(.medium))
         .foregroundStyle(.white)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, TVSpacing.md)
+        .padding(.vertical, TVSpacing.shelf)
         .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill((style == .success ? Color.green : Color.red).opacity(0.9))
+            RoundedRectangle(cornerRadius: TVRadius.button)
+                .fill(statusColor.opacity(0.9))
         )
         #endif
+    }
+
+    /// The style's status color: success or danger.
+    ///
+    /// 该样式对应的状态色: 成功或危险.
+    private var statusColor: Color {
+        style == .success ? StatusColor.success : StatusColor.danger
     }
 }

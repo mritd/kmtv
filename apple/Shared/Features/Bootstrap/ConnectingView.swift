@@ -47,10 +47,7 @@ struct ConnectingView: View {
             //
             // 连接页背景渐变.
             LinearGradient(
-                colors: [
-                    Color(red: 10/255, green: 10/255, blue: 10/255),
-                    Color(red: 17/255, green: 17/255, blue: 40/255)
-                ],
+                colors: [TVSurface.backdropTop, TVSurface.backdropBottom],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -65,10 +62,7 @@ struct ConnectingView: View {
                 RoundedRectangle(cornerRadius: iconSize * 0.22)
                     .fill(
                         LinearGradient(
-                            colors: [
-                                Color(red: 74/255, green: 62/255, blue: 127/255),
-                                Color(red: 26/255, green: 15/255, blue: 63/255)
-                            ],
+                            colors: [TVSurface.markLight, TVSurface.markDark],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -79,7 +73,7 @@ struct ConnectingView: View {
                             .font(.system(size: iconSize * 0.4, weight: .bold))
                             .foregroundStyle(.white)
                     )
-                    .shadow(color: Color(red: 74/255, green: 62/255, blue: 127/255).opacity(0.4), radius: 12, y: 4)
+                    .shadow(color: TVSurface.markLight.opacity(0.4), radius: 12, y: 4)
                     .padding(.bottom, 20)
 
                 // App name.
@@ -87,7 +81,7 @@ struct ConnectingView: View {
                 // 应用名称.
                 Text("KMTV")
                     .font(.system(size: titleSize, weight: .bold))
-                    .foregroundStyle(Color(red: 232/255, green: 232/255, blue: 240/255))
+                    .foregroundStyle(Theme.textPrimary)
                     .kerning(3)
                     .padding(.bottom, 32)
 
@@ -96,7 +90,7 @@ struct ConnectingView: View {
                 // 加载指示器和连接状态文本.
                 HStack(spacing: 10) {
                     ProgressView()
-                        .tint(Color(red: 108/255, green: 159/255, blue: 255/255))
+                        .tint(Theme.accent)
                     Text("Connecting to server...", comment: "Bootstrap connecting status")
                         .foregroundStyle(.white.opacity(0.6))
                         .font(.system(size: 14))

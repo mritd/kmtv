@@ -23,6 +23,15 @@ final class DownloadCoverStore {
         self.fetcher = fetcher
     }
 
+    /// Downloads cover image bytes; nil on any failure or non-200 response. The production fetcher.
+    ///
+    /// 下载封面图片数据; 失败或响应非 200 时返回 nil. 正式使用的获取器.
+    nonisolated static func fetchCoverData(from url: URL) async -> Data? {
+        guard let (data, response) = try? await URLSession.shared.data(from: url),
+              (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty else { return nil }
+        return data
+    }
+
     /// Local poster file of a show, if downloaded.
     ///
     /// 剧集的本地海报文件 (如已下载).

@@ -77,6 +77,10 @@ final class OfflinePlayerViewModel {
     //
     // 待执行的自动重启 (失败后重建, 自动下一集); 供测试使用.
     @ObservationIgnored private(set) var restartTask: Task<Void, Never>?
+    // The pending outcome of the last failure, decided once the files were checked; exposed for tests.
+    //
+    // 最近一次失败待定的结果, 文件检查完成后才确定; 供测试使用.
+    @ObservationIgnored private(set) var failureTask: Task<Void, Never>?
     @ObservationIgnored private let playbackURL: @MainActor (DownloadEpisode) async throws -> URL
     @ObservationIgnored private let now: @MainActor () -> ContinuousClock.Instant
     // How long an item may take to become ready before it counts as a failure.
@@ -159,7 +163,7 @@ final class OfflinePlayerViewModel {
             url = try await playbackURL(episode)
         } catch {
             guard !closed, generation == startGeneration else { return }
-            fail()
+            await fail()?.value
             return
         }
         guard !closed, !Task.isCancelled, !suspended, generation == startGeneration else { return }
@@ -328,19 +332,37 @@ final class OfflinePlayerViewModel {
     }
 
     /// A failure deletes the download only when its files are gone. With intact files the item is
-    /// rebuilt once at the checkpoint; a second failure shows an error and keeps the files.
+    /// rebuilt once at the checkpoint; a second failure shows an error and keeps the files. The
+    /// player goes away at once; the files are checked off the main actor, and the returned task
+    /// settles the outcome.
     ///
     /// 只有文件确实缺失时, 失败才会删除下载. 文件完好时在检查点处重建一次 item; 再次失败则提示错误并保留文件.
-    private func fail() {
-        guard !suspended, !closed else { return }
+    /// 播放器立即移除; 文件检查在主 actor 之外进行, 返回的任务负责得出结果.
+    @discardableResult
+    private func fail() -> Task<Void, Never>? {
+        guard !suspended, !closed else { return nil }
         checkpoint()
         engine.observePause(nil)
         pauseDebounceTask?.cancel()
         engine.cleanup()
         player = nil
-        if !manager.filesIntact(episode) {
+        let failed = episode
+        let generation = startGeneration
+        let task = Task { await self.settleFailure(of: failed, generation: generation) }
+        failureTask = task
+        return task
+    }
+
+    private func settleFailure(of failed: DownloadEpisode, generation: Int) async {
+        let intact = await manager.checkFilesIntact(failed)
+        // A start or an episode switch while the files were checked owns the screen now; a failure
+        // of what it plays settles itself.
+        //
+        // 检查文件期间发生的 start 或换集此时接管了画面; 它所播放内容的失败会自行处理.
+        guard failed === episode, generation == startGeneration else { return }
+        if !intact {
             error = String(localized: "File damaged, download again")
-            manager.markDamaged(episode)
+            manager.markDamaged(failed)
         } else if !rebuiltAfterFailure {
             rebuiltAfterFailure = true
             if !closed { restartTask = Task { await start(at: resumePosition) } }

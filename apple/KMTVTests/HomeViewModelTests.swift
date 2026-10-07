@@ -15,7 +15,7 @@ final class HomeViewModelTests: XCTestCase {
                 DoubanItem(id: "2", title: "B", cover: "", rate: "8.1", year: "2026"),
             ])
         ])
-        let vm = HomeViewModel(apiClient: api, syncStore: store, syncEngine: nil)
+        let vm = HomeViewModel(apiClient: api, syncStore: store, syncEngine: nil, covers: nil)
 
         await vm.load()
 
@@ -53,7 +53,7 @@ final class HomeViewModelTests: XCTestCase {
         api.homeError = APIError.serverError(500, 1300, "douban unavailable")
         ToastManager.shared.currentMessage = nil
         ToastManager.shared.isVisible = false
-        let vm = HomeViewModel(apiClient: api, syncStore: nil, syncEngine: nil)
+        let vm = HomeViewModel(apiClient: api, syncStore: nil, syncEngine: nil, covers: nil)
 
         await vm.load()
 

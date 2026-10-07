@@ -10,8 +10,6 @@ struct FavoritesView: View {
     #endif
 
     #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var sizeClass
-
     init(path: Binding<NavigationPath>) {
         self._path = path
     }
@@ -57,18 +55,15 @@ struct FavoritesView: View {
 
     #if os(iOS)
     private func iosGrid(_ vm: FavoritesViewModel) -> some View {
-        let metrics = MediaMetrics(sizeClass)
-        return ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.gridMinimum, maximum: metrics.gridMaximum),
-                                         spacing: metrics.posterSpacing)],
-                      spacing: metrics.posterSpacing) {
+        ScrollView {
+            PosterGrid {
                 ForEach(vm.favorites) { item in
                     Button {
                         path.append(SearchQuery(query: item.title, coverHint: item.cover))
                     } label: {
                         VideoCard(title: item.title, cover: item.cover,
                                   subtitle: DisplayFormatters.metaLine([item.type, item.year], separator: " · "),
-                                  apiClient: appVM.apiClient)
+                                  baseURL: appVM.apiClient?.baseURL)
                     }
                     .buttonStyle(.pressable)
                     .contextMenu {
@@ -87,14 +82,14 @@ struct FavoritesView: View {
     #if os(tvOS)
     private func tvGrid(_ vm: FavoritesViewModel) -> some View {
         ScrollView {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 32), count: 5), spacing: 32) {
+            PosterGrid {
                 ForEach(vm.favorites) { item in
                     Button {
                         onSearch?(SearchQuery(query: item.title, coverHint: item.cover))
                     } label: {
                         VideoCard(title: item.title, cover: item.cover,
                                   subtitle: DisplayFormatters.metaLine([item.type, item.year]),
-                                  apiClient: appVM.apiClient)
+                                  baseURL: appVM.apiClient?.baseURL)
                     }
                     .buttonStyle(.tvScale)
                     .contextMenu {
@@ -102,7 +97,7 @@ struct FavoritesView: View {
                     }
                 }
             }
-            .padding(48)
+            .padding(TVSpacing.page)
         }
         .scrollClipDisabled()
     }

@@ -528,10 +528,14 @@ final class DownloadManagerTests: XCTestCase {
         let ep = try XCTUnwrap(episode(0))
         XCTAssertEqual(ep.state, .completed)
         XCTAssertTrue(manager.filesIntact(ep))
+        let intact = await manager.checkFilesIntact(ep)
+        XCTAssertTrue(intact)
         let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
         let manifest = try XCTUnwrap(DownloadManifest.load(from: layout.manifestURL(episodeDir: dir)))
         try FileManager.default.removeItem(at: dir.appending(path: try XCTUnwrap(manifest.entries.last).fileName))
         XCTAssertFalse(manager.filesIntact(ep))
+        let damaged = await manager.checkFilesIntact(ep)
+        XCTAssertFalse(damaged)
     }
 
     func testBackgroundDuringPrepareDefersTasksUntilForeground() async throws {
@@ -781,7 +785,7 @@ final class DownloadManagerTests: XCTestCase {
         let gate = PrepareGate()
         transport.cancelGate = gate
         let toggle = Task { await manager.setAllowsCellular(true) }
-        for _ in 0..<1000 where !transport.cancelEntered { await Task.yield() }
+        await waitUntil { self.transport.cancelEntered }
         XCTAssertTrue(transport.cancelEntered)
         // A pump during the cancel must not re-create the IDs being cancelled.
         //
@@ -1006,7 +1010,8 @@ final class DownloadManagerTests: XCTestCase {
         // 正好 20 个条目: 保存时会在进度通知发出之前写入数据行.
         for id in liveIDs(0).prefix(20) { await transport.finish(id, layout: layout) }
         await tick()
-        XCTAssertEqual(manager.showProgressTicks[ep.showDir], manager.progressTick)
+        XCTAssertEqual(ep.doneEntries, 20)
+        XCTAssertEqual(manager.progressTick(forTitle: info.title), manager.progressTick)
     }
 
     func testCompletionThatRacesAPauseStillCompletes() async throws {
@@ -1081,7 +1086,7 @@ final class DownloadManagerTests: XCTestCase {
         let gate = PrepareGate()
         transport.cancelGate = gate
         let deactivating = Task { await manager.deactivate() }
-        for _ in 0..<1000 where !transport.cancelEntered { await Task.yield() }
+        await waitUntil { self.transport.cancelEntered }
         XCTAssertTrue(transport.cancelEntered)
         let activating = Task { await manager.activate(scopeKey: scope, preparer: preparer) }
         for _ in 0..<50 { await Task.yield() }
@@ -1102,7 +1107,7 @@ final class DownloadManagerTests: XCTestCase {
         let gate = PrepareGate()
         transport.cancelGate = gate
         let deactivating = Task { await manager.deactivate() }
-        for _ in 0..<1000 where !transport.cancelEntered { await Task.yield() }
+        await waitUntil { self.transport.cancelEntered }
         XCTAssertTrue(transport.cancelEntered)
         // Offline mode opens while the sign-out still waits; it applies after the sign-out.
         //
@@ -1162,6 +1167,77 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertEqual(preparer.calls.count, 1)
         XCTAssertEqual(liveIDs(0).map(\.entryIndex), [1, 2])
         XCTAssertTrue(liveIDs(0).allSatisfy { $0.generation == 1 })
+    }
+
+    func testLibrarySnapshotFollowsStructureNotProgress() async throws {
+        preparer.segments["https://cdn.example/ep0.m3u8"] = 20
+        try await enqueueAndSettle([0, 1])
+        let showKey = normalizeSyncKey("Show")
+        let snapshot = manager.librarySnapshot
+        XCTAssertEqual(snapshot.revision, manager.changeCount)
+        XCTAssertEqual(snapshot.shows.map(\.title), ["Show"])
+        XCTAssertTrue(snapshot.show(showKey: showKey) === manager.libraryShow(showKey: showKey))
+        XCTAssertEqual(snapshot.episodes(showKey: showKey).map(\.episodeIndex), [0, 1])
+        XCTAssertEqual(snapshot.scopeEpisodes.map(\.episodeIndex), [0, 1])
+        let changed = ObservationFlag()
+        withObservationTracking { _ = manager.librarySnapshot } onChange: { changed.set() }
+        for id in liveIDs(0).prefix(5) { await transport.finish(id, layout: layout) }
+        await tick()
+        // Rows carry the progress; the snapshot, and the screens that read it, stay put.
+        //
+        // 进度由数据行承载; 快照以及读取它的页面保持不变.
+        XCTAssertEqual(episode(0)?.doneEntries, 5)
+        XCTAssertFalse(changed.value)
+        await manager.pause(try XCTUnwrap(episode(1)))
+        XCTAssertTrue(changed.value)
+        XCTAssertEqual(manager.librarySnapshot.revision, manager.changeCount)
+        await manager.delete(try XCTUnwrap(episode(1)))
+        XCTAssertEqual(manager.librarySnapshot.episodes(showKey: showKey).map(\.episodeIndex), [0])
+        XCTAssertEqual(manager.librarySnapshot.scopeEpisodes.map(\.episodeIndex), [0])
+        await manager.deleteScope(scope)
+        XCTAssertTrue(manager.librarySnapshot.shows.isEmpty)
+    }
+
+    func testProgressTickIsObservedPerShow() async throws {
+        preparer.segments["https://cdn.example/ep0.m3u8"] = 20
+        try await enqueueAndSettle()
+        let other = DownloadShowInfo(title: "Other Show", cover: "", type: "tv", year: "2026", coverURL: nil)
+        _ = try manager.enqueue(show: other, episodes: [
+            DownloadEpisodeRequest(sourceKey: "src", sourceName: "Source", videoId: "v2", episodeIndex: 0,
+                                   episodeName: "EP1", lineIndex: 0, episodeCount: 1,
+                                   episodeURL: "https://cdn.example/other.m3u8")])
+        await manager.waitForIdle()
+        let showChanged = ObservationFlag()
+        let otherChanged = ObservationFlag()
+        withObservationTracking { _ = manager.progressTick(forTitle: "Show") } onChange: { showChanged.set() }
+        withObservationTracking { _ = manager.progressTick(forTitle: "Other Show") } onChange: { otherChanged.set() }
+        for id in liveIDs(0).prefix(3) { await transport.finish(id, layout: layout) }
+        await tick()
+        XCTAssertTrue(showChanged.value)
+        XCTAssertFalse(otherChanged.value, "a tick that moved only another show is not observed")
+        XCTAssertEqual(manager.progressTick(forTitle: "Show"), manager.progressTick)
+        XCTAssertEqual(manager.progressTick(forTitle: "Other Show"), 0)
+    }
+
+    func testPlaybackFailureMarksDamagedOnlyWhenFilesAreMissing() async throws {
+        try await enqueueAndSettle()
+        for id in liveIDs(0) { await transport.finish(id, layout: layout) }
+        await manager.waitForIdle()
+        let ep = try XCTUnwrap(episode(0))
+        XCTAssertEqual(ep.state, .completed)
+        let showKey = normalizeSyncKey("Show")
+        manager.reportPlaybackFailure(showKey: showKey, sourceKey: "src", videoId: "v1", episodeIndex: 0)
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(ep.state, .completed, "intact files are kept")
+        let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
+        try FileManager.default.removeItem(at: layout.playlistURL(episodeDir: dir))
+        manager.reportPlaybackFailure(showKey: showKey, sourceKey: "src", videoId: "v1", episodeIndex: 0)
+        // The file check runs off the main actor, so the row turns damaged a little later.
+        //
+        // 文件检查在主 actor 之外运行, 因此数据行稍后才变为已损坏.
+        for _ in 0..<500 where ep.state == .completed { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(ep.state, .failed)
+        XCTAssertEqual(ep.failure, .damaged)
     }
 }
 

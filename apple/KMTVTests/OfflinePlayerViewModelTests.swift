@@ -309,6 +309,10 @@ extension OfflinePlayerViewModelTests {
         engine.callbacks?.onError(nil)
         XCTAssertNil(vm.player)
         XCTAssertEqual(engine.cleanups, 1)
+        // The files are checked off the main actor before the outcome is decided.
+        //
+        // 先在主 actor 之外检查文件, 再决定结果.
+        await vm.failureTask?.value
         await vm.restartTask?.value
 
         XCTAssertEqual(engine.starts.count, 2)
@@ -316,8 +320,49 @@ extension OfflinePlayerViewModelTests {
         XCTAssertNil(vm.error)
 
         engine.callbacks?.onError("failed again")
+        await vm.failureTask?.value
         XCTAssertNotNil(vm.error)
         XCTAssertEqual(try XCTUnwrap(episode(0)).state, .completed)
+    }
+
+    func testAnItemFailureWithMissingFilesMarksTheEpisodeDamaged() async throws {
+        let engine = FakePlaybackEngine()
+        let vm = try engineViewModel(0, engine: engine)
+        await vm.start()
+        let ep = try XCTUnwrap(episode(0))
+        let layout = DownloadLayout(root: root)
+        let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
+        try FileManager.default.removeItem(at: layout.playlistURL(episodeDir: dir))
+
+        engine.callbacks?.onError(nil)
+        XCTAssertNil(vm.player, "the player goes away before the files are checked")
+        await vm.failureTask?.value
+
+        XCTAssertEqual(ep.failure, .damaged)
+        XCTAssertNotNil(vm.error)
+        XCTAssertNil(vm.restartTask)
+    }
+
+    func testAFailureOvertakenByAStartLeavesTheNewItemAlone() async throws {
+        let engine = FakePlaybackEngine()
+        let vm = try engineViewModel(0, engine: engine)
+        await vm.start()
+        let ep = try XCTUnwrap(episode(0))
+        let layout = DownloadLayout(root: root)
+        let dir = layout.episodeDir(scopeHash: ep.scopeHash, showDir: ep.showDir, episodeDir: ep.episodeDir)
+        try FileManager.default.removeItem(at: layout.playlistURL(episodeDir: dir))
+
+        engine.callbacks?.onError(nil)
+        // A start lands while the files are being checked; the stale check decides nothing.
+        //
+        // 文件检查期间有新的 start 落地; 过期的检查不做任何决定.
+        await vm.start()
+        await vm.failureTask?.value
+
+        XCTAssertNotNil(vm.player)
+        XCTAssertNil(vm.error)
+        XCTAssertNil(ep.failure)
+        XCTAssertEqual(engine.starts.count, 2)
     }
 
     func testTheEndOfAnEpisodeFinishesItAndPlaysTheNextCompletedOne() async throws {
