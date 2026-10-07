@@ -35,6 +35,7 @@ import { useSourcesQuery, useSubscriptionsQuery } from "@/api/adminHooks";
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/shared/ui/Button";
 import { PageHeader } from "@/shared/ui/PageHeader";
+import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { adminModalStore } from "@/store/adminModalStore";
 
 import { AdminModal } from "./AdminModal";
@@ -111,7 +112,7 @@ export function AdminPage() {
       <div className="admin-workspace">
         <aside className="admin-profile-card">
           <div className="profile-avatar">
-            {auth.user?.avatar ? <img src={auth.user.avatar} alt="" /> : initial}
+            <UserAvatar url={auth.user?.avatar} fallback={initial} />
           </div>
           <div className="admin-profile-meta heading-block">
             <h2>{auth.user?.username ?? t("profile.notSignedIn")}</h2>

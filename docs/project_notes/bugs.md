@@ -3,6 +3,12 @@
 Bugs worth remembering, newest first: what broke, why, how it was fixed, and how to avoid it again.
 Keep entries short; remove entries that no longer teach anything.
 
+### 2026-10-07 - Web avatars 401 when anonymous access is off; avatars never refreshed after upload
+- **Issue**: Web drew avatars with `<img src="/api/v1/avatar/...">`, which 401s once `anonymous_access` is off; avatar URLs never changed, so browsers (max-age 3600) and the iOS view kept showing a replaced avatar.
+- **Root Cause**: The avatar route is protected and `middleware.Auth` reads only the `Authorization` header, which an `<img>` cannot send; the URL was `/api/v1/avatar/<username>` for every image a user ever had.
+- **Solution**: Web loads avatars through `api.avatarImage` and renders object URLs (`UserAvatar`); the server appends `?v=<default-N|content hash>` (ADR-020); iOS keys Kingfisher by content hash.
+- **Prevention**: Never point an image element at a protected route; version any cached URL whose content can change.
+
 ### 2026-10-06 - Download progress and offline scrubbing dropped frames; two close buttons
 - **Issue**: On devices, the Downloads screen and the online player page dropped frames while downloads ran; dragging the offline player's scrubber dropped frames; the offline player showed two close buttons.
 - **Root Cause**: `DownloadManager.bump()` ran once per finished segment, re-rendering the root `TabView`, the whole `PlayerView`, and the Downloads screens (per-row fetches, JPEG decodes, `statfs`). The offline player saved progress on position jumps, and each save rebuilt its view model through `fullScreenCover`. It also drew its own close button over the system one.

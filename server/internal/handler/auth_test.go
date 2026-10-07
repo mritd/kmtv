@@ -6,6 +6,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -35,9 +36,7 @@ func TestLogin_Success(t *testing.T) {
 	if m["id"] == nil {
 		t.Error("expected id in response")
 	}
-	if m["avatar"] != nil {
-		t.Errorf("expected no avatar for new user, got %v", m["avatar"])
-	}
+	assertAvatar(t, m, "alice", true)
 
 	if token, ok := m["access_token"].(string); !ok || token == "" {
 		t.Fatalf("expected access_token in response, got %+v", m)
@@ -114,9 +113,7 @@ func TestMe_ValidBearer(t *testing.T) {
 	if m["id"] == nil {
 		t.Error("expected id in response")
 	}
-	if m["avatar"] != nil {
-		t.Errorf("expected no avatar for new user, got %v", m["avatar"])
-	}
+	assertAvatar(t, m, "carol", true)
 }
 
 func TestMeIncludesAvatarForBearerUser(t *testing.T) {
@@ -135,9 +132,7 @@ func TestMeIncludesAvatarForBearerUser(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	m := decodeJSON(t, rec)
-	if m["avatar"] != "/api/v1/avatar/me_avatar" {
-		t.Fatalf("unexpected avatar in me response: %+v", m)
-	}
+	assertAvatar(t, m, "me_avatar", false)
 }
 
 func TestMe_NoBearer(t *testing.T) {
@@ -245,9 +240,7 @@ func TestLoginIncludesAvatar(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	m := decodeJSON(t, rec)
-	if m["avatar"] != "/api/v1/avatar/avatar_login" {
-		t.Fatalf("unexpected avatar path: %+v", m)
-	}
+	assertAvatar(t, m, "avatar_login", false)
 }
 
 func TestProfileAndPasswordValidationErrors(t *testing.T) {
@@ -314,9 +307,7 @@ func TestUpdateProfileIncludesAvatar(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	m := decodeJSON(t, rec)
-	if m["avatar"] != "/api/v1/avatar/profile_avatar_new" {
-		t.Fatalf("unexpected avatar path after profile update: %+v", m)
-	}
+	assertAvatar(t, m, "profile_avatar_new", false)
 }
 
 func TestAuthHandlerStoreFailures(t *testing.T) {
@@ -453,9 +444,8 @@ func TestUpdateProfilePreservesAvatarAfterUpload(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("upload avatar status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
-	if got := decodeJSON(t, rec)["avatar"]; got != "/api/v1/avatar/alice" {
-		t.Fatalf("upload avatar response avatar = %v, want /api/v1/avatar/alice", got)
-	}
+	uploaded := decodeJSON(t, rec)
+	assertAvatar(t, uploaded, "alice", false)
 
 	// Saving the profile must keep the avatar, tracking the (possibly renamed) username.
 	//
@@ -469,8 +459,10 @@ func TestUpdateProfilePreservesAvatarAfterUpload(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update profile status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
-	if got := decodeJSON(t, rec)["avatar"]; got != "/api/v1/avatar/alice2" {
-		t.Fatalf("update profile dropped avatar: got %v, want /api/v1/avatar/alice2", got)
+	renamed := decodeJSON(t, rec)
+	assertAvatar(t, renamed, "alice2", false)
+	if avatarVersion(renamed) != avatarVersion(uploaded) {
+		t.Fatalf("renaming changed the avatar version: %v -> %v", uploaded["avatar"], renamed["avatar"])
 	}
 }
 
@@ -505,9 +497,32 @@ func TestUpdateProfileReflectsAvatarDeletion(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update profile status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
-	if _, ok := decodeJSON(t, rec)["avatar"]; ok {
-		t.Fatal("update profile resurrected deleted avatar")
+	assertAvatar(t, decodeJSON(t, rec), "bob", true)
+}
+
+// assertAvatar checks a user response's avatar URL and default flag. Every real user carries an
+// avatar URL; uploaded and default avatars differ only in the version query and the flag.
+//
+// assertAvatar 检查用户响应中的头像 URL 与默认标记. 每个真实用户都带头像 URL; 上传头像与默认头像
+// 只在版本参数和标记上不同.
+func assertAvatar(t *testing.T, m map[string]any, username string, wantDefault bool) {
+	t.Helper()
+	url, _ := m["avatar"].(string)
+	if !strings.HasPrefix(url, "/api/v1/avatar/"+username+"?v=") {
+		t.Fatalf("avatar = %q, want /api/v1/avatar/%s?v=...", url, username)
 	}
+	if m["avatar_is_default"] != wantDefault {
+		t.Fatalf("avatar_is_default = %v, want %v", m["avatar_is_default"], wantDefault)
+	}
+	if isDefault := strings.HasSuffix(url, "?v=default-1"); isDefault != wantDefault {
+		t.Fatalf("avatar version in %q does not match avatar_is_default = %v", url, wantDefault)
+	}
+}
+
+func avatarVersion(m map[string]any) string {
+	url, _ := m["avatar"].(string)
+	_, version, _ := strings.Cut(url, "?v=")
+	return version
 }
 
 // ---------- Admin handler tests ----------

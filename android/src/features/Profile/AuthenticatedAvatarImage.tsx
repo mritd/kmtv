@@ -56,8 +56,24 @@ function bufferToBase64(buf: ArrayBuffer): string {
   return out;
 }
 
-function bufferToDataUri(buf: ArrayBuffer, mime = "image/jpeg"): string {
-  return `data:${mime};base64,${bufferToBase64(buf)}`;
+/**
+ * Sniffs the image type from its leading bytes; avatars may be GIF (the server default), PNG,
+ * WebP, or JPEG, and a wrong data URI type can stop a GIF from animating.
+ *
+ * 根据开头字节识别图片类型; 头像可能是 GIF (服务端默认头像), PNG, WebP 或 JPEG, 错误的 data URI
+ * 类型可能导致 GIF 不播放.
+ */
+function imageMime(buf: ArrayBuffer): string {
+  const b = new Uint8Array(buf.slice(0, 12));
+  const ascii = (from: number, to: number) => String.fromCharCode(...b.slice(from, to));
+  if (ascii(0, 4) === "GIF8") return "image/gif";
+  if (b[0] === 0x89 && ascii(1, 4) === "PNG") return "image/png";
+  if (ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") return "image/webp";
+  return "image/jpeg";
+}
+
+function bufferToDataUri(buf: ArrayBuffer): string {
+  return `data:${imageMime(buf)};base64,${bufferToBase64(buf)}`;
 }
 
 /**

@@ -70,11 +70,12 @@ Success `200`:
   "role": "admin",
   "access_token": "base58-token",
   "expires_at": "2026-05-23T12:00:00Z",
-  "avatar": "/api/v1/avatar/admin"
+  "avatar": "/api/v1/avatar/admin?v=9f86d081884c7d65",
+  "avatar_is_default": false
 }
 ```
 
-`avatar` is omitted when no avatar is stored.
+Every real user has an `avatar` URL. A user who has not uploaded one gets the server's default avatar, with `avatar_is_default: true`; clients show it but do not offer to remove it. The `v` query changes whenever the image does (`default-1` for the default avatar, a hash of the upload otherwise), so caches never serve a replaced avatar. Servers before 2026-10-07 omit `avatar` and `avatar_is_default` for users without an avatar. The same `avatar` and `avatar_is_default` fields appear in every user object the `/auth` endpoints below return (admin user lists do not carry them).
 
 Common errors: `400 InvalidRequest`, `401 InvalidCredentials`, `500 ServerError`.
 
@@ -99,11 +100,12 @@ Success `200`:
   "id": 1,
   "username": "admin",
   "role": "admin",
-  "avatar": "/api/v1/avatar/admin"
+  "avatar": "/api/v1/avatar/admin?v=9f86d081884c7d65",
+  "avatar_is_default": false
 }
 ```
 
-Anonymous success `200`:
+Anonymous success `200` (no avatar fields):
 
 ```json
 {
@@ -132,7 +134,8 @@ Success `200`:
   "id": 1,
   "username": "new_name",
   "role": "admin",
-  "avatar": "/api/v1/avatar/new_name"
+  "avatar": "/api/v1/avatar/new_name?v=9f86d081884c7d65",
+  "avatar_is_default": false
 }
 ```
 
@@ -174,7 +177,8 @@ Success `200`:
   "id": 1,
   "username": "admin",
   "role": "admin",
-  "avatar": "/api/v1/avatar/admin"
+  "avatar": "/api/v1/avatar/admin?v=9f86d081884c7d65",
+  "avatar_is_default": false
 }
 ```
 
@@ -182,7 +186,7 @@ Common errors: `400 MissingAvatar`, `400 FileTooLarge`, `400 UnsupportedImageTyp
 
 ### `DELETE /auth/avatar`
 
-Protected. Removes the current user's avatar.
+Protected. Removes the current user's avatar; the user falls back to the default avatar.
 
 Success `200`:
 
@@ -190,7 +194,9 @@ Success `200`:
 {
   "id": 1,
   "username": "admin",
-  "role": "admin"
+  "role": "admin",
+  "avatar": "/api/v1/avatar/admin?v=default-1",
+  "avatar_is_default": true
 }
 ```
 
@@ -198,11 +204,11 @@ Common errors: `401 NotLoggedIn`, `500 ServerError`.
 
 ### `GET /avatar/{username}`
 
-Protected. Returns the avatar image bytes for `username`.
+Protected. Returns the avatar image bytes for `username`: the uploaded image, or the default avatar (an animated `image/gif`) when the user has not uploaded one. Unknown usernames also get the default avatar, so the route does not reveal which users exist. The `v` query is ignored; it only versions the URL.
 
-Success `200`: image body with the stored content type and `Cache-Control: public, max-age=3600`.
+Success `200`: image body with its content type and `Cache-Control: public, max-age=3600`.
 
-Common errors: `400 InvalidRequest`, `404 NoAvatar`, `500 ServerError`, `500 InvalidData`.
+Common errors: `400 InvalidRequest`, `500 ServerError`, `500 InvalidData`.
 
 ## Settings
 

@@ -22,6 +22,19 @@ describe("AuthenticatedAvatarImage", () => {
     });
   });
 
+  it("labels a GIF avatar as image/gif so it can animate", async () => {
+    const data = new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]).buffer; // "GIF89a"
+    const client = { getBlob: jest.fn(async () => data) } as unknown as APIClient;
+    const { getByTestId } = render(
+      <AuthenticatedAvatarImage apiClient={client} path="/api/v1/avatar/u?v=default-1" />,
+    );
+    await waitFor(() => {
+      expect(client.getBlob).toHaveBeenCalledWith("/avatar/u?v=default-1");
+      const src = getByTestId("avatar-image").props.source as { uri: string };
+      expect(src.uri).toContain("data:image/gif;base64,");
+    });
+  });
+
   it("renders fallback when fetch fails", async () => {
     const client = { getBlob: jest.fn(async () => { throw new Error("boom"); }) } as unknown as APIClient;
     const { getByTestId } = render(<AuthenticatedAvatarImage apiClient={client} path="/api/v1/avatar/u" />);

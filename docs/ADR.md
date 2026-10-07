@@ -306,3 +306,19 @@ Durable architectural decisions for the KMTV Go backend, native Apple clients, a
 - Each playlist is filtered on its own, so a source whose audio or subtitle renditions do not carry the same ad runs can end up with misaligned discontinuities between renditions.
 - Turning the filter on or off changes the playlist of affected episodes, so an iOS download in progress restarts once when it resumes.
 
+## ADR-020: Server-Provided Default Avatar
+
+**Context:**
+- Users without an upload got a different stand-in on each client (Web and Android initials, an iOS glyph), and changing it meant changing every client.
+- Avatar URLs were the same for every image a user ever had, served with `Cache-Control: max-age=3600`, so a browser could keep showing a replaced avatar for up to an hour.
+
+**Decision:**
+- The server embeds one default avatar (`server/internal/avatar/default.gif`, an animated pixel-art cat) and serves it from `GET /api/v1/avatar/{username}` for users without an upload and for unknown usernames, so the route does not reveal which users exist. Anonymous visitors are not users and get no avatar fields.
+- Every user object from the `/auth` endpoints carries `avatar` and `avatar_is_default`; admin user lists carry neither. Clients show the avatar and offer Remove only when `avatar_is_default` is false.
+- Avatar URLs carry a `v` query: `default-N` for the default image (bump N when it changes) and a hash of the stored image otherwise.
+
+**Consequences:**
+- A new client needs no avatar fallback of its own beyond a load-failure state, and older clients show the default avatar unchanged; they only offer a Remove that does nothing for it.
+- The avatar route is protected and accepts only the bearer header, so every client fetches avatar bytes through its API client (Web renders them as object URLs) instead of pointing an image element at the URL.
+- iOS plays animated avatars with Kingfisher's `KFAnimatedImage` (first frame under Reduce Motion); Android labels avatar data URIs by sniffing the image bytes.
+- Replacing the default image is a server release, not a client one.

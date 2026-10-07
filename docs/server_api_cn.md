@@ -70,11 +70,12 @@ Handler 可以覆盖默认错误消息, 但错误码语义保持不变.
   "role": "admin",
   "access_token": "base58-token",
   "expires_at": "2026-05-23T12:00:00Z",
-  "avatar": "/api/v1/avatar/admin"
+  "avatar": "/api/v1/avatar/admin?v=9f86d081884c7d65",
+  "avatar_is_default": false
 }
 ```
 
-如果用户没有头像, `avatar` 字段会省略.
+每个真实用户都有 `avatar` 地址. 未上传头像的用户使用服务端默认头像, 并返回 `avatar_is_default: true`; 客户端会显示它, 但不提供删除操作. 查询参数 `v` 随图片变化而变化 (默认头像为 `default-1`, 上传的头像为其内容哈希), 因此缓存不会返回已被替换的头像. 2026-10-07 之前的服务端对没有头像的用户会省略 `avatar` 和 `avatar_is_default`. 下文 `/auth` 接口返回的用户对象都带有同样的 `avatar` 与 `avatar_is_default` 字段 (管理端用户列表不含这两个字段).
 
 常见错误: `400 InvalidRequest`, `401 InvalidCredentials`, `500 ServerError`.
 
@@ -99,11 +100,12 @@ Handler 可以覆盖默认错误消息, 但错误码语义保持不变.
   "id": 1,
   "username": "admin",
   "role": "admin",
-  "avatar": "/api/v1/avatar/admin"
+  "avatar": "/api/v1/avatar/admin?v=9f86d081884c7d65",
+  "avatar_is_default": false
 }
 ```
 
-匿名成功 `200`:
+匿名成功 `200` (不含头像字段):
 
 ```json
 {
@@ -132,7 +134,8 @@ Handler 可以覆盖默认错误消息, 但错误码语义保持不变.
   "id": 1,
   "username": "new_name",
   "role": "admin",
-  "avatar": "/api/v1/avatar/new_name"
+  "avatar": "/api/v1/avatar/new_name?v=9f86d081884c7d65",
+  "avatar_is_default": false
 }
 ```
 
@@ -174,7 +177,8 @@ Handler 可以覆盖默认错误消息, 但错误码语义保持不变.
   "id": 1,
   "username": "admin",
   "role": "admin",
-  "avatar": "/api/v1/avatar/admin"
+  "avatar": "/api/v1/avatar/admin?v=9f86d081884c7d65",
+  "avatar_is_default": false
 }
 ```
 
@@ -182,7 +186,7 @@ Handler 可以覆盖默认错误消息, 但错误码语义保持不变.
 
 ### `DELETE /auth/avatar`
 
-受保护接口. 删除当前用户头像.
+受保护接口. 删除当前用户头像, 之后该用户使用默认头像.
 
 成功 `200`:
 
@@ -190,7 +194,9 @@ Handler 可以覆盖默认错误消息, 但错误码语义保持不变.
 {
   "id": 1,
   "username": "admin",
-  "role": "admin"
+  "role": "admin",
+  "avatar": "/api/v1/avatar/admin?v=default-1",
+  "avatar_is_default": true
 }
 ```
 
@@ -198,11 +204,11 @@ Handler 可以覆盖默认错误消息, 但错误码语义保持不变.
 
 ### `GET /avatar/{username}`
 
-受保护接口. 返回指定用户的头像图片字节.
+受保护接口. 返回指定用户的头像图片字节: 用户上传的图片, 或在用户未上传时返回默认头像 (动图 `image/gif`). 不存在的用户名同样返回默认头像, 因此该接口不会暴露哪些用户存在. 查询参数 `v` 会被忽略, 仅用于给地址加版本.
 
-成功 `200`: 图片 body, 使用存储的 content type, 并返回 `Cache-Control: public, max-age=3600`.
+成功 `200`: 图片 body, 使用对应的 content type, 并返回 `Cache-Control: public, max-age=3600`.
 
-常见错误: `400 InvalidRequest`, `404 NoAvatar`, `500 ServerError`, `500 InvalidData`.
+常见错误: `400 InvalidRequest`, `500 ServerError`, `500 InvalidData`.
 
 ## Settings
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/mritd/kmtv/internal/avatar"
 	"github.com/mritd/kmtv/internal/consts"
 	"github.com/mritd/kmtv/internal/errs"
 	"github.com/mritd/kmtv/internal/model"
@@ -53,17 +54,9 @@ func (h *Handler) Login(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, errs.ServerError.WithMsg("failed to issue token"))
 		return
 	}
-	resp := gin.H{
-		"id":                  user.ID,
-		"username":            user.Username,
-		"role":                user.Role,
-		"allow_adult_content": user.AllowAdultContent,
-		"access_token":        issued.Token,
-		"expires_at":          issued.ExpiresAt.Format(time.RFC3339),
-	}
-	if user.Avatar != "" {
-		resp["avatar"] = "/api/v1/avatar/" + user.Username
-	}
+	resp := userResponse(user)
+	resp["access_token"] = issued.Token
+	resp["expires_at"] = issued.ExpiresAt.Format(time.RFC3339)
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -88,16 +81,7 @@ func (h *Handler) Logout(c *gin.Context) {
 func (h *Handler) Me(c *gin.Context) {
 	if token := utils.ExtractBearerToken(c.GetHeader("Authorization")); token != "" {
 		if _, user, err := h.authSvc.VerifyAccessToken(token); err == nil && user != nil {
-			resp := gin.H{
-				"id":                  user.ID,
-				"username":            user.Username,
-				"role":                user.Role,
-				"allow_adult_content": user.AllowAdultContent,
-			}
-			if user.Avatar != "" {
-				resp["avatar"] = "/api/v1/avatar/" + user.Username
-			}
-			c.JSON(http.StatusOK, resp)
+			c.JSON(http.StatusOK, userResponse(user))
 			return
 		}
 	}
@@ -149,16 +133,26 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 	// 用户名变更必须清理 bearer 用户快照缓存.
 	h.authSvc.InvalidateUserCache(user.ID)
 
-	resp := gin.H{
+	renamed := *user
+	renamed.Username = newUsername
+	c.JSON(http.StatusOK, userResponse(&renamed))
+}
+
+// userResponse is the user object the auth endpoints return. Every real user has an avatar URL;
+// `avatar_is_default` marks the server's default avatar, which clients do not offer to remove.
+//
+// userResponse 是认证接口返回的用户对象. 每个真实用户都有头像 URL; `avatar_is_default` 标记服务端
+// 的默认头像, 客户端不会为它提供删除操作.
+func userResponse(user *model.User) gin.H {
+	avatarURL, isDefault := avatar.URL(user.Username, user.Avatar)
+	return gin.H{
 		"id":                  user.ID,
-		"username":            newUsername,
+		"username":            user.Username,
 		"role":                user.Role,
 		"allow_adult_content": user.AllowAdultContent,
+		"avatar":              avatarURL,
+		"avatar_is_default":   isDefault,
 	}
-	if user.Avatar != "" {
-		resp["avatar"] = "/api/v1/avatar/" + newUsername
-	}
-	c.JSON(http.StatusOK, resp)
 }
 
 // currentUser extracts the authenticated user from the gin context.
@@ -277,13 +271,9 @@ func (h *Handler) UploadAvatar(c *gin.Context) {
 	// 清理 bearer 缓存快照, 使后续请求 (如 UpdateProfile) 能读到新头像.
 	h.authSvc.InvalidateUserCache(user.ID)
 
-	c.JSON(http.StatusOK, gin.H{
-		"id":                  user.ID,
-		"username":            user.Username,
-		"role":                user.Role,
-		"allow_adult_content": user.AllowAdultContent,
-		"avatar":              "/api/v1/avatar/" + user.Username,
-	})
+	uploaded := *user
+	uploaded.Avatar = dataURL
+	c.JSON(http.StatusOK, userResponse(&uploaded))
 }
 
 // DeleteAvatar removes the avatar for the logged-in user.
@@ -305,12 +295,9 @@ func (h *Handler) DeleteAvatar(c *gin.Context) {
 	// 清理 bearer 缓存快照, 使后续请求不再读到已删除的头像.
 	h.authSvc.InvalidateUserCache(user.ID)
 
-	c.JSON(http.StatusOK, gin.H{
-		"id":                  user.ID,
-		"username":            user.Username,
-		"role":                user.Role,
-		"allow_adult_content": user.AllowAdultContent,
-	})
+	removed := *user
+	removed.Avatar = ""
+	c.JSON(http.StatusOK, userResponse(&removed))
 }
 
 // GetAvatar serves the avatar image for the given username.
@@ -323,13 +310,17 @@ func (h *Handler) GetAvatar(c *gin.Context) {
 		return
 	}
 
+	// Unknown users get the default avatar too, so the route does not reveal which usernames exist.
+	//
+	// 不存在的用户同样返回默认头像, 使该接口无法用来判断用户名是否存在.
 	dataURL, err := h.store.GetAvatar(username)
-	if err != nil {
+	if err != nil && !errors.Is(err, errs.ErrNotFound) {
 		c.JSON(http.StatusInternalServerError, errs.ServerError.WithMsg("failed to get avatar"))
 		return
 	}
 	if dataURL == "" {
-		c.JSON(http.StatusNotFound, errs.NoAvatar)
+		c.Header("Cache-Control", "public, max-age=3600")
+		c.Data(http.StatusOK, avatar.DefaultContentType, avatar.Default())
 		return
 	}
 

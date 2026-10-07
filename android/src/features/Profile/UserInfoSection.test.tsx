@@ -108,6 +108,29 @@ describe("UserInfoSection", () => {
     alertSpy.mockRestore();
   });
 
+  it("the server's default avatar offers no Remove Avatar", async () => {
+    const profile = stub();
+    let texts: string[] = [];
+    const alertSpy = jest.spyOn(Alert, "alert").mockImplementation((_t, _m, buttons) => {
+      texts = (buttons ?? []).map((b) => b.text ?? "");
+    });
+    const { getByTestId } = render(
+      <UserInfoSection
+        user={{ id: 1, username: "u", role: "user", avatar: "/api/v1/avatar/u?v=default-1", avatar_is_default: true }}
+        isAnonymous={false}
+        apiClient={null}
+        serverURL="http://localhost"
+        profile={profile}
+      />,
+    );
+    fireEvent.press(getByTestId("avatarPressable"));
+    await waitFor(() => {
+      expect(texts).toContain("Change Avatar");
+    });
+    expect(texts).not.toContain("Remove Avatar");
+    alertSpy.mockRestore();
+  });
+
   it("username row pencil -> check fires submitUsername; X fires cancelEditUsername", () => {
     const profile = stub({ isEditingUsername: true, editUsername: "new" });
     const { getByTestId } = render(

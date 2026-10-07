@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mritd/kmtv/internal/avatar"
 	"github.com/mritd/kmtv/internal/consts"
 	"github.com/mritd/kmtv/internal/store"
 )
@@ -445,12 +446,25 @@ func TestProfileAndAvatarErrorPaths(t *testing.T) {
 		t.Fatalf("expected 400 unsupported image, got %d: %s", rec.Code, rec.Body.String())
 	}
 
+	// A user without an upload and an unknown user both get the default avatar, so the route
+	// cannot be used to enumerate usernames.
+	//
+	// 未上传头像的用户与不存在的用户都得到默认头像, 因此该接口无法用来枚举用户名.
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/avatar/profile_errors", nil)
 	req.Header.Set("Authorization", bearer)
 	rec = httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 no avatar, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/gif" ||
+		!bytes.Equal(rec.Body.Bytes(), avatar.Default()) {
+		t.Fatalf("expected the default GIF avatar, got %d %q", rec.Code, rec.Header().Get("Content-Type"))
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/avatar/no_such_user", nil)
+	req.Header.Set("Authorization", bearer)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), avatar.Default()) {
+		t.Fatalf("expected the default avatar for an unknown user, got %d", rec.Code)
 	}
 }
 

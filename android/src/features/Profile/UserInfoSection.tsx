@@ -38,7 +38,10 @@ export function UserInfoSection({ user, isAnonymous, apiClient, serverURL, profi
   const { t } = useTranslation("profile");
 
   const onAvatarPress = () => {
-    const hasAvatar = !!user?.avatar;
+    // The server's default avatar is not an upload, so it offers no Remove.
+    //
+    // 服务端默认头像不是用户上传的, 因此不提供删除.
+    const hasAvatar = !!user?.avatar && !user.avatar_is_default;
     const buttons: Array<{ text: string; style?: "cancel" | "destructive" | "default"; onPress?: () => void }> = [
       { text: t("username.cancel"), style: "cancel" },
       { text: t("avatar.change"), onPress: () => void profile.pickAndUploadAvatar() },
