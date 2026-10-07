@@ -62,10 +62,15 @@ struct DownloadTaskID: Hashable, Sendable, CustomStringConvertible {
                   entryIndex: entryIndex)
     }
 
+    /// Typed identity of the episode this task belongs to.
+    ///
+    /// 该任务所属剧集的类型化身份.
+    var episode: EpisodeKey { EpisodeKey(scopeHash: scopeHash, showDir: showDir, episodeDir: episodeDir) }
+
     /// Key of the episode this task belongs to.
     ///
     /// 该任务所属剧集的键.
-    var episodeKey: String { "\(scopeHash)/\(showDir)/\(episodeDir)" }
+    var episodeKey: String { episode.relativePath }
 
     var description: String { "\(episodeKey)/\(generation)/\(entryIndex)" }
 }
@@ -117,11 +122,18 @@ struct DownloadLayout: Sendable {
         self.showDir(scopeHash: scopeHash, showDir: showDir).appending(path: episodeDir, directoryHint: .isDirectory)
     }
 
+    /// Directory of an episode by its typed key.
+    ///
+    /// 按类型化键得到的单集目录.
+    func episodeDir(_ key: EpisodeKey) -> URL {
+        episodeDir(scopeHash: key.scopeHash, showDir: key.showDir, episodeDir: key.episodeDir)
+    }
+
     /// Directory of the episode a task belongs to.
     ///
     /// 任务所属单集的目录.
     func episodeDir(_ id: DownloadTaskID) -> URL {
-        episodeDir(scopeHash: id.scopeHash, showDir: id.showDir, episodeDir: id.episodeDir)
+        episodeDir(id.episode)
     }
 
     /// Where the delegate drops a finished file before the manager checks its generation.

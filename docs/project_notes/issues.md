@@ -2,6 +2,16 @@
 
 Completed and in-progress work, newest first. There is no issue tracker; entries name the branch instead of a ticket ID.
 
+### 2026-10-07 - refactor/ios-split: split DownloadManager and PlayerViewModel, PlaybackEngine
+- **Status**: Implemented on branch `refactor/ios-split`, ready for review; design in `docs/superpowers/specs/2026-10-07-ios-split-design.md`.
+- **Description**: Behavior-preserving refactor of the two largest iOS types.
+  - Downloads: `DownloadManager` stays the observable façade with the same API; `DownloadLibrary` (cross-scope read model and merge rules), `DownloadTaskLedger` (task claims and cancels), `EpisodeRuntime` (per-episode state, one `forget`), `DownloadCoverStore`, and `LocalPlaybackHost` are extracted; protocols and `LastIdentityStore` have their own files; `EpisodeKey` is computed only, so the persisted key and schema are unchanged.
+  - Playback: `PlaybackEngine` is the only API the online and offline players use to drive playback, and `PlaybackCoordinator` the only conformer that touches `AVPlayer`; `PlaybackProgressTracker`, `SourceFallbackPolicy`, and `PlaybackTransportState` come out of `PlayerViewModel`; `FakePlaybackEngine` makes seek, skip, end, rate, and play/pause testable.
+- **Verification (2026-10-07)**: `KMTVTests` 536/536 on the iPhone 17 Pro simulator; iOS and tvOS builds; `task bilingual-check`; screenshot tours on iPhone and iPad against the dev server, including offline playback of a download on iPad; a final review comparing old and new code found no behavior change (its low findings were fixed: cancel room timing, late seek completion test, close assertion).
+- **Open items**:
+  - Size targets missed: `DownloadManager.swift` about 1590 lines, `PlayerViewModel.swift` about 1170; going further needs a download engine extraction (pump, events) and moving open/switch out of the player view model.
+  - The dev server had no video sources during the tours (`KMTV_INIT_SOURCE_URL` unset), so online search and streaming were covered only by tests.
+
 ### 2026-10-07 - fix/ios-review: iOS code review fixes
 - **Status**: Implemented on branch `fix/ios-review`, ready for review.
 - **Description**: A module-by-module review of the iOS code; fixes for the user-visible and lifecycle findings:

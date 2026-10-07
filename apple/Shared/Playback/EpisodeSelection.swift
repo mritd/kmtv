@@ -37,6 +37,29 @@ struct EpisodeSelection {
         sources.first(where: { $0.sourceKey == currentSourceKey })?.videoId ?? ""
     }
 
+    /// The line and episode indices clamped to what the detail offers: the line to the detail's
+    /// lines (0 without any), then the episode to that line's episodes (0 without any).
+    ///
+    /// 钳制到详情实际提供范围内的线路与分集索引: 线路钳制到详情的线路数 (没有线路时为 0),
+    /// 然后分集钳制到该线路的剧集数 (没有剧集时为 0).
+    func clampedIndices() -> (line: Int, episode: Int) {
+        let lineCount = detail?.episodes.count ?? 0
+        var clamped = self
+        clamped.currentLineIndex = lineCount > 0 ? min(max(0, currentLineIndex), lineCount - 1) : 0
+        let episodeCount = clamped.episodes.count
+        let episode = episodeCount > 0 ? min(max(0, currentEpisodeIndex), episodeCount - 1) : 0
+        return (clamped.currentLineIndex, episode)
+    }
+
+    /// The index of the first episode in the current line whose first number equals the first
+    /// number in `name`; nil when `name` has no number or no episode matches.
+    ///
+    /// 当前线路中第一个与 `name` 首个数字相同的剧集索引; `name` 中没有数字或没有匹配剧集时为 nil.
+    func episodeIndex(matchingNumberIn name: String) -> Int? {
+        guard let number = name.firstMatch(of: /\d+/)?.output else { return nil }
+        return episodes.firstIndex { ($0.name.firstMatch(of: /\d+/)?.output).map(String.init) == String(number) }
+    }
+
     func sourceName() -> String {
         let raw = sources.first(where: { $0.sourceKey == currentSourceKey })?.sourceName ?? currentSourceKey
         return DisplayFormatters.cleanSourceName(raw)

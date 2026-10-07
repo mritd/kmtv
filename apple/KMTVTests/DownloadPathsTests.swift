@@ -34,6 +34,30 @@ final class DownloadPathsTests: XCTestCase {
         XCTAssertEqual(layout.playlistURL(episodeDir: layout.episodeDir(id)).lastPathComponent, "index.m3u8")
     }
 
+    func testEpisodeKeyKeepsTheStringFormat() {
+        let id = DownloadTaskID(scopeHash: "s", showDir: "h", episodeDir: "e", generation: 2, entryIndex: 7)
+        let key = EpisodeKey(scopeHash: "s", showDir: "h", episodeDir: "e")
+        XCTAssertEqual(id.episode, key)
+        XCTAssertEqual(key.relativePath, "s/h/e")
+        XCTAssertEqual(id.episodeKey, key.relativePath)
+        XCTAssertEqual(EpisodeKey(relativePath: "s/h/e"), key)
+        XCTAssertNil(EpisodeKey(relativePath: "s/h"))
+        XCTAssertNil(EpisodeKey(relativePath: "s/h/e/1"))
+        XCTAssertTrue(EpisodeKey.path("s/h/e", isInScope: "s"))
+        XCTAssertFalse(EpisodeKey.path("s/h/e", isInScope: "h"))
+        XCTAssertFalse(EpisodeKey.path("ss/h/e", isInScope: "s"))
+        let layout = DownloadLayout(root: URL(fileURLWithPath: "/tmp/dl"))
+        XCTAssertEqual(layout.episodeDir(key), layout.episodeDir(id))
+
+        let show = DownloadShow(scopeKey: "scope", title: "Show", cover: "", type: "", year: "",
+                                createdAt: Date(timeIntervalSince1970: 0))
+        let ep = DownloadEpisode(show: show, sourceKey: "src", sourceName: "", videoId: "v", episodeIndex: 1,
+                                 episodeName: "", lineIndex: 0, episodeCount: 1, episodeURL: "", queueOrder: 0,
+                                 createdAt: Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(ep.episodeKey, "\(ep.scopeHash)/\(ep.showDir)/\(ep.episodeDir)")
+        XCTAssertEqual(ep.key.relativePath, ep.episodeKey)
+    }
+
     func testIdentityMatchesNormalizedServerAndStoreRoundTrips() throws {
         let identity = DownloadIdentity(serverURL: "https://KMTV.example/", userID: 5, username: "alice")
         XCTAssertTrue(identity.matches(serverURL: "https://kmtv.example"))

@@ -1,6 +1,5 @@
 #if os(iOS)
 import AVFoundation
-import AVKit
 import Foundation
 import Observation
 import SwiftData
@@ -39,17 +38,18 @@ final class OfflinePlayerViewModel {
     @ObservationIgnored private let manager: DownloadManager
     @ObservationIgnored private let progressStore: PlaybackProgressStore
     @ObservationIgnored private let syncStore: SyncStore?
-    @ObservationIgnored private let coordinator = PlaybackCoordinator()
+    @ObservationIgnored private let engine: any PlaybackEngine
     @ObservationIgnored private let skipIntroSeconds: Int
     @ObservationIgnored private let skipOutroSeconds: Int
-    @ObservationIgnored private var saveThrottle = PlaybackProgressPolicy.SaveThrottle()
-    @ObservationIgnored private var pauseObservation: NSKeyValueObservation?
+    // The save cadence and the once-per-item outro skip, shared with the online player.
+    //
+    // 保存节奏与每个 item 只触发一次的片尾跳过, 与在线播放器共用.
+    @ObservationIgnored private var progress = PlaybackProgressTracker()
     // Pending switch to paused; a resume before it fires cancels it.
     //
     // 待生效的暂停切换; 在其生效前恢复播放会取消它.
     @ObservationIgnored private var pauseDebounceTask: Task<Void, Never>?
     @ObservationIgnored private var lastDuration: TimeInterval = 0
-    @ObservationIgnored private var outroHandled = false
     // One automatic rebuild per episode when playback fails with intact files (for example after
     // the loopback server moved to another port).
     //
@@ -88,7 +88,9 @@ final class OfflinePlayerViewModel {
          serverURL: String, syncStore: SyncStore?,
          playbackURL: (@MainActor (DownloadEpisode) async throws -> URL)? = nil,
          now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now },
-         loadTimeout: Duration = PlaybackCoordinator.localLoadTimeout) {
+         loadTimeout: Duration = PlaybackCoordinator.localLoadTimeout,
+         engine: any PlaybackEngine = PlaybackCoordinator()) {
+        self.engine = engine
         self.manager = manager
         self.now = now
         self.loadTimeout = loadTimeout
@@ -163,18 +165,22 @@ final class OfflinePlayerViewModel {
         guard !closed, !Task.isCancelled, !suspended, generation == startGeneration else { return }
         let start = Self.resolveStart(explicit: position, record: syncStore?.watch(title: show.title),
                                       episode: episode, skipIntroSeconds: skipIntroSeconds)
-        saveThrottle.restart(at: now())
-        outroHandled = false
+        progress.beginItem(at: now())
         isNearEnd = false
-        coordinator.start(url: url, startTime: start, rate: 1, allowsExternalPlayback: false,
-                          loadTimeout: loadTimeout,
-                          onTime: { [weak self] current, total in self?.handleTime(current: current, total: total) },
-                          onBuffer: { _ in },
-                          onEnd: { [weak self] in self?.finishCurrent() },
-                          onError: { [weak self] _ in self?.fail() })
-        player = coordinator.player
-        applyMetadata()
-        observePause()
+        engine.start(url: url, startTime: start, rate: 1, allowsExternalPlayback: false, loadTimeout: loadTimeout,
+                     callbacks: PlaybackCallbacks(
+                         onTime: { [weak self] current, total in self?.handleTime(current: current, total: total) },
+                         onBuffer: { _ in },
+                         onEnd: { [weak self] in self?.finishCurrent() },
+                         onError: { [weak self] _ in self?.fail() }
+                     ))
+        player = engine.player
+        // The system player shows the show and episode names as its title, so no overlay has to sit
+        // on the video.
+        //
+        // 系统播放器会将剧名与集名显示为标题, 因此无需在视频上叠加视图.
+        engine.setTitleMetadata(title: show.title, subtitle: episode.episodeName)
+        engine.observePause { [weak self] paused in self?.pauseChanged(paused) }
     }
 
     /// Whether the next-episode button shows: a next episode exists and playback is paused or near
@@ -183,37 +189,6 @@ final class OfflinePlayerViewModel {
     /// 是否显示下一集按钮: 存在下一集, 且播放已暂停或接近结尾.
     var showsUpNext: Bool {
         (isPaused || isNearEnd) && nextEpisode != nil
-    }
-
-    /// Gives the item the show and episode names, which the system player shows as its title, so
-    /// no overlay has to sit on the video.
-    ///
-    /// 为 item 设置剧名与集名, 系统播放器会将其显示为标题, 因此无需在视频上叠加视图.
-    private func applyMetadata() {
-        coordinator.player?.currentItem?.externalMetadata = [
-            Self.metadataItem(.commonIdentifierTitle, value: show.title),
-            Self.metadataItem(.iTunesMetadataTrackSubTitle, value: episode.episodeName),
-        ]
-    }
-
-    private static func metadataItem(_ identifier: AVMetadataIdentifier, value: String) -> AVMetadataItem {
-        let item = AVMutableMetadataItem()
-        item.identifier = identifier
-        item.value = value as NSString
-        item.extendedLanguageTag = "und"
-        return item
-    }
-
-    /// Tracks whether the player is paused. KVO may deliver on any thread, so the handler hops to
-    /// the main actor rather than asserting it, as in `PlaybackCoordinator`.
-    ///
-    /// 跟踪播放器是否暂停. KVO 可能在任意线程投递, 因此回调跳转到主 actor 而不是断言已在其上,
-    /// 与 `PlaybackCoordinator` 一致.
-    private func observePause() {
-        pauseObservation = coordinator.player?.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
-            let paused = player.timeControlStatus == .paused
-            Task { @MainActor [weak self] in self?.pauseChanged(paused) }
-        }
     }
 
     /// Shows the paused state only after `pauseDebounce`; playing again clears it at once.
@@ -278,9 +253,9 @@ final class OfflinePlayerViewModel {
         //
         // loopback 服务在后台会停止; 尚未完成的加载不能在后台超时. `resume()` 会构建新的 item 并启用新的
         // 看门狗.
-        coordinator.suspendLoadWatchdog()
+        engine.suspendLoadWatchdog()
         checkpoint()
-        player?.pause()
+        engine.pause()
     }
 
     /// Rebuilds the item at the checkpoint when the app returns, because the connections of the
@@ -301,9 +276,9 @@ final class OfflinePlayerViewModel {
         manager.offlinePlaybackActive = false
         restartTask?.cancel()
         checkpoint()
-        pauseObservation = nil
+        engine.observePause(nil)
         pauseDebounceTask?.cancel()
-        coordinator.cleanup()
+        engine.cleanup()
         player = nil
     }
 
@@ -328,17 +303,13 @@ final class OfflinePlayerViewModel {
     /// 处理周期性时间回调: 保存进度并跳过片尾.
     func handleTime(current: TimeInterval, total: TimeInterval) {
         lastDuration = total
-        if saveThrottle.shouldSave(at: now()) {
-            record(current: current, duration: total, finished: false)
-        }
+        let tick = progress.tick(current: current, duration: total, isLive: true, skipOutroSeconds: skipOutroSeconds,
+                                 now: now())
+        if tick.save { record(current: current, duration: total, finished: false) }
         let nearEnd = PlaybackProgressPolicy.isNearEnd(current: current, duration: total,
                                                        skipOutroSeconds: skipOutroSeconds)
         if nearEnd != isNearEnd { isNearEnd = nearEnd }
-        if !outroHandled,
-           PlaybackProgressPolicy.shouldSkipOutro(current: current, duration: total, skipOutroSeconds: skipOutroSeconds) {
-            outroHandled = true
-            finishCurrent()
-        }
+        if tick.skipOutro { finishCurrent() }
     }
 
     private func finishCurrent() {
@@ -349,9 +320,7 @@ final class OfflinePlayerViewModel {
     }
 
     private func checkpoint() {
-        guard let player, let item = player.currentItem else { return }
-        let current = CMTimeGetSeconds(player.currentTime())
-        let total = CMTimeGetSeconds(item.duration)
+        guard let current = engine.currentTime, let total = engine.itemDuration else { return }
         if current.isFinite, total.isFinite, current > 0, total > 0 {
             resumePosition = current
             record(current: current, duration: total, finished: false)
@@ -365,9 +334,9 @@ final class OfflinePlayerViewModel {
     private func fail() {
         guard !suspended, !closed else { return }
         checkpoint()
-        pauseObservation = nil
+        engine.observePause(nil)
         pauseDebounceTask?.cancel()
-        coordinator.cleanup()
+        engine.cleanup()
         player = nil
         if !manager.filesIntact(episode) {
             error = String(localized: "File damaged, download again")

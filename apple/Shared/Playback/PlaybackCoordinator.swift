@@ -24,8 +24,13 @@ struct BufferSample {
     let ahead: TimeInterval
 }
 
+/// Drives `AVPlayer` for both players: items, observers, the load watchdog, the buffer sampler,
+/// and the diagnostics around them. The only `PlaybackEngine` that touches `AVPlayer`.
+///
+/// 为两个播放器驱动 `AVPlayer`: item, 观察者, 加载看门狗, 缓冲采样器以及相关诊断.
+/// 唯一接触 `AVPlayer` 的 `PlaybackEngine`.
 @MainActor
-final class PlaybackCoordinator {
+final class PlaybackCoordinator: PlaybackEngine {
     /// How far ahead AVPlayer is asked to pre-buffer, in seconds.
     ///
     /// 请求 AVPlayer 预缓冲的时长, 单位秒.
@@ -125,6 +130,11 @@ final class PlaybackCoordinator {
     private var errorObserver: NSObjectProtocol?
     private var timeJumpObserver: NSObjectProtocol?
     private var statusObservers: [NSKeyValueObservation] = []
+    // The offline player's pause observation; kept across items because it watches the player, and
+    // dropped by `observePause(nil)` and `cleanup()`.
+    //
+    // 离线播放器的暂停观察; 它观察的是播放器, 因此跨 item 保留, 由 `observePause(nil)` 与 `cleanup()` 移除.
+    private var pauseObservation: NSKeyValueObservation?
 
     /// Starts or replaces playback with a resolved URL.
     ///
@@ -193,6 +203,17 @@ final class PlaybackCoordinator {
         logPlayerState("afterPlay", item: item)
     }
 
+    /// `start(url:startTime:rate:allowsExternalPlayback:loadTimeout:onTime:onBuffer:onEnd:onError:)`
+    /// with the callbacks bundled.
+    ///
+    /// 将回调打包传入的 `start(url:startTime:rate:allowsExternalPlayback:loadTimeout:onTime:onBuffer:onEnd:onError:)`.
+    func start(url: URL, startTime: TimeInterval, rate: Float, allowsExternalPlayback: Bool,
+               loadTimeout: Duration?, callbacks: PlaybackCallbacks) {
+        start(url: url, startTime: startTime, rate: rate, allowsExternalPlayback: allowsExternalPlayback,
+              loadTimeout: loadTimeout, onTime: callbacks.onTime, onBuffer: callbacks.onBuffer,
+              onEnd: callbacks.onEnd, onError: callbacks.onError)
+    }
+
     /// A URL safe to log in public: loopback URLs drop their path, which starts with the local
     /// media server's secret; other URLs drop their query and fragment, which carry media tokens.
     ///
@@ -256,10 +277,79 @@ final class PlaybackCoordinator {
         return player.rate > 0 ? player.rate : player.defaultRate
     }
 
+    /// Seeks the player; the completion hops to the main actor, as the view model did before.
+    ///
+    /// seek 播放器; completion 跳转到主 actor 执行, 与此前视图模型中的做法一致.
+    func seek(to time: TimeInterval, completion: @escaping @MainActor @Sendable (Bool) -> Void) {
+        guard let player else { return }
+        player.seek(to: CMTime(seconds: time, preferredTimescale: 600)) { finished in
+            Task { @MainActor in completion(finished) }
+        }
+    }
+
+    /// The player's current time in seconds; nil without a player.
+    ///
+    /// 播放器当前时间, 单位秒; 没有播放器时为 nil.
+    var currentTime: TimeInterval? {
+        player.map { CMTimeGetSeconds($0.currentTime()) }
+    }
+
+    /// The current item's duration in seconds; nil without a current item.
+    ///
+    /// 当前 item 的时长, 单位秒; 没有当前 item 时为 nil.
+    var itemDuration: TimeInterval? {
+        player?.currentItem.map { CMTimeGetSeconds($0.duration) }
+    }
+
+    /// The player's transport state; nil without a player.
+    ///
+    /// 播放器的播放传输状态; 没有播放器时为 nil.
+    var timeControlStatus: AVPlayer.TimeControlStatus? {
+        player?.timeControlStatus
+    }
+
+    /// Sets the current item's external metadata, which the system player shows as its title.
+    ///
+    /// 设置当前 item 的外部元数据, 系统播放器会将其显示为标题.
+    func setTitleMetadata(title: String, subtitle: String) {
+        player?.currentItem?.externalMetadata = [
+            Self.metadataItem(.commonIdentifierTitle, value: title),
+            Self.metadataItem(.iTunesMetadataTrackSubTitle, value: subtitle),
+        ]
+    }
+
+    private static func metadataItem(_ identifier: AVMetadataIdentifier, value: String) -> AVMetadataItem {
+        let item = AVMutableMetadataItem()
+        item.identifier = identifier
+        item.value = value as NSString
+        item.extendedLanguageTag = "und"
+        return item
+    }
+
+    /// Observes the player's transport state for the offline player's pause tracking.
+    ///
+    /// 观察播放器的播放传输状态, 供离线播放器跟踪暂停.
+    ///
+    /// KVO may deliver on any thread, so the handler hops to the main actor rather than asserting it,
+    /// like the status observers.
+    ///
+    /// KVO 可能在任意线程投递, 因此回调跳转到主 actor 而不是断言已在其上, 与状态观察者一致.
+    func observePause(_ handler: (@MainActor @Sendable (Bool) -> Void)?) {
+        guard let handler else {
+            pauseObservation = nil
+            return
+        }
+        pauseObservation = player?.observe(\.timeControlStatus, options: [.initial, .new]) { player, _ in
+            let paused = player.timeControlStatus == .paused
+            Task { @MainActor in handler(paused) }
+        }
+    }
+
     func cleanup() {
         logger.info("coordinator.cleanup hasPlayer=\(self.player != nil, privacy: .public)")
         pause()
         removeObservers()
+        pauseObservation = nil
         player = nil
     }
 
